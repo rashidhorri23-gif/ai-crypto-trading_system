@@ -28,7 +28,7 @@ TIMEFRAMES = [
 TIMEZONE = "UTC"
 
 # Data Settings
-DATA_PROVIDER = "UNSELECTED"
+DATA_PROVIDER = "okx"
 USE_COMPLETED_CANDLES_ONLY = True
 
 # Analysis Settings
