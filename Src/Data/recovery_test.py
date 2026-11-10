@@ -16,29 +16,51 @@ from Src.Data.okx_client import (
     parse_candles
 )
 
-ARCHIVE_FILE = (
-    PROJECT_ROOT
-    / "Data"
-    / "Archive"
-    / "BTC_USDT_SPOT_5m.csv"
-)
 
-INTERVAL_MS = 5 * 60 * 1000
+MARKET = "SPOT"
 TEST_CANDLE_COUNT = 5
 API_TIMEOUT = 30
 
+TIMEFRAME_CONFIG = {
+    "1D": {
+        "interval_ms": 86400000,
+        "filename": "BTC_USDT_SPOT_1D.csv"
+    },
+    "4H": {
+        "interval_ms": 14400000,
+        "filename": "BTC_USDT_SPOT_4H.csv"
+    },
+    "1H": {
+        "interval_ms": 3600000,
+        "filename": "BTC_USDT_SPOT_1H.csv"
+    },
+    "15m": {
+        "interval_ms": 900000,
+        "filename": "BTC_USDT_SPOT_15m.csv"
+    },
+    "5m": {
+        "interval_ms": 300000,
+        "filename": "BTC_USDT_SPOT_5m.csv"
+    }
+}
 
-def load_archive():
-    print("Loading historical archive...", flush=True)
 
-    if not ARCHIVE_FILE.exists():
+def load_archive(timeframe, filename):
+    archive_path = (
+        PROJECT_ROOT
+        / "Data"
+        / "Archive"
+        / filename
+    )
+
+    if not archive_path.exists():
         raise RuntimeError(
-            f"Archive file not found: {ARCHIVE_FILE}"
+            f"{timeframe}: Archive file not found."
         )
 
     records = {}
 
-    with ARCHIVE_FILE.open(
+    with archive_path.open(
         "r",
         newline="",
         encoding="utf-8"
@@ -55,13 +77,18 @@ def load_archive():
         }
 
         if not reader.fieldnames:
-            raise RuntimeError("Archive CSV has no header.")
+            raise RuntimeError(
+                f"{timeframe}: CSV header is missing."
+            )
 
-        missing_fields = required_fields - set(reader.fieldnames)
+        missing_fields = (
+            required_fields - set(reader.fieldnames)
+        )
 
         if missing_fields:
             raise RuntimeError(
-                f"Missing CSV columns: {sorted(missing_fields)}"
+                f"{timeframe}: Missing fields: "
+                f"{sorted(missing_fields)}"
             )
 
         for row in reader:
@@ -69,25 +96,20 @@ def load_archive():
 
             if timestamp in records:
                 raise RuntimeError(
-                    f"Duplicate archive timestamp: {timestamp}"
+                    f"{timeframe}: Duplicate timestamp."
                 )
 
             records[timestamp] = row
 
-    print(
-        f"Archive candles loaded: {len(records)}",
-        flush=True
-    )
-
     return records
 
 
-def select_test_candles(archive):
+def select_test_candles(archive, interval_ms, timeframe):
     timestamps = sorted(archive.keys())
 
     if len(timestamps) < TEST_CANDLE_COUNT:
         raise RuntimeError(
-            "Not enough archived candles for recovery test."
+            f"{timeframe}: Not enough archived candles."
         )
 
     middle = len(timestamps) // 2
@@ -98,7 +120,7 @@ def select_test_candles(archive):
 
     if len(selected) != TEST_CANDLE_COUNT:
         raise RuntimeError(
-            "Could not select the required test candles."
+            f"{timeframe}: Test selection failed."
         )
 
     for index in range(1, len(selected)):
@@ -106,20 +128,19 @@ def select_test_candles(archive):
             selected[index] - selected[index - 1]
         )
 
-        if difference != INTERVAL_MS:
+        if difference != interval_ms:
             raise RuntimeError(
-                "Selected archive candles are not consecutive."
+                f"{timeframe}: Selected candles "
+                "are not consecutive."
             )
 
     return selected
 
 
-def fetch_test_range(start_timestamp, end_timestamp):
-    print("Requesting historical candles from OKX...", flush=True)
-
+def fetch_test_range(timeframe, start_timestamp, end_timestamp):
     params = {
-        "instId": MARKET_INSTRUMENTS["SPOT"],
-        "bar": TIMEFRAME_MAPPING["5m"],
+        "instId": MARKET_INSTRUMENTS[MARKET],
+        "bar": TIMEFRAME_MAPPING[timeframe],
         "after": str(end_timestamp + 1),
         "before": str(start_timestamp - 1),
         "limit": "100"
@@ -131,31 +152,20 @@ def fetch_test_range(start_timestamp, end_timestamp):
         timeout=API_TIMEOUT
     )
 
-    print(
-        f"OKX HTTP Status: {response.status_code}",
-        flush=True
-    )
-
     response.raise_for_status()
 
     result = response.json()
 
     if result.get("code") != "0":
         raise RuntimeError(
-            f"OKX API error: {result.get('msg')}"
+            f"{timeframe}: OKX API error: "
+            f"{result.get('msg')}"
         )
 
-    raw_data = result.get("data", [])
-
-    print(
-        f"Raw API Candles: {len(raw_data)}",
-        flush=True
-    )
-
     candles = parse_candles(
-        raw_data,
-        "SPOT",
-        "5m"
+        result.get("data", []),
+        MARKET,
+        timeframe
     )
 
     filtered = [
@@ -177,7 +187,7 @@ def fetch_test_range(start_timestamp, end_timestamp):
     )
 
 
-def compare_candles(archive, recovered, selected):
+def compare_candles(archive, recovered, selected, timeframe):
     recovered_map = {
         candle["timestamp"]: candle
         for candle in recovered
@@ -207,8 +217,13 @@ def compare_candles(archive, recovered, selected):
         api_row = recovered_map[timestamp]
 
         for field in fields:
-            archived_value = float(archived_row[field])
-            api_value = float(api_row[field])
+            archived_value = float(
+                archived_row[field]
+            )
+
+            api_value = float(
+                api_row[field]
+            )
 
             if not math.isclose(
                 archived_value,
@@ -226,44 +241,32 @@ def compare_candles(archive, recovered, selected):
     return missing, mismatches
 
 
-def main():
-    print("\nHISTORICAL RECOVERY TEST", flush=True)
-    print("========================", flush=True)
-    print("Provider: OKX", flush=True)
-    print("Market: SPOT", flush=True)
-    print("Symbol: BTC-USDT", flush=True)
-    print("Timeframe: 5m", flush=True)
-    print("Archive Modification: DISABLED", flush=True)
+def test_timeframe(timeframe, config):
+    print(f"\nTIMEFRAME: {timeframe}", flush=True)
+    print("-" * 35, flush=True)
 
-    archive = load_archive()
-
-    selected = select_test_candles(archive)
-
-    start_timestamp = selected[0]
-    end_timestamp = selected[-1]
-
-    print(
-        f"\nExpected Candles: {TEST_CANDLE_COUNT}",
-        flush=True
+    archive = load_archive(
+        timeframe,
+        config["filename"]
     )
-    print(
-        f"Test Start UTC: {start_timestamp}",
-        flush=True
-    )
-    print(
-        f"Test End UTC: {end_timestamp}",
-        flush=True
+
+    selected = select_test_candles(
+        archive,
+        config["interval_ms"],
+        timeframe
     )
 
     recovered = fetch_test_range(
-        start_timestamp,
-        end_timestamp
+        timeframe,
+        selected[0],
+        selected[-1]
     )
 
     missing, mismatches = compare_candles(
         archive,
         recovered,
-        selected
+        selected,
+        timeframe
     )
 
     passed = (
@@ -272,24 +275,26 @@ def main():
         and not mismatches
     )
 
-    print("\nRECOVERY TEST RESULTS", flush=True)
-    print("=====================", flush=True)
     print(
         f"Archive Candles: {len(archive)}",
         flush=True
     )
+
     print(
         f"Expected Candles: {TEST_CANDLE_COUNT}",
         flush=True
     )
+
     print(
         f"API Candles Retrieved: {len(recovered)}",
         flush=True
     )
+
     print(
         f"Missing From API: {len(missing)}",
         flush=True
     )
+
     print(
         f"OHLCV Mismatches: {len(mismatches)}",
         flush=True
@@ -308,15 +313,52 @@ def main():
         )
 
     print(
-        f"RECOVERY TEST STATUS: {'PASS' if passed else 'FAIL'}",
+        f"{timeframe} RECOVERY STATUS: "
+        f"{'PASS' if passed else 'FAIL'}",
         flush=True
     )
 
-    print("ARCHIVE MODIFIED: NO", flush=True)
+    return passed
 
-    if not passed:
+
+def main():
+    print("MULTI-TIMEFRAME HISTORICAL RECOVERY TEST")
+    print("========================================")
+    print("Provider: OKX")
+    print("Market: SPOT")
+    print("Symbol: BTC-USDT")
+    print("Test Candles Per Timeframe: 5")
+    print("Archive Modification: DISABLED")
+
+    results = {}
+
+    for timeframe, config in TIMEFRAME_CONFIG.items():
+        results[timeframe] = test_timeframe(
+            timeframe,
+            config
+        )
+
+    print("\nFINAL RECOVERY REPORT")
+    print("=====================")
+
+    for timeframe, passed in results.items():
+        print(
+            f"{timeframe}: "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+
+    all_passed = all(results.values())
+
+    print(
+        f"OVERALL RECOVERY STATUS: "
+        f"{'PASS' if all_passed else 'FAIL'}"
+    )
+
+    print("ARCHIVE MODIFIED: NO")
+
+    if not all_passed:
         raise RuntimeError(
-            "Historical recovery validation failed."
+            "One or more timeframe recovery tests failed."
         )
 
 
