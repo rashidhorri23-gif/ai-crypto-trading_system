@@ -1,4 +1,3 @@
-
 import sys
 import math
 import pandas as pd
@@ -65,6 +64,72 @@ def validate_indicator_output(result):
     return latest
 
 
+def validate_daily_vwap(data, result, timeframe):
+    if timeframe == "1D":
+        print("DAILY VWAP CHECK: NOT APPLICABLE")
+        return
+
+    timestamps = pd.to_datetime(
+        data["timestamp"],
+        unit="ms",
+        utc=True
+    )
+
+    latest_day = timestamps.iloc[-1].floor("D")
+    same_day = timestamps.dt.floor("D") == latest_day
+
+    daily_data = data.loc[same_day].copy()
+
+    if daily_data.empty:
+        raise ValueError("No candles found for the latest UTC day.")
+
+    typical_price = (
+        daily_data["high"]
+        + daily_data["low"]
+        + daily_data["close"]
+    ) / 3
+
+    total_volume = daily_data["volume"].sum()
+
+    if total_volume <= 0:
+        raise ValueError("Latest UTC day has no positive volume.")
+
+    expected_vwap = (
+        (typical_price * daily_data["volume"]).sum()
+        / total_volume
+    )
+
+    actual_vwap = float(result.iloc[-1]["vwap"])
+
+    if not math.isclose(
+        actual_vwap,
+        expected_vwap,
+        rel_tol=1e-10,
+        abs_tol=1e-8
+    ):
+        raise ValueError(
+            "Daily VWAP mismatch. "
+            f"Expected: {expected_vwap}, "
+            f"Actual: {actual_vwap}"
+        )
+
+    print(
+        f"VWAP UTC Day: {latest_day.isoformat()}"
+    )
+
+    print(
+        f"VWAP Independent Calculation: "
+        f"{expected_vwap:.8f}"
+    )
+
+    print(
+        f"VWAP Indicator Output: "
+        f"{actual_vwap:.8f}"
+    )
+
+    print("DAILY VWAP CHECK: PASS")
+
+
 def main():
     print("TECHNICAL INDICATORS VALIDATION")
     print("================================")
@@ -92,6 +157,12 @@ def main():
             result = calculate_all_indicators(data)
 
             latest = validate_indicator_output(result)
+
+            validate_daily_vwap(
+                data,
+                result,
+                timeframe
+            )
 
             latest_time = datetime.fromtimestamp(
                 latest["timestamp"] / 1000,
