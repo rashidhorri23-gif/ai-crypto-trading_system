@@ -85,10 +85,10 @@ def audit_timeframe(timeframe):
 
     missing = [col for col in REQUIRED_COLUMNS if col not in result.columns]
 
-    if missing:
-        raise ValueError(
-            f"{timeframe}: Missing output columns: {missing}"
-        )
+if missing:
+    raise ValueError(
+        f"{timeframe}: Missing output columns: {missing}"
+    )
 
     high_map = build_swing_map(result, "HIGH")
     low_map = build_swing_map(result, "LOW")
