@@ -1,4 +1,3 @@
-
 import requests
 
 
@@ -9,14 +8,20 @@ MARKET_INSTRUMENTS = {
     "SWAP": "BTC-USDT-SWAP"
 }
 
-TIMEFRAMES = ["5m", "15m", "1H", "4H", "1D"]
+TIMEFRAME_MAPPING = {
+    "5m": "5m",
+    "15m": "15m",
+    "1H": "1H",
+    "4H": "4H",
+    "1D": "1Dutc"
+}
 
 
 def fetch_candles(market, timeframe, limit=100):
     if market not in MARKET_INSTRUMENTS:
         raise ValueError("Unsupported market.")
 
-    if timeframe not in TIMEFRAMES:
+    if timeframe not in TIMEFRAME_MAPPING:
         raise ValueError("Unsupported timeframe.")
 
     if not 1 <= limit <= 300:
@@ -24,7 +29,7 @@ def fetch_candles(market, timeframe, limit=100):
 
     params = {
         "instId": MARKET_INSTRUMENTS[market],
-        "bar": timeframe,
+        "bar": TIMEFRAME_MAPPING[timeframe],
         "limit": str(limit)
     }
 
