@@ -36,7 +36,7 @@ jobs:
         run: python Src/Data/data_quality_validation.py
 
       - name: Run technical indicators test
-       run: python Src/Analysis/indicator_test.py
+        run: python Src/Analysis/indicator_test.py
        
       - name: Run independent indicator unit test
         run: python Src/Analysis/indicator_unit_test.py
