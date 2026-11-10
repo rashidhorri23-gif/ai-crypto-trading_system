@@ -40,7 +40,10 @@ jobs:
        
       - name: Run independent indicator unit test
         run: python Src/Analysis/indicator_unit_test.py
-
+        
+      - name: Run Market Structure Unit Test
+        run: python Src/Analysis/market_structure_test.py
+        
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
