@@ -44,6 +44,9 @@ jobs:
       - name: Run Market Structure Unit Test
         run: python Src/Analysis/market_structure_test.py
         
+      - name: Run BOS and CHOCH Unit Test
+        run: python Src/Analysis/market_structure_bos_test.py
+        
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
