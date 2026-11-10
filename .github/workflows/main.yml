@@ -52,7 +52,7 @@ jobs:
         
       - name: Run Signal Outcome Analysis
         run: python Src/Analysis/signal_outcome_test.py
-        
+         
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
