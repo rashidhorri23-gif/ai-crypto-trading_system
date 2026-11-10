@@ -29,6 +29,9 @@ jobs:
       - name: Run Python application
         run: python Src/Main.py
 
+      - name: Run historical recovery test
+        run: python Src/Data/recovery_test.py
+
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
