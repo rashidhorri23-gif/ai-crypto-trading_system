@@ -121,6 +121,8 @@ def manual_atr(data, period=14):
         np.abs(low - previous_close)
     ])
 
+    true_range[0] = high[0] - low[0]
+
     return manual_ewm(
         true_range,
         1 / period,
