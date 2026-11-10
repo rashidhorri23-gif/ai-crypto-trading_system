@@ -13,18 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE_DIR = PROJECT_ROOT / "Data" / "Archive"
 
 TIMEFRAMES = ["5m", "15m", "1H", "4H", "1D"]
+PREFIX_RATIOS = [0.50, 0.70, 0.85]
 
 LEFT_BARS = 3
 RIGHT_BARS = 3
 
-REQUIRED_COLUMNS = [
-    "timestamp",
-    "structure_event",
-    "structure_direction",
-    "structure_trend",
-    "broken_level",
-    "broken_level_timestamp",
-    "structure_event_timestamp",
+COMPARE_COLUMNS = [
     "swing_high_confirmed",
     "swing_low_confirmed",
     "swing_high_price",
@@ -33,51 +27,74 @@ REQUIRED_COLUMNS = [
     "swing_low_pivot_timestamp",
     "swing_high_confirmation_timestamp",
     "swing_low_confirmation_timestamp",
+    "structure_event",
+    "structure_direction",
+    "structure_trend",
+    "broken_level",
+    "broken_level_timestamp",
+    "structure_event_timestamp",
 ]
 
-VALID_EVENTS = {
-    "NONE",
-    "BOS_BULLISH",
-    "BOS_BEARISH",
-    "CHOCH_BULLISH",
-    "CHOCH_BEARISH",
-}
+
+def values_equal(first, second):
+    first_missing = pd.isna(first)
+    second_missing = pd.isna(second)
+
+    if first_missing and second_missing:
+        return True
+
+    if first_missing or second_missing:
+        return False
+
+    if isinstance(first, (bool,)) or isinstance(second, (bool,)):
+        return first == second
+
+    if isinstance(first, (int, float)) and isinstance(second, (int, float)):
+        return math.isclose(
+            float(first),
+            float(second),
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
+
+    return str(first) == str(second)
 
 
-def build_swing_map(result, swing_type):
-    if swing_type == "HIGH":
-        flag_col = "swing_high_confirmed"
-        price_col = "swing_high_price"
-        pivot_col = "swing_high_pivot_timestamp"
-        confirm_col = "swing_high_confirmation_timestamp"
-    else:
-        flag_col = "swing_low_confirmed"
-        price_col = "swing_low_price"
-        pivot_col = "swing_low_pivot_timestamp"
-        confirm_col = "swing_low_confirmation_timestamp"
+def create_timestamp_map(result):
+    if result["timestamp"].duplicated().any():
+        raise ValueError("Duplicate timestamps in analysis output")
 
-    mask = result[flag_col].fillna(False).astype(bool)
-    swings = result.loc[
-        mask,
-        [price_col, pivot_col, confirm_col]
-    ]
+    return {
+        int(row["timestamp"]): row
+        for _, row in result.iterrows()
+    }
 
-    swing_map = {}
 
-    for _, row in swings.iterrows():
-        if pd.isna(row[pivot_col]) or pd.isna(row[confirm_col]):
+def compare_prefix(prefix_result, full_map):
+    differences = []
+
+    for _, prefix_row in prefix_result.iterrows():
+        timestamp = int(prefix_row["timestamp"])
+
+        if timestamp not in full_map:
+            differences.append(
+                f"Timestamp {timestamp} missing from full result"
+            )
             continue
 
-        pivot_time = int(row[pivot_col])
-        confirm_time = int(row[confirm_col])
-        price = float(row[price_col])
+        full_row = full_map[timestamp]
 
-        swing_map[pivot_time] = {
-            "confirmation": confirm_time,
-            "price": price,
-        }
+        for column in COMPARE_COLUMNS:
+            first = prefix_row[column]
+            second = full_row[column]
 
-    return swing_map
+            if not values_equal(first, second):
+                differences.append(
+                    f"Timestamp {timestamp}, column {column}: "
+                    f"prefix={first}, full={second}"
+                )
+
+    return differences
 
 
 def audit_timeframe(timeframe):
@@ -89,181 +106,90 @@ def audit_timeframe(timeframe):
 
     candles = pd.read_csv(file_path)
 
-    if candles.empty:
-        raise ValueError(f"Archive is empty: {filename}")
+    if len(candles) < 50:
+        raise ValueError("Not enough candles for prefix testing")
 
-    result = detect_market_structure(
+    full_result = detect_market_structure(
         candles,
         left_bars=LEFT_BARS,
         right_bars=RIGHT_BARS,
     )
 
     missing = [
-        col for col in REQUIRED_COLUMNS
-        if col not in result.columns
+        column
+        for column in ["timestamp"] + COMPARE_COLUMNS
+        if column not in full_result.columns
     ]
 
     if missing:
-        raise ValueError(
-            f"{timeframe}: Missing output columns: {missing}"
-        )
+        raise ValueError(f"Missing output columns: {missing}")
 
-    high_map = build_swing_map(result, "HIGH")
-    low_map = build_swing_map(result, "LOW")
+    full_map = create_timestamp_map(full_result)
 
-    events = result[
-        result["structure_event"].isin([
-            "BOS_BULLISH",
-            "BOS_BEARISH",
-            "CHOCH_BULLISH",
-            "CHOCH_BEARISH",
-        ])
-    ].copy()
-
-    counts = {
-        "BOS_BULLISH": 0,
-        "BOS_BEARISH": 0,
-        "CHOCH_BULLISH": 0,
-        "CHOCH_BEARISH": 0,
-    }
-
+    total_comparisons = 0
+    total_differences = 0
     errors = []
-    checked_events = 0
-
-    for row_number, row in events.iterrows():
-        event_name = str(row["structure_event"])
-        direction = int(row["structure_direction"])
-        trend = int(row["structure_trend"])
-
-        timestamp = int(row["timestamp"])
-
-        if pd.isna(row["structure_event_timestamp"]):
-            errors.append(
-                f"Row {row_number}: Missing event timestamp"
-            )
-            continue
-
-        if pd.isna(row["broken_level_timestamp"]):
-            errors.append(
-                f"Row {row_number}: Missing broken level timestamp"
-            )
-            continue
-
-        if pd.isna(row["broken_level"]):
-            errors.append(
-                f"Row {row_number}: Missing broken level price"
-            )
-            continue
-
-        event_timestamp = int(row["structure_event_timestamp"])
-        pivot_timestamp = int(row["broken_level_timestamp"])
-        broken_level = float(row["broken_level"])
-
-        counts[event_name] += 1
-        checked_events += 1
-
-        if event_timestamp != timestamp:
-            errors.append(
-                f"Row {row_number}: Event timestamp mismatch"
-            )
-
-        expected_direction = (
-            1 if event_name.endswith("BULLISH") else -1
-        )
-
-        if direction != expected_direction:
-            errors.append(
-                f"Row {row_number}: Direction mismatch"
-            )
-
-        if trend != expected_direction:
-            errors.append(
-                f"Row {row_number}: Trend mismatch"
-            )
-
-        swing_map = (
-            high_map if expected_direction == 1 else low_map
-        )
-
-        if pivot_timestamp not in swing_map:
-            errors.append(
-                f"Row {row_number}: Broken swing not found"
-            )
-            continue
-
-        swing = swing_map[pivot_timestamp]
-
-        confirmation_timestamp = swing["confirmation"]
-        swing_price = swing["price"]
-
-        if confirmation_timestamp > event_timestamp:
-            errors.append(
-                f"Row {row_number}: LOOKAHEAD ERROR"
-            )
-
-        if pivot_timestamp > confirmation_timestamp:
-            errors.append(
-                f"Row {row_number}: Invalid swing timestamps"
-            )
-
-        if not math.isclose(
-            broken_level,
-            swing_price,
-            rel_tol=1e-9,
-            abs_tol=1e-8,
-        ):
-            errors.append(
-                f"Row {row_number}: Broken level price mismatch"
-            )
-
-        if event_timestamp <= confirmation_timestamp:
-            errors.append(
-                f"Row {row_number}: Event must occur after swing confirmation"
-            )
-
-    total_events = len(events)
 
     print("")
     print(f"TIMEFRAME: {timeframe}")
     print(f"Archive Candles: {len(candles)}")
-    print(f"Swing Highs: {len(high_map)}")
-    print(f"Swing Lows: {len(low_map)}")
-    print(f"Total Events: {total_events}")
-    print(f"Checked Events: {checked_events}")
 
-    print(f"Bullish BOS: {counts['BOS_BULLISH']}")
-    print(f"Bearish BOS: {counts['BOS_BEARISH']}")
-    print(f"Bullish CHOCH: {counts['CHOCH_BULLISH']}")
-    print(f"Bearish CHOCH: {counts['CHOCH_BEARISH']}")
+    for ratio in PREFIX_RATIOS:
+        prefix_size = int(len(candles) * ratio)
 
-    print(f"Audit Errors: {len(errors)}")
+        prefix_candles = candles.iloc[:prefix_size].copy()
 
-    for error in errors[:10]:
-        print(f"ERROR: {error}")
-
-    if len(errors) > 10:
-        print(
-            f"Additional errors not displayed: {len(errors) - 10}"
+        prefix_result = detect_market_structure(
+            prefix_candles,
+            left_bars=LEFT_BARS,
+            right_bars=RIGHT_BARS,
         )
 
-    status = "PASS" if not errors else "FAIL"
+        differences = compare_prefix(
+            prefix_result,
+            full_map,
+        )
 
+        total_comparisons += len(prefix_result)
+        total_differences += len(differences)
+
+        status = "PASS" if not differences else "FAIL"
+
+        print(
+            f"Prefix {int(ratio * 100)}%: "
+            f"Candles={prefix_size}, "
+            f"Compared={len(prefix_result)}, "
+            f"Differences={len(differences)}, "
+            f"Status={status}"
+        )
+
+        for difference in differences[:5]:
+            errors.append(
+                f"{timeframe} {int(ratio * 100)}%: {difference}"
+            )
+
+    status = "PASS" if total_differences == 0 else "FAIL"
+
+    print(f"Total Compared Rows: {total_comparisons}")
+    print(f"Total Differences: {total_differences}")
     print(f"TIMEFRAME STATUS: {status}")
 
     return {
         "timeframe": timeframe,
         "candles": len(candles),
-        "events": total_events,
-        "errors": len(errors),
+        "comparisons": total_comparisons,
+        "differences": total_differences,
         "status": status,
+        "errors": errors,
     }
 
 
 def main():
-    print("REAL MARKET STRUCTURE HISTORY AUDIT")
-    print("====================================")
+    print("PREFIX INVARIANCE TEST")
+    print("======================")
     print(f"Left Bars: {LEFT_BARS}")
     print(f"Right Bars: {RIGHT_BARS}")
+    print(f"Prefix Ratios: {PREFIX_RATIOS}")
     print("Market: BTC-USDT SPOT")
     print("Data Source: Local OKX Archive")
     print("Archive Modification: DISABLED")
@@ -283,23 +209,27 @@ def main():
             reports.append({
                 "timeframe": timeframe,
                 "candles": 0,
-                "events": 0,
-                "errors": 1,
+                "comparisons": 0,
+                "differences": 1,
                 "status": "FAIL",
+                "errors": [str(error)],
             })
 
     print("")
-    print("FINAL HISTORICAL AUDIT REPORT")
-    print("=============================")
+    print("FINAL PREFIX INVARIANCE REPORT")
+    print("==============================")
 
     for report in reports:
         print(
             f"{report['timeframe']}: "
             f"Candles={report['candles']}, "
-            f"Events={report['events']}, "
-            f"Errors={report['errors']}, "
+            f"Compared={report['comparisons']}, "
+            f"Differences={report['differences']}, "
             f"Status={report['status']}"
         )
+
+        for error in report["errors"][:3]:
+            print(f"ERROR: {error}")
 
     passed = sum(
         1 for report in reports
@@ -315,7 +245,7 @@ def main():
 
     overall = "PASS" if failed == 0 else "FAIL"
 
-    print(f"OVERALL HISTORICAL AUDIT: {overall}")
+    print(f"OVERALL PREFIX INVARIANCE: {overall}")
     print("ARCHIVE MODIFICATION: NO")
 
     if failed:
