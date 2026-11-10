@@ -4,7 +4,6 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
 ARCHIVE_DIR = PROJECT_ROOT / "Data" / "Archive"
 
 CSV_FIELDS = [
@@ -21,6 +20,35 @@ CSV_FIELDS = [
 ]
 
 
+def get_latest_timestamp(filename):
+    archive_path = ARCHIVE_DIR / filename
+
+    if not archive_path.exists():
+        return None
+
+    latest_timestamp = None
+
+    with archive_path.open(
+        "r",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            timestamp = int(row["timestamp"])
+
+            if latest_timestamp is None:
+                latest_timestamp = timestamp
+            else:
+                latest_timestamp = max(
+                    latest_timestamp,
+                    timestamp
+                )
+
+    return latest_timestamp
+
+
 def save_candles(candles, filename):
     if not candles:
         raise ValueError("No candles provided for archiving.")
@@ -28,7 +56,6 @@ def save_candles(candles, filename):
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
     archive_path = ARCHIVE_DIR / filename
-
     existing = {}
 
     if archive_path.exists():
