@@ -32,6 +32,9 @@ jobs:
       - name: Run historical recovery test
         run: python Src/Data/recovery_test.py
 
+      - name: Run data quality validation
+        run: python Src/Data/data_quality_validation.py
+
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
