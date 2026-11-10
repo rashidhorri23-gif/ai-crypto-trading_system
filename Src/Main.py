@@ -1,65 +1,95 @@
 
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from Src.Config import settings
-from Src.Data.okx_client import fetch_candles
+from Src.Data.okx_client import fetch_historical_candles
 
 
 def main():
     print("AI Crypto Trading System")
     print("========================")
-    print(f"Data Provider: {settings.DATA_PROVIDER}")
-    print("Execution Mode: MANUAL")
+    print("Historical Data Test")
+    print(f"Provider: {settings.DATA_PROVIDER}")
+    print("Market: SPOT")
+    print("Symbol: BTC-USDT")
+    print("Timeframe: 5m")
+    print("Requested Candles: 1000")
     print("Live Trading: DISABLED")
 
     if settings.TRADING_ENABLED or settings.ALLOW_LIVE_ORDERS:
         raise RuntimeError("Live trading must remain disabled.")
 
-    markets = ["SPOT", "SWAP"]
-    timeframes = ["5m", "15m", "1H", "4H", "1D"]
+    candles = fetch_historical_candles(
+        market="SPOT",
+        timeframe="5m",
+        total_candles=1000,
+        page_size=100
+    )
 
-    failures = []
+    if not candles:
+        raise RuntimeError("No historical candles returned.")
 
-    for market in markets:
-        for timeframe in timeframes:
-            print(f"\nTesting {market} {timeframe}")
+    timestamps = [
+        candle["timestamp"]
+        for candle in candles
+    ]
 
-            try:
-                candles = fetch_candles(
-                    market,
-                    timeframe,
-                    limit=100
-                )
+    unique_timestamps = set(timestamps)
 
-                if not candles:
-                    raise RuntimeError("No completed candles returned.")
+    duplicates = len(timestamps) - len(unique_timestamps)
 
-                latest = candles[-1]
+    interval_ms = 5 * 60 * 1000
+    missing_intervals = []
 
-                print(f"Completed Candles: {len(candles)}")
-                print(f"Latest UTC Timestamp: {latest['timestamp']}")
-                print(f"Latest Close: {latest['close']}")
-                print("Result: SUCCESS")
-
-            except Exception as error:
-                print(f"Result: FAILED")
-                print(f"Error: {error}")
-                failures.append(f"{market} {timeframe}")
-
-    print("\n========================")
-
-    if failures:
-        raise RuntimeError(
-            "Failed tests: " + ", ".join(failures)
+    for index in range(1, len(candles)):
+        difference = (
+            candles[index]["timestamp"]
+            - candles[index - 1]["timestamp"]
         )
 
-    print("ALL CANDLE TESTS PASSED")
-    print("SPOT: SUCCESS")
-    print("SWAP: SUCCESS")
+        if difference > interval_ms:
+            missing_intervals.append(
+                (difference // interval_ms) - 1
+            )
+
+    oldest = datetime.fromtimestamp(
+        candles[0]["timestamp"] / 1000,
+        tz=timezone.utc
+    )
+
+    newest = datetime.fromtimestamp(
+        candles[-1]["timestamp"] / 1000,
+        tz=timezone.utc
+    )
+
+    print("\nHistorical Data Results")
+    print("=======================")
+    print(f"Returned Candles: {len(candles)}")
+    print(f"Unique Candles: {len(unique_timestamps)}")
+    print(f"Duplicate Candles: {duplicates}")
+    print(f"Missing Intervals: {sum(missing_intervals)}")
+    print(f"Oldest UTC: {oldest.isoformat()}")
+    print(f"Newest UTC: {newest.isoformat()}")
+    print(f"First Close: {candles[0]['close']}")
+    print(f"Last Close: {candles[-1]['close']}")
+
+    if len(candles) < 1000:
+        print("\nWARNING: Fewer than 1000 candles returned.")
+
+    if duplicates:
+        raise RuntimeError("Duplicate timestamps detected.")
+
+    if missing_intervals:
+        print("\nWARNING: Historical gaps detected.")
+    else:
+        print("\nNo missing 5m intervals detected.")
+
+    print("\nHISTORICAL TEST COMPLETED")
     print("LIVE TRADING: DISABLED")
 
 
