@@ -8,11 +8,25 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE_DIR = PROJECT_ROOT / "Data" / "Archive"
 
 TIMEFRAMES = ["5m", "15m", "1H", "4H", "1D"]
+
 SIGNAL_TYPES = {
     "BOS_BULLISH": 1,
     "CHOCH_BULLISH": 1,
     "BOS_BEARISH": -1,
     "CHOCH_BEARISH": -1,
+}
+
+STRUCTURE_CONFIG = {
+    "INTERNAL": {
+        "event_column": "internal_structure_event",
+        "swing_high_column": "internal_swing_high_price",
+        "swing_low_column": "internal_swing_low_price",
+    },
+    "EXTERNAL": {
+        "event_column": "external_structure_event",
+        "swing_high_column": "external_swing_high_price",
+        "swing_low_column": "external_swing_low_price",
+    },
 }
 
 LEFT_BARS = 3
@@ -34,21 +48,50 @@ def calculate_trade_costs(direction, entry_price, exit_price):
     if direction == 1:
         entry_fill = entry_price * (1 + SLIPPAGE_RATE)
         exit_fill = exit_price * (1 - SLIPPAGE_RATE)
+
         gross_pnl = exit_price - entry_price
+
         net_pnl = (
             exit_fill - entry_fill
             - FEE_RATE * (entry_fill + exit_fill)
         )
+
     else:
         entry_fill = entry_price * (1 - SLIPPAGE_RATE)
         exit_fill = exit_price * (1 + SLIPPAGE_RATE)
+
         gross_pnl = entry_price - exit_price
+
         net_pnl = (
             entry_fill - exit_fill
             - FEE_RATE * (entry_fill + exit_fill)
         )
 
     return gross_pnl, net_pnl, entry_fill
+
+
+def parse_signal_events(event_value):
+    if pd.isna(event_value):
+        return []
+
+    event_text = str(event_value).strip()
+
+    if event_text in ("", "NONE"):
+        return []
+
+    events = []
+
+    for event_name in event_text.split("|"):
+        event_name = event_name.strip()
+
+        if event_name not in SIGNAL_TYPES:
+            raise ValueError(
+                f"Unsupported structure event: {event_name}"
+            )
+
+        events.append(event_name)
+
+    return events
 
 
 def simulate_trade(data, signal_index, direction, stop_price):
@@ -99,9 +142,11 @@ def simulate_trade(data, signal_index, direction, stop_price):
             if open_price <= stop_price:
                 exit_price = open_price
                 exit_reason = "STOP_GAP"
+
             elif open_price >= target_price:
                 exit_price = open_price
                 exit_reason = "TARGET_GAP"
+
             else:
                 stop_hit = low_price <= stop_price
                 target_hit = high_price >= target_price
@@ -111,6 +156,7 @@ def simulate_trade(data, signal_index, direction, stop_price):
                     exit_reason = (
                         "STOP_BOTH_HIT" if target_hit else "STOP"
                     )
+
                 elif target_hit:
                     exit_price = target_price
                     exit_reason = "TARGET"
@@ -119,9 +165,11 @@ def simulate_trade(data, signal_index, direction, stop_price):
             if open_price >= stop_price:
                 exit_price = open_price
                 exit_reason = "STOP_GAP"
+
             elif open_price <= target_price:
                 exit_price = open_price
                 exit_reason = "TARGET_GAP"
+
             else:
                 stop_hit = high_price >= stop_price
                 target_hit = low_price <= target_price
@@ -131,6 +179,7 @@ def simulate_trade(data, signal_index, direction, stop_price):
                     exit_reason = (
                         "STOP_BOTH_HIT" if target_hit else "STOP"
                     )
+
                 elif target_hit:
                     exit_price = target_price
                     exit_reason = "TARGET"
@@ -205,9 +254,15 @@ def calculate_summary(trades):
         "median_net_R": round(net_r.median(), 4),
         "profit_factor": round(profit_factor, 4)
         if math.isfinite(profit_factor) else "INF",
-        "target_exits": int(frame["exit_reason"].str.startswith("TARGET").sum()),
-        "stop_exits": int(frame["exit_reason"].str.startswith("STOP").sum()),
-        "time_exits": int((frame["exit_reason"] == "TIME_EXIT").sum()),
+        "target_exits": int(
+            frame["exit_reason"].str.startswith("TARGET").sum()
+        ),
+        "stop_exits": int(
+            frame["exit_reason"].str.startswith("STOP").sum()
+        ),
+        "time_exits": int(
+            (frame["exit_reason"] == "TIME_EXIT").sum()
+        ),
     }
 
 
@@ -216,12 +271,19 @@ def analyze_timeframe(timeframe, detect_market_structure):
     filepath = ARCHIVE_DIR / filename
 
     if not filepath.exists():
-        raise FileNotFoundError(f"Archive not found: {filepath}")
+        raise FileNotFoundError(
+            f"Archive not found: {filepath}"
+        )
 
     data = pd.read_csv(filepath)
 
     required_columns = {
-        "timestamp", "open", "high", "low", "close", "volume"
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
     }
 
     missing = required_columns - set(data.columns)
@@ -231,13 +293,27 @@ def analyze_timeframe(timeframe, detect_market_structure):
             f"{timeframe}: Missing columns: {sorted(missing)}"
         )
 
-    data = data.sort_values("timestamp").reset_index(drop=True)
+    data = data.sort_values(
+        "timestamp"
+    ).reset_index(drop=True)
 
     if data["timestamp"].duplicated().any():
-        raise ValueError(f"{timeframe}: Duplicate timestamps found")
+        raise ValueError(
+            f"{timeframe}: Duplicate timestamps found"
+        )
 
-    for column in ["timestamp", "open", "high", "low", "close", "volume"]:
-        data[column] = pd.to_numeric(data[column], errors="raise")
+    for column in [
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    ]:
+        data[column] = pd.to_numeric(
+            data[column],
+            errors="raise"
+        )
 
     structure = detect_market_structure(
         data,
@@ -250,11 +326,18 @@ def analyze_timeframe(timeframe, detect_market_structure):
             f"{timeframe}: Structure output length mismatch"
         )
 
-    required_structure_columns = {
-        "structure_event",
-        "swing_high_price",
-        "swing_low_price",
-    }
+    required_structure_columns = set()
+
+    for config in STRUCTURE_CONFIG.values():
+        required_structure_columns.add(
+            config["event_column"]
+        )
+        required_structure_columns.add(
+            config["swing_high_column"]
+        )
+        required_structure_columns.add(
+            config["swing_low_column"]
+        )
 
     missing_structure = (
         required_structure_columns - set(structure.columns)
@@ -266,45 +349,59 @@ def analyze_timeframe(timeframe, detect_market_structure):
             f"{sorted(missing_structure)}"
         )
 
-    # Only confirmed swings are carried forward.
-    latest_swing_high = structure["swing_high_price"].ffill()
-    latest_swing_low = structure["swing_low_price"].ffill()
+    latest_swings = {}
+
+    for structure_name, config in STRUCTURE_CONFIG.items():
+        latest_swings[structure_name] = {
+            "high": structure[config["swing_high_column"]].ffill(),
+            "low": structure[config["swing_low_column"]].ffill(),
+        }
 
     trades = []
     skipped = {}
 
     for index in range(len(data)):
-        event = structure.iloc[index]["structure_event"]
+        for structure_name, config in STRUCTURE_CONFIG.items():
+            event_value = structure.iloc[index][
+                config["event_column"]
+            ]
 
-        if event not in SIGNAL_TYPES:
-            continue
+            events = parse_signal_events(event_value)
 
-        direction = SIGNAL_TYPES[event]
+            for event_name in events:
+                direction = SIGNAL_TYPES[event_name]
 
-        if direction == 1:
-            stop_price = latest_swing_low.iloc[index]
-        else:
-            stop_price = latest_swing_high.iloc[index]
+                if direction == 1:
+                    stop_price = latest_swings[
+                        structure_name
+                    ]["low"].iloc[index]
 
-        if pd.isna(stop_price):
-            reason = "NO_CONFIRMED_OPPOSITE_SWING"
-            skipped[reason] = skipped.get(reason, 0) + 1
-            continue
+                else:
+                    stop_price = latest_swings[
+                        structure_name
+                    ]["high"].iloc[index]
 
-        trade, reason = simulate_trade(
-            data,
-            index,
-            direction,
-            stop_price,
-        )
+                if pd.isna(stop_price):
+                    reason = "NO_CONFIRMED_OPPOSITE_SWING"
+                    skipped[reason] = skipped.get(reason, 0) + 1
+                    continue
 
-        if reason:
-            skipped[reason] = skipped.get(reason, 0) + 1
-            continue
+                trade, reason = simulate_trade(
+                    data,
+                    index,
+                    direction,
+                    stop_price,
+                )
 
-        trade["timeframe"] = timeframe
-        trade["signal_type"] = event
-        trades.append(trade)
+                if reason:
+                    skipped[reason] = skipped.get(reason, 0) + 1
+                    continue
+
+                trade["timeframe"] = timeframe
+                trade["structure_type"] = structure_name
+                trade["signal_type"] = event_name
+
+                trades.append(trade)
 
     return trades, skipped
 
@@ -321,6 +418,8 @@ def main():
     print(f"Slippage per side: {SLIPPAGE_RATE * 100:.3f}%")
     print("Entry: Next candle Open")
     print("Same-candle SL/TP: Stop Loss First")
+    print("Signal sources: INTERNAL and EXTERNAL")
+    print("Stops: Structure-specific confirmed opposite swings")
     print("Trading execution: DISABLED")
     print("Archive modification: NO")
     print("-" * 70)
@@ -359,42 +458,75 @@ def main():
             print(f"{timeframe}: FAIL | {error}")
 
     print("-" * 70)
-    print(f"Successful timeframes: {successful_timeframes}")
-    print(f"Failed timeframes: {len(TIMEFRAMES) - successful_timeframes}")
+    print(
+        f"Successful timeframes: {successful_timeframes}"
+    )
+    print(
+        f"Failed timeframes: {len(TIMEFRAMES) - successful_timeframes}"
+    )
     print(f"Total executed trades: {len(all_trades)}")
 
     if not all_trades:
         print("No trades available for summary.")
+        print("\nBACKTEST COMPLETED")
         return
 
     frame = pd.DataFrame(all_trades)
 
     print("\nSUMMARY BY TIMEFRAME")
+
     for timeframe in TIMEFRAMES:
-        subset = frame[frame["timeframe"] == timeframe]
+        subset = frame[
+            frame["timeframe"] == timeframe
+        ]
+
         if subset.empty:
             continue
 
-        summary = calculate_summary(subset.to_dict("records"))
+        summary = calculate_summary(
+            subset.to_dict("records")
+        )
+
         print(f"{timeframe}: {summary}")
 
-    print("\nSUMMARY BY TIMEFRAME AND SIGNAL")
-    grouped = frame.groupby(["timeframe", "signal_type"])
+    print("\nSUMMARY BY TIMEFRAME, STRUCTURE AND SIGNAL")
 
-    for (timeframe, signal_type), group in grouped:
-        summary = calculate_summary(group.to_dict("records"))
-        print(f"{timeframe} | {signal_type}: {summary}")
+    grouped = frame.groupby(
+        ["timeframe", "structure_type", "signal_type"]
+    )
+
+    for (timeframe, structure_type, signal_type), group in grouped:
+        summary = calculate_summary(
+            group.to_dict("records")
+        )
+
+        print(
+            f"{timeframe} | {structure_type} | "
+            f"{signal_type}: {summary}"
+        )
+
+    print("\nSUMMARY BY STRUCTURE")
+
+    for structure_type, group in frame.groupby("structure_type"):
+        summary = calculate_summary(
+            group.to_dict("records")
+        )
+
+        print(f"{structure_type}: {summary}")
 
     print("\nOVERALL SUMMARY")
     print(calculate_summary(all_trades))
 
     print("\nEXIT REASONS")
-    print(frame["exit_reason"].value_counts().to_dict())
+    print(
+        frame["exit_reason"].value_counts().to_dict()
+    )
 
     print("\nIMPORTANT LIMITATIONS")
     print("- Signals may overlap; this is not a portfolio simulation.")
+    print("- Internal and external signals are evaluated independently.")
     print("- Each trade is evaluated independently.")
-    print("- Stop is placed exactly at the last confirmed opposite swing.")
+    print("- Stops use the last confirmed opposite swing of the same structure.")
     print("- No position sizing or capital compounding is applied.")
     print("- Results are historical analysis, not a profitability guarantee.")
 
