@@ -54,7 +54,7 @@ def load_candles():
                 "volume": float(row["volume"]),
             })
 
-    return candles
+    return candles[-540:]
 
 
 def print_structure(title, result):
