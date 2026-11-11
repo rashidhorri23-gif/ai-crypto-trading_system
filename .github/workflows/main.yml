@@ -48,6 +48,9 @@ jobs:
       - name: Run BOS and CHOCH Unit Test
         run: python Src/Analysis/market_structure_bos_test.py
         
+      - name: Run Real Daily Structure Analysis
+        run: python Src/Analysis/test_daily_structure_real.py
+        
       - name: Run Real Market Structure History Audit
         run: python Src/Analysis/market_structure_history_test.py
         
