@@ -42,18 +42,24 @@ def analyze_daily_structure(
         candle_duration,
     )
 
+    internal_data = {
+        "swings": internal_swings,
+        "structure": internal_structure,
+        "events": internal_events,
+    }
+
+    external_data = {
+        "swings": external_swings,
+        "structure": external_structure,
+        "events": external_events,
+    }
+
     return {
         "timeframe": timeframe,
-        "internal": {
-            "swings": internal_swings,
-            "structure": internal_structure,
-            "events": internal_events,
-        },
-        "external": {
-            "swings": external_swings,
-            "structure": external_structure,
-            "events": external_events,
-        },
+        "internal_structure": internal_data,
+        "external_structure": external_data,
+        "internal": internal_data,
+        "external": external_data,
         "context": {
             "internal_trend": internal_structure.get("trend"),
             "external_trend": external_structure.get("trend"),
