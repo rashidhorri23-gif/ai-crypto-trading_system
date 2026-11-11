@@ -9,15 +9,22 @@ def validate_candles(candles):
     if len(candles) < 20:
         raise ValueError("At least 20 candles are required")
 
-    required_fields = ("timestamp", "open", "high", "low", "close")
+    required_fields = (
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+    )
 
     validated = []
-
     previous_timestamp = None
 
     for index, candle in enumerate(candles):
         if not isinstance(candle, dict):
-            raise ValueError(f"Candle at index {index} must be a dictionary")
+            raise ValueError(
+                f"Candle at index {index} must be a dictionary"
+            )
 
         for field in required_fields:
             if field not in candle:
@@ -27,7 +34,7 @@ def validate_candles(candles):
 
         converted = dict(candle)
 
-        for field in ("timestamp", "open", "high", "low", "close"):
+        for field in required_fields:
             value = converted[field]
 
             if isinstance(value, bool):
@@ -50,24 +57,35 @@ def validate_candles(candles):
             converted[field] = value
 
         if converted["high"] < converted["low"]:
-            raise ValueError(f"Invalid high/low at candle index {index}")
+            raise ValueError(
+                f"Invalid high/low at candle index {index}"
+            )
 
         if converted["high"] < max(
             converted["open"],
             converted["close"],
         ):
-            raise ValueError(f"Invalid high at candle index {index}")
+            raise ValueError(
+                f"Invalid high at candle index {index}"
+            )
 
         if converted["low"] > min(
             converted["open"],
             converted["close"],
         ):
-            raise ValueError(f"Invalid low at candle index {index}")
+            raise ValueError(
+                f"Invalid low at candle index {index}"
+            )
 
         timestamp = converted["timestamp"]
 
-        if previous_timestamp is not None and timestamp <= previous_timestamp:
-            raise ValueError("Candle timestamps must be strictly increasing")
+        if (
+            previous_timestamp is not None
+            and timestamp <= previous_timestamp
+        ):
+            raise ValueError(
+                "Candle timestamps must be strictly increasing"
+            )
 
         previous_timestamp = timestamp
         validated.append(converted)
@@ -77,7 +95,9 @@ def validate_candles(candles):
 
 def infer_candle_duration(candles):
     if len(candles) < 2:
-        raise ValueError("At least two candles are required")
+        raise ValueError(
+            "At least two candles are required"
+        )
 
     differences = []
 
@@ -91,9 +111,12 @@ def infer_candle_duration(candles):
             differences.append(difference)
 
     if not differences:
-        raise ValueError("Unable to infer candle duration")
+        raise ValueError(
+            "Unable to infer candle duration"
+        )
 
     differences.sort()
+
     return differences[len(differences) // 2]
 
 
@@ -103,7 +126,10 @@ def was_swing_broken_before_confirmation(candles, swing):
     level = swing["price"]
     swing_type = swing["type"]
 
-    for index in range(pivot_index + 1, confirmation_index + 1):
+    for index in range(
+        pivot_index + 1,
+        confirmation_index + 1,
+    ):
         close_price = candles[index]["close"]
 
         if swing_type == "HIGH" and close_price > level:
@@ -115,37 +141,73 @@ def was_swing_broken_before_confirmation(candles, swing):
     return False
 
 
-def detect_swings(candles, left_bars=3, right_bars=3):
+def detect_swings(
+    candles,
+    left_bars=3,
+    right_bars=3,
+):
     for name, value in (
         ("left_bars", left_bars),
         ("right_bars", right_bars),
     ):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(f"{name} must be a positive integer")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+        ):
+            raise ValueError(
+                f"{name} must be a positive integer"
+            )
 
     swings = []
 
     if len(candles) < left_bars + right_bars + 1:
         return swings
 
-    for index in range(left_bars, len(candles) - right_bars):
+    for index in range(
+        left_bars,
+        len(candles) - right_bars,
+    ):
         current = candles[index]
 
-        previous_candles = candles[index - left_bars:index]
-        next_candles = candles[index + 1:index + right_bars + 1]
+        previous_candles = candles[
+            index - left_bars:index
+        ]
 
-        previous_highs = [candle["high"] for candle in previous_candles]
-        next_highs = [candle["high"] for candle in next_candles]
+        next_candles = candles[
+            index + 1:index + right_bars + 1
+        ]
 
-        previous_lows = [candle["low"] for candle in previous_candles]
-        next_lows = [candle["low"] for candle in next_candles]
+        previous_highs = [
+            candle["high"]
+            for candle in previous_candles
+        ]
+
+        next_highs = [
+            candle["high"]
+            for candle in next_candles
+        ]
+
+        previous_lows = [
+            candle["low"]
+            for candle in previous_candles
+        ]
+
+        next_lows = [
+            candle["low"]
+            for candle in next_candles
+        ]
 
         is_swing_high = (
-            current["high"] > max(previous_highs + next_highs)
+            current["high"] > max(
+                previous_highs + next_highs
+            )
         )
 
         is_swing_low = (
-            current["low"] < min(previous_lows + next_lows)
+            current["low"] < min(
+                previous_lows + next_lows
+            )
         )
 
         if not is_swing_high and not is_swing_low:
@@ -158,13 +220,18 @@ def detect_swings(candles, left_bars=3, right_bars=3):
                 "index": index,
                 "timestamp": current["timestamp"],
                 "confirmation_index": confirmation_index,
-                "confirmation_timestamp": candles[confirmation_index]["timestamp"],
+                "confirmation_timestamp": (
+                    candles[confirmation_index]["timestamp"]
+                ),
                 "ambiguous_same_candle": is_swing_low,
                 "type": "HIGH",
                 "price": current["high"],
             }
 
-            if not was_swing_broken_before_confirmation(candles, swing):
+            if not was_swing_broken_before_confirmation(
+                candles,
+                swing,
+            ):
                 swings.append(swing)
 
         if is_swing_low:
@@ -172,13 +239,18 @@ def detect_swings(candles, left_bars=3, right_bars=3):
                 "index": index,
                 "timestamp": current["timestamp"],
                 "confirmation_index": confirmation_index,
-                "confirmation_timestamp": candles[confirmation_index]["timestamp"],
+                "confirmation_timestamp": (
+                    candles[confirmation_index]["timestamp"]
+                ),
                 "ambiguous_same_candle": is_swing_high,
                 "type": "LOW",
                 "price": current["low"],
             }
 
-            if not was_swing_broken_before_confirmation(candles, swing):
+            if not was_swing_broken_before_confirmation(
+                candles,
+                swing,
+            ):
                 swings.append(swing)
 
     swings.sort(
@@ -220,10 +292,18 @@ def classify_market_structure(swings):
         elif current["price"] < previous["price"]:
             lower_lows += 1
 
-    if higher_highs > lower_highs and higher_lows > lower_lows:
+    if (
+        higher_highs > lower_highs
+        and higher_lows > lower_lows
+    ):
         trend = "BULLISH"
-    elif lower_highs > higher_highs and lower_lows > higher_lows:
+
+    elif (
+        lower_highs > higher_highs
+        and lower_lows > higher_lows
+    ):
         trend = "BEARISH"
+
     else:
         trend = "SIDEWAYS"
 
@@ -238,7 +318,11 @@ def classify_market_structure(swings):
     }
 
 
-def analyze_structure_events(candles, swings, candle_duration):
+def analyze_structure_events(
+    candles,
+    swings,
+    candle_duration,
+):
     events = []
 
     active_highs = []
@@ -246,19 +330,37 @@ def analyze_structure_events(candles, swings, candle_duration):
 
     broken_levels = set()
 
+    previous_direction = 0
+
+    swings_by_confirmation = {}
+
+    for swing in swings:
+        confirmation_index = swing["confirmation_index"]
+
+        swings_by_confirmation.setdefault(
+            confirmation_index,
+            [],
+        ).append(swing)
+
     for candle_index, candle in enumerate(candles):
-        newly_confirmed = [
-            swing for swing in swings
-            if swing["confirmation_index"] == candle_index
-        ]
+        newly_confirmed = swings_by_confirmation.get(
+            candle_index,
+            [],
+        )
 
         for swing in newly_confirmed:
             if swing["type"] == "HIGH":
                 active_highs.append(swing)
+
             elif swing["type"] == "LOW":
                 active_lows.append(swing)
 
+        if not newly_confirmed:
+            pass
+
         close_price = candle["close"]
+
+        broken_candidates = []
 
         for swing in active_highs:
             key = ("HIGH", swing["index"])
@@ -270,30 +372,9 @@ def analyze_structure_events(candles, swings, candle_duration):
                 continue
 
             if close_price > swing["price"]:
-                previous_highs = [
-                    item for item in active_highs
-                    if item["confirmation_index"] < candle_index
-                    and item["index"] < swing["index"]
-                ]
-
-                event_type = (
-                    "BOS_BULLISH"
-                    if previous_highs
-                    else "CHOCH_BULLISH"
+                broken_candidates.append(
+                    (swing, 1, key)
                 )
-
-                events.append({
-                    "event": event_type,
-                    "type": event_type,
-                    "direction": "BULLISH",
-                    "level": swing["price"],
-                    "timestamp": candle["timestamp"],
-                    "index": candle_index,
-                    "swing_index": swing["index"],
-                    "confirmation_timestamp": swing["confirmation_timestamp"],
-                })
-
-                broken_levels.add(key)
 
         for swing in active_lows:
             key = ("LOW", swing["index"])
@@ -305,30 +386,70 @@ def analyze_structure_events(candles, swings, candle_duration):
                 continue
 
             if close_price < swing["price"]:
-                previous_lows = [
-                    item for item in active_lows
-                    if item["confirmation_index"] < candle_index
-                    and item["index"] < swing["index"]
-                ]
-
-                event_type = (
-                    "BOS_BEARISH"
-                    if previous_lows
-                    else "CHOCH_BEARISH"
+                broken_candidates.append(
+                    (swing, -1, key)
                 )
 
-                events.append({
-                    "event": event_type,
-                    "type": event_type,
-                    "direction": "BEARISH",
-                    "level": swing["price"],
-                    "timestamp": candle["timestamp"],
-                    "index": candle_index,
-                    "swing_index": swing["index"],
-                    "confirmation_timestamp": swing["confirmation_timestamp"],
-                })
+        if not broken_candidates:
+            continue
 
-                broken_levels.add(key)
+        broken_candidates.sort(
+            key=lambda item: (
+                item[0]["confirmation_index"],
+                item[0]["index"],
+            ),
+            reverse=True,
+        )
+
+        selected_swing, direction, selected_key = (
+            broken_candidates[0]
+        )
+
+        if previous_direction == 0:
+            event_name = (
+                "BOS_BULLISH"
+                if direction == 1
+                else "BOS_BEARISH"
+            )
+
+        elif previous_direction == direction:
+            event_name = (
+                "BOS_BULLISH"
+                if direction == 1
+                else "BOS_BEARISH"
+            )
+
+        else:
+            event_name = (
+                "CHOCH_BULLISH"
+                if direction == 1
+                else "CHOCH_BEARISH"
+            )
+
+        events.append({
+            "event": event_name,
+            "type": event_name,
+            "direction": (
+                "BULLISH"
+                if direction == 1
+                else "BEARISH"
+            ),
+            "level": selected_swing["price"],
+            "level_timestamp": selected_swing["timestamp"],
+            "timestamp": candle["timestamp"],
+            "index": candle_index,
+            "swing_index": selected_swing["index"],
+            "confirmation_timestamp": (
+                selected_swing["confirmation_timestamp"]
+            ),
+            "available_timestamp": (
+                candle["timestamp"] + candle_duration
+            ),
+        })
+
+        broken_levels.add(selected_key)
+
+        previous_direction = direction
 
     return events
 
@@ -345,8 +466,14 @@ def analyze_daily_structure(
         ("internal_left_bars", internal_left_bars),
         ("internal_right_bars", internal_right_bars),
     ):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(f"{name} must be a positive integer")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+        ):
+            raise ValueError(
+                f"{name} must be a positive integer"
+            )
 
     candle_duration = infer_candle_duration(candles)
 
@@ -362,8 +489,13 @@ def analyze_daily_structure(
         right_bars=5,
     )
 
-    internal_structure = classify_market_structure(internal_swings)
-    external_structure = classify_market_structure(external_swings)
+    internal_structure = classify_market_structure(
+        internal_swings
+    )
+
+    external_structure = classify_market_structure(
+        external_swings
+    )
 
     internal_events = analyze_structure_events(
         candles,
@@ -401,6 +533,9 @@ def analyze_daily_structure(
         },
         "trend": external_structure.get("trend"),
         "allowed_direction": "BOTH",
-        "trade_directions_to_evaluate": ["LONG", "SHORT"],
+        "trade_directions_to_evaluate": [
+            "LONG",
+            "SHORT",
+        ],
         "status": "ANALYZED",
     }
