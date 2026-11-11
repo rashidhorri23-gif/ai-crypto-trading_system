@@ -65,13 +65,17 @@ jobs:
       - name: Generate BTC Structure Charts
         run: python -m Src.Analysis.generate_structure_charts
 
-      - name: Upload BTC Structure Charts
+      - name: Run BTC Structure Audit Report
+        run: python -m Src.Analysis.structure_audit_report
+
+      - name: Upload BTC Structure Reports
         uses: actions/upload-artifact@v4
         with:
-          name: btc-structure-charts
+          name: btc-structure-reports
           path: |
             Reports/BTC_1D_Structure.png
             Reports/BTC_4H_Structure.png
+            Reports/BTC_Structure_Audit_Report.txt
           if-no-files-found: error
           retention-days: 7
 
