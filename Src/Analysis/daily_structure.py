@@ -56,6 +56,17 @@ def validate_candles(candles):
 
             converted[field] = value
 
+        if converted["timestamp"] < 0:
+            raise ValueError(
+                f"Invalid timestamp at candle index {index}"
+            )
+
+        for field in ("open", "high", "low", "close"):
+            if converted[field] <= 0:
+                raise ValueError(
+                    f"Invalid {field} at candle index {index}"
+                )
+
         if converted["high"] < converted["low"]:
             raise ValueError(
                 f"Invalid high/low at candle index {index}"
@@ -78,6 +89,13 @@ def validate_candles(candles):
             )
 
         timestamp = converted["timestamp"]
+
+        if timestamp != int(timestamp):
+            raise ValueError(
+                f"Timestamp must be an integer at candle index {index}"
+            )
+
+        converted["timestamp"] = int(timestamp)
 
         if (
             previous_timestamp is not None
@@ -355,9 +373,6 @@ def analyze_structure_events(
             elif swing["type"] == "LOW":
                 active_lows.append(swing)
 
-        if not newly_confirmed:
-            pass
-
         close_price = candle["close"]
 
         broken_candidates = []
@@ -447,7 +462,10 @@ def analyze_structure_events(
             ),
         })
 
-        broken_levels.add(selected_key)
+        # All levels already broken by this candle are consumed.
+        # This prevents delayed duplicate events on later candles.
+        for _, _, broken_key in broken_candidates:
+            broken_levels.add(broken_key)
 
         previous_direction = direction
 
