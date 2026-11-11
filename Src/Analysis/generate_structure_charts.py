@@ -108,7 +108,9 @@ def load_candles(timeframe):
                 "volume": float(row["volume"]),
             })
 
-    candles.sort(key=lambda item: item["timestamp"])
+    candles.sort(
+        key=lambda item: item["timestamp"]
+    )
 
     return candles[-config["limit"]:]
 
@@ -140,11 +142,20 @@ def draw_candles(ax, candles, candle_width):
             zorder=2
         )
 
-        body_bottom = min(open_price, close_price)
-        body_height = abs(close_price - open_price)
+        body_bottom = min(
+            open_price,
+            close_price
+        )
+
+        body_height = abs(
+            close_price - open_price
+        )
 
         if body_height == 0:
-            body_height = max(abs(open_price) * 0.00005, 0.01)
+            body_height = max(
+                abs(open_price) * 0.00005,
+                0.01
+            )
 
         candle_body = Rectangle(
             (x - candle_width / 2, body_bottom),
@@ -163,19 +174,28 @@ def draw_candles(ax, candles, candle_width):
 def draw_all_swings(
     ax,
     structure_result,
+    structure_type,
     timestamp_map,
     plotted_labels
 ):
-    swings = structure_result.get("swings", [])
+    swings = structure_result.get(
+        "swings",
+        []
+    )
+
+    structure_type = structure_type.upper()
 
     for swing in swings:
-        timestamp = int(float(swing["timestamp"]))
+        timestamp = int(
+            float(swing["timestamp"])
+        )
 
         if timestamp not in timestamp_map:
             continue
 
-        structure_type = structure_result["structure_type"]
-        swing_type = swing["type"]
+        swing_type = str(
+            swing["type"]
+        ).upper()
 
         style = SWING_STYLES.get(
             (structure_type, swing_type)
@@ -210,6 +230,7 @@ def draw_structure_events(
     ax,
     events,
     timestamp_map,
+    close_map,
     plotted_labels
 ):
     for event in events:
@@ -218,7 +239,9 @@ def draw_structure_events(
         if event_type not in EVENT_STYLES:
             continue
 
-        timestamp = int(float(event["timestamp"]))
+        timestamp = int(
+            float(event["timestamp"])
+        )
 
         if timestamp not in timestamp_map:
             continue
@@ -233,7 +256,9 @@ def draw_structure_events(
             plotted_labels.add(label)
 
         x = timestamp_map[timestamp]
-        y = float(event.get("level", event["close"]))
+        y = float(event["level"])
+
+        close_price = close_map.get(timestamp)
 
         ax.scatter(
             x,
@@ -245,26 +270,33 @@ def draw_structure_events(
             label=label
         )
 
-        ax.plot(
-            [x, x],
-            [y, float(event["close"])],
-            color=color,
-            linewidth=0.7,
-            alpha=0.5,
-            linestyle=":"
-        )
+        if close_price is not None:
+            ax.plot(
+                [x, x],
+                [y, close_price],
+                color=color,
+                linewidth=0.7,
+                alpha=0.5,
+                linestyle=":"
+            )
 
     recent_events = events[-8:]
 
     for event in recent_events:
-        timestamp = int(float(event["timestamp"]))
+        timestamp = int(
+            float(event["timestamp"])
+        )
 
         if timestamp not in timestamp_map:
             continue
 
-        event_type = event.get("event", "")
+        event_type = event.get(
+            "event",
+            ""
+        )
+
         x = timestamp_map[timestamp]
-        y = float(event.get("level", event["close"]))
+        y = float(event["level"])
 
         ax.annotate(
             event_type.replace("_", "\n"),
@@ -277,7 +309,9 @@ def draw_structure_events(
 
 
 def draw_latest_close(ax, candles):
-    latest_close = float(candles[-1]["close"])
+    latest_close = float(
+        candles[-1]["close"]
+    )
 
     ax.axhline(
         latest_close,
@@ -289,14 +323,73 @@ def draw_latest_close(ax, candles):
     )
 
 
+def get_event_bias(structure_result):
+    events = structure_result.get(
+        "events",
+        []
+    )
+
+    if events:
+        last_event = events[-1]
+
+        direction = last_event.get(
+            "direction"
+        )
+
+        if direction:
+            return str(direction)
+
+        event_name = last_event.get(
+            "event",
+            ""
+        )
+
+        if event_name.endswith("BULLISH"):
+            return "BULLISH"
+
+        if event_name.endswith("BEARISH"):
+            return "BEARISH"
+
+    structure = structure_result.get(
+        "structure",
+        {}
+    )
+
+    return structure.get(
+        "trend",
+        "SIDEWAYS"
+    )
+
+
+def get_context_direction(result):
+    context = result.get(
+        "context",
+        {}
+    )
+
+    return (
+        result.get("context_direction")
+        or context.get("external_trend")
+        or result.get("trend")
+        or "SIDEWAYS"
+    )
+
+
 def draw_summary(ax, result):
     internal = result["internal_structure"]
     external = result["external_structure"]
 
+    internal_bias = get_event_bias(internal)
+    external_bias = get_event_bias(external)
+
+    context_direction = get_context_direction(
+        result
+    )
+
     summary = (
-        f"Internal: {internal['event_bias']} | "
-        f"External: {external['event_bias']}\n"
-        f"Context: {result['context_direction']} | "
+        f"Internal: {internal_bias} | "
+        f"External: {external_bias}\n"
+        f"Context: {context_direction} | "
         f"Directions evaluated: LONG + SHORT\n"
         f"Internal swings: {len(internal['swings'])} | "
         f"External swings: {len(external['swings'])}"
@@ -320,6 +413,7 @@ def draw_summary(ax, result):
 
 def generate_chart(timeframe):
     config = CHART_CONFIG[timeframe]
+
     candles = load_candles(timeframe)
 
     if len(candles) < 20:
@@ -345,7 +439,14 @@ def generate_chart(timeframe):
         for candle, date in zip(candles, dates)
     }
 
-    fig, ax = plt.subplots(figsize=(20, 10))
+    close_map = {
+        candle["timestamp"]: candle["close"]
+        for candle in candles
+    }
+
+    fig, ax = plt.subplots(
+        figsize=(20, 10)
+    )
 
     draw_candles(
         ax,
@@ -358,6 +459,7 @@ def generate_chart(timeframe):
     draw_all_swings(
         ax,
         internal,
+        "INTERNAL",
         timestamp_map,
         plotted_labels
     )
@@ -365,6 +467,7 @@ def generate_chart(timeframe):
     draw_all_swings(
         ax,
         external,
+        "EXTERNAL",
         timestamp_map,
         plotted_labels
     )
@@ -373,6 +476,7 @@ def generate_chart(timeframe):
         ax,
         internal["events"],
         timestamp_map,
+        close_map,
         plotted_labels
     )
 
@@ -380,11 +484,19 @@ def generate_chart(timeframe):
         ax,
         external["events"],
         timestamp_map,
+        close_map,
         plotted_labels
     )
 
-    draw_latest_close(ax, candles)
-    draw_summary(ax, result)
+    draw_latest_close(
+        ax,
+        candles
+    )
+
+    draw_summary(
+        ax,
+        result
+    )
 
     ax.set_title(
         config["title"],
@@ -393,7 +505,10 @@ def generate_chart(timeframe):
 
     ax.set_ylabel("Price (USDT)")
     ax.set_xlabel("UTC Time")
-    ax.grid(True, alpha=0.2)
+    ax.grid(
+        True,
+        alpha=0.2
+    )
 
     ax.xaxis.set_major_formatter(
         mdates.DateFormatter(
@@ -403,7 +518,10 @@ def generate_chart(timeframe):
     )
 
     ax.xaxis.set_major_locator(
-        mdates.AutoDateLocator(minticks=6, maxticks=12)
+        mdates.AutoDateLocator(
+            minticks=6,
+            maxticks=12
+        )
     )
 
     fig.autofmt_xdate()
@@ -436,9 +554,9 @@ def generate_chart(timeframe):
     print(
         f"CHART_CREATED | timeframe={timeframe} "
         f"| candles={len(candles)} "
-        f"| internal_bias={internal['event_bias']} "
-        f"| external_bias={external['event_bias']} "
-        f"| context={result['context_direction']} "
+        f"| internal_bias={get_event_bias(internal)} "
+        f"| external_bias={get_event_bias(external)} "
+        f"| context={get_context_direction(result)} "
         f"| internal_swings={len(internal['swings'])} "
         f"| external_swings={len(external['swings'])} "
         f"| internal_events={len(internal['events'])} "
