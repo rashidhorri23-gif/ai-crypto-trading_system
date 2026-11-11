@@ -28,6 +28,13 @@ TIMEFRAME_SECONDS = {
     "1W": 604800,
 }
 
+VALID_SWING_STATUSES = {
+    "ACTIVE",
+    "BROKEN",
+    "PRE_BROKEN",
+    "CONFIRMED_PENDING_NEXT_CANDLE",
+}
+
 
 def validate_candles(candles: List[Dict[str, Any]]) -> None:
     if not candles or len(candles) < 20:
@@ -40,12 +47,22 @@ def validate_candles(candles: List[Dict[str, Any]]) -> None:
             if field not in candle:
                 raise ValueError(f"Missing field: {field}")
 
-        timestamp = int(float(candle["timestamp"]))
+        try:
+            timestamp = int(float(candle["timestamp"]))
 
-        values = {
-            field: float(candle[field])
-            for field in REQUIRED_FIELDS[1:]
-        }
+            values = {
+                field: float(candle[field])
+                for field in REQUIRED_FIELDS[1:]
+            }
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Invalid numeric candle value at index {index}."
+            )
+
+        if timestamp <= 0:
+            raise ValueError(
+                f"Invalid timestamp at index {index}."
+            )
 
         if previous_timestamp is not None:
             if timestamp <= previous_timestamp:
@@ -152,36 +169,44 @@ def detect_swings(
 
         confirmation_index = i + right_bars
 
-        if high > max(previous_highs + next_highs):
+        is_swing_high = (
+            high > max(previous_highs + next_highs)
+        )
+
+        is_swing_low = (
+            low < min(previous_lows + next_lows)
+        )
+
+        ambiguous_same_candle = (
+            is_swing_high and is_swing_low
+        )
+
+        common_fields = {
+            "index": i,
+            "timestamp": int(
+                float(candles[i]["timestamp"])
+            ),
+            "confirmation_index": confirmation_index,
+            "confirmation_timestamp": int(
+                float(
+                    candles[confirmation_index]["timestamp"]
+                )
+            ),
+            "ambiguous_same_candle": ambiguous_same_candle,
+        }
+
+        if is_swing_high:
             swings.append({
+                **common_fields,
                 "type": "HIGH",
-                "index": i,
                 "price": high,
-                "timestamp": int(
-                    float(candles[i]["timestamp"])
-                ),
-                "confirmation_index": confirmation_index,
-                "confirmation_timestamp": int(
-                    float(
-                        candles[confirmation_index]["timestamp"]
-                    )
-                ),
             })
 
-        if low < min(previous_lows + next_lows):
+        if is_swing_low:
             swings.append({
+                **common_fields,
                 "type": "LOW",
-                "index": i,
                 "price": low,
-                "timestamp": int(
-                    float(candles[i]["timestamp"])
-                ),
-                "confirmation_index": confirmation_index,
-                "confirmation_timestamp": int(
-                    float(
-                        candles[confirmation_index]["timestamp"]
-                    )
-                ),
             })
 
     return sorted(
@@ -209,12 +234,19 @@ def classify_market_structure(
         if swing["type"] == "LOW"
     ]
 
+    ambiguous_indices = sorted({
+        swing["index"]
+        for swing in swings
+        if swing.get("ambiguous_same_candle", False)
+    })
+
     result = {
         "structure_type": structure_type,
         "trend": "UNKNOWN",
         "reason": "Insufficient confirmed swing points.",
         "high_count": len(highs),
         "low_count": len(lows),
+        "ambiguous_pivot_indices": ambiguous_indices,
     }
 
     if len(highs) < 2 or len(lows) < 2:
@@ -268,6 +300,7 @@ def classify_market_structure(
         "higher_low": higher_low,
         "lower_high": lower_high,
         "lower_low": lower_low,
+        "ambiguous_pivot_indices": ambiguous_indices,
     }
 
 
@@ -280,7 +313,17 @@ def analyze_structure_events(
 
     swings_by_confirmation = {}
 
-    for swing in swings:
+    tracked_swings = []
+
+    for original_swing in swings:
+        swing = dict(original_swing)
+        swing["status"] = "PENDING"
+        swing["available_timestamp"] = (
+            swing["confirmation_timestamp"] + candle_duration
+        )
+
+        tracked_swings.append(swing)
+
         confirmation_index = swing["confirmation_index"]
 
         swings_by_confirmation.setdefault(
@@ -290,25 +333,46 @@ def analyze_structure_events(
     active_highs = []
     active_lows = []
 
-    broken_high_indices = set()
-    broken_low_indices = set()
-
     events = []
     bias = "UNKNOWN"
 
     for i, candle in enumerate(candles):
 
-        # A swing confirmed at candle i becomes usable
-        # only from candle i + 1.
+        previous_close = None
+
+        if i > 0:
+            previous_close = float(
+                candles[i - 1]["close"]
+            )
+
+        current_close = float(candle["close"])
+
+        current_timestamp = int(
+            float(candle["timestamp"])
+        )
+
+        # Swings become usable at the candle after confirmation.
         newly_confirmed = swings_by_confirmation.get(
             i - 1, []
         )
 
         for swing in newly_confirmed:
+
             if swing["type"] == "HIGH":
-                active_highs.append(swing)
+
+                if previous_close > swing["price"]:
+                    swing["status"] = "PRE_BROKEN"
+                else:
+                    swing["status"] = "ACTIVE"
+                    active_highs.append(swing)
+
             else:
-                active_lows.append(swing)
+
+                if previous_close < swing["price"]:
+                    swing["status"] = "PRE_BROKEN"
+                else:
+                    swing["status"] = "ACTIVE"
+                    active_lows.append(swing)
 
         current_structure = classify_market_structure(
             active_highs + active_lows,
@@ -325,41 +389,25 @@ def analyze_structure_events(
         if i == 0:
             continue
 
-        previous_close = float(
-            candles[i - 1]["close"]
-        )
+        bullish_candidates = [
+            swing for swing in active_highs
+            if (
+                swing["status"] == "ACTIVE"
+                and previous_close <= swing["price"]
+                and current_close > swing["price"]
+            )
+        ]
 
-        current_close = float(candle["close"])
+        bearish_candidates = [
+            swing for swing in active_lows
+            if (
+                swing["status"] == "ACTIVE"
+                and previous_close >= swing["price"]
+                and current_close < swing["price"]
+            )
+        ]
 
-        current_timestamp = int(
-            float(candle["timestamp"])
-        )
-
-        latest_high = (
-            active_highs[-1]
-            if active_highs else None
-        )
-
-        latest_low = (
-            active_lows[-1]
-            if active_lows else None
-        )
-
-        bullish_break = (
-            latest_high is not None
-            and latest_high["index"] not in broken_high_indices
-            and previous_close <= latest_high["price"]
-            and current_close > latest_high["price"]
-        )
-
-        bearish_break = (
-            latest_low is not None
-            and latest_low["index"] not in broken_low_indices
-            and previous_close >= latest_low["price"]
-            and current_close < latest_low["price"]
-        )
-
-        if bullish_break and bearish_break:
+        if bullish_candidates and bearish_candidates:
 
             events.append({
                 "event": "AMBIGUOUS_DOUBLE_BREAK",
@@ -371,25 +419,33 @@ def analyze_structure_events(
                 "available_timestamp":
                     current_timestamp + candle_duration,
                 "close": current_close,
-                "bullish_level": latest_high["price"],
-                "bearish_level": latest_low["price"],
+                "bullish_levels": [
+                    swing["price"]
+                    for swing in bullish_candidates
+                ],
+                "bearish_levels": [
+                    swing["price"]
+                    for swing in bearish_candidates
+                ],
                 "confirmation": "CANDLE_CLOSE",
                 "reason": (
-                    "Both structural boundaries were crossed."
+                    "Conflicting structural boundaries were crossed."
                 ),
             })
 
-            broken_high_indices.add(
-                latest_high["index"]
-            )
+            for swing in bullish_candidates + bearish_candidates:
+                swing["status"] = "BROKEN"
 
-            broken_low_indices.add(
-                latest_low["index"]
-            )
-
+            bias = "UNKNOWN"
             continue
 
-        if bullish_break:
+        if bullish_candidates:
+
+            bullish_candidates.sort(
+                key=lambda item: item["price"]
+            )
+
+            selected_swing = bullish_candidates[-1]
 
             event_type = (
                 "CHOCH_BULLISH"
@@ -406,25 +462,37 @@ def analyze_structure_events(
                     current_timestamp + candle_duration,
                 "available_timestamp":
                     current_timestamp + candle_duration,
-                "level": latest_high["price"],
-                "level_timestamp": latest_high["timestamp"],
+                "level": selected_swing["price"],
+                "level_timestamp": selected_swing["timestamp"],
                 "level_confirmation_timestamp":
-                    latest_high["confirmation_timestamp"],
+                    selected_swing["confirmation_timestamp"],
                 "level_available_timestamp":
-                    latest_high["confirmation_timestamp"]
-                    + candle_duration,
+                    selected_swing["available_timestamp"],
+                "crossed_levels": [
+                    {
+                        "price": swing["price"],
+                        "timestamp": swing["timestamp"],
+                        "type": swing["type"],
+                    }
+                    for swing in bullish_candidates
+                ],
                 "previous_close": previous_close,
                 "close": current_close,
                 "confirmation": "CANDLE_CLOSE",
             })
 
-            broken_high_indices.add(
-                latest_high["index"]
-            )
+            for swing in bullish_candidates:
+                swing["status"] = "BROKEN"
 
             bias = "BULLISH"
 
-        elif bearish_break:
+        elif bearish_candidates:
+
+            bearish_candidates.sort(
+                key=lambda item: item["price"]
+            )
+
+            selected_swing = bearish_candidates[0]
 
             event_type = (
                 "CHOCH_BEARISH"
@@ -441,29 +509,42 @@ def analyze_structure_events(
                     current_timestamp + candle_duration,
                 "available_timestamp":
                     current_timestamp + candle_duration,
-                "level": latest_low["price"],
-                "level_timestamp": latest_low["timestamp"],
+                "level": selected_swing["price"],
+                "level_timestamp": selected_swing["timestamp"],
                 "level_confirmation_timestamp":
-                    latest_low["confirmation_timestamp"],
+                    selected_swing["confirmation_timestamp"],
                 "level_available_timestamp":
-                    latest_low["confirmation_timestamp"]
-                    + candle_duration,
+                    selected_swing["available_timestamp"],
+                "crossed_levels": [
+                    {
+                        "price": swing["price"],
+                        "timestamp": swing["timestamp"],
+                        "type": swing["type"],
+                    }
+                    for swing in bearish_candidates
+                ],
                 "previous_close": previous_close,
                 "close": current_close,
                 "confirmation": "CANDLE_CLOSE",
             })
 
-            broken_low_indices.add(
-                latest_low["index"]
-            )
+            for swing in bearish_candidates:
+                swing["status"] = "BROKEN"
 
             bias = "BEARISH"
 
-    # Include every swing confirmed by the final candle close.
     final_confirmed_swings = [
-        swing for swing in swings
+        swing for swing in tracked_swings
         if swing["confirmation_index"] <= len(candles) - 1
     ]
+
+    # A swing confirmed on the final candle is not usable
+    # inside that candle. It becomes usable next candle.
+    for swing in final_confirmed_swings:
+        if swing["status"] == "PENDING":
+            swing["status"] = (
+                "CONFIRMED_PENDING_NEXT_CANDLE"
+            )
 
     final_highs = [
         swing for swing in final_confirmed_swings
@@ -475,10 +556,34 @@ def analyze_structure_events(
         if swing["type"] == "LOW"
     ]
 
+    usable_highs = [
+        swing for swing in final_highs
+        if swing["status"] in (
+            "ACTIVE",
+            "CONFIRMED_PENDING_NEXT_CANDLE"
+        )
+    ]
+
+    usable_lows = [
+        swing for swing in final_lows
+        if swing["status"] in (
+            "ACTIVE",
+            "CONFIRMED_PENDING_NEXT_CANDLE"
+        )
+    ]
+
     final_structure = classify_market_structure(
         final_confirmed_swings,
         structure_type
     )
+
+    status_counts = {
+        status: sum(
+            1 for swing in final_confirmed_swings
+            if swing["status"] == status
+        )
+        for status in VALID_SWING_STATUSES
+    }
 
     return {
         "structure_type": structure_type,
@@ -488,10 +593,15 @@ def analyze_structure_events(
         "swings": final_confirmed_swings,
         "events": events,
         "latest_event": events[-1] if events else None,
-        "active_high": final_highs[-1] if final_highs else None,
-        "active_low": final_lows[-1] if final_lows else None,
+        "active_high": (
+            usable_highs[-1] if usable_highs else None
+        ),
+        "active_low": (
+            usable_lows[-1] if usable_lows else None
+        ),
         "high_count": len(final_highs),
         "low_count": len(final_lows),
+        "swing_status_counts": status_counts,
     }
 
 
