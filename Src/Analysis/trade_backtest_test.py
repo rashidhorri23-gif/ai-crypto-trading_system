@@ -31,7 +31,10 @@ STRUCTURE_CONFIG = {
 
 LEFT_BARS = 3
 RIGHT_BARS = 3
-MAX_HOLDING_CANDLES = 24
+
+BASE_HOLDING_CANDLES = 24
+EXTENDED_HORIZONS = [48, 72]
+
 RISK_REWARD = 2.0
 
 FEE_RATE = 0.0005
@@ -94,10 +97,39 @@ def parse_signal_events(event_value):
     return events
 
 
-def simulate_trade(data, signal_index, direction, stop_price):
+def calculate_excursions(data, entry_index, exit_index, direction, entry_price, risk_per_unit):
+    trade_candles = data.iloc[
+        entry_index:exit_index + 1
+    ]
+
+    highest_price = float(trade_candles["high"].max())
+    lowest_price = float(trade_candles["low"].min())
+
+    if direction == 1:
+        favorable_move = max(0.0, highest_price - entry_price)
+        adverse_move = max(0.0, entry_price - lowest_price)
+    else:
+        favorable_move = max(0.0, entry_price - lowest_price)
+        adverse_move = max(0.0, highest_price - entry_price)
+
+    return {
+        "mfe_R": favorable_move / risk_per_unit,
+        "mae_R": adverse_move / risk_per_unit,
+        "mfe_pct": (favorable_move / entry_price) * 100,
+        "mae_pct": (adverse_move / entry_price) * 100,
+    }
+
+
+def simulate_trade(
+    data,
+    signal_index,
+    direction,
+    stop_price,
+    max_holding_candles,
+):
     entry_index = signal_index + 1
 
-    if entry_index + MAX_HOLDING_CANDLES > len(data):
+    if entry_index + max_holding_candles > len(data):
         return None, "INSUFFICIENT_FUTURE_DATA"
 
     entry_price = float(data.iloc[entry_index]["open"])
@@ -129,7 +161,7 @@ def simulate_trade(data, signal_index, direction, stop_price):
     exit_reason = None
     exit_index = None
 
-    end_index = entry_index + MAX_HOLDING_CANDLES
+    end_index = entry_index + max_holding_candles
 
     for current_index in range(entry_index, end_index):
         candle = data.iloc[current_index]
@@ -203,6 +235,15 @@ def simulate_trade(data, signal_index, direction, stop_price):
     net_r = net_pnl / risk_per_unit
     net_return_pct = (net_pnl / entry_fill) * 100
 
+    excursions = calculate_excursions(
+        data,
+        entry_index,
+        exit_index,
+        direction,
+        entry_price,
+        risk_per_unit,
+    )
+
     trade = {
         "signal_timestamp": int(data.iloc[signal_index]["timestamp"]),
         "entry_timestamp": int(data.iloc[entry_index]["timestamp"]),
@@ -218,6 +259,10 @@ def simulate_trade(data, signal_index, direction, stop_price):
         "net_return_pct": net_return_pct,
         "risk_per_unit": risk_per_unit,
         "holding_candles": exit_index - entry_index + 1,
+        "mfe_R": excursions["mfe_R"],
+        "mae_R": excursions["mae_R"],
+        "mfe_pct": excursions["mfe_pct"],
+        "mae_pct": excursions["mae_pct"],
     }
 
     return trade, None
@@ -231,6 +276,8 @@ def calculate_summary(trades):
             "avg_net_R": 0,
             "median_net_R": 0,
             "profit_factor": 0,
+            "avg_mfe_R": 0,
+            "avg_mae_R": 0,
             "target_exits": 0,
             "stop_exits": 0,
             "time_exits": 0,
@@ -254,6 +301,8 @@ def calculate_summary(trades):
         "median_net_R": round(net_r.median(), 4),
         "profit_factor": round(profit_factor, 4)
         if math.isfinite(profit_factor) else "INF",
+        "avg_mfe_R": round(frame["mfe_R"].mean(), 4),
+        "avg_mae_R": round(frame["mae_R"].mean(), 4),
         "target_exits": int(
             frame["exit_reason"].str.startswith("TARGET").sum()
         ),
@@ -358,6 +407,7 @@ def analyze_timeframe(timeframe, detect_market_structure):
         }
 
     trades = []
+    extensions = []
     skipped = {}
 
     for index in range(len(data)):
@@ -375,7 +425,6 @@ def analyze_timeframe(timeframe, detect_market_structure):
                     stop_price = latest_swings[
                         structure_name
                     ]["low"].iloc[index]
-
                 else:
                     stop_price = latest_swings[
                         structure_name
@@ -386,24 +435,130 @@ def analyze_timeframe(timeframe, detect_market_structure):
                     skipped[reason] = skipped.get(reason, 0) + 1
                     continue
 
-                trade, reason = simulate_trade(
+                base_trade, reason = simulate_trade(
                     data,
                     index,
                     direction,
                     stop_price,
+                    BASE_HOLDING_CANDLES,
                 )
 
                 if reason:
                     skipped[reason] = skipped.get(reason, 0) + 1
                     continue
 
-                trade["timeframe"] = timeframe
-                trade["structure_type"] = structure_name
-                trade["signal_type"] = event_name
+                base_trade["timeframe"] = timeframe
+                base_trade["structure_type"] = structure_name
+                base_trade["signal_type"] = event_name
 
-                trades.append(trade)
+                trades.append(base_trade)
 
-    return trades, skipped
+                if base_trade["exit_reason"] != "TIME_EXIT":
+                    continue
+
+                for horizon in EXTENDED_HORIZONS:
+                    extended_trade, extension_reason = simulate_trade(
+                        data,
+                        index,
+                        direction,
+                        stop_price,
+                        horizon,
+                    )
+
+                    if extension_reason:
+                        extensions.append({
+                            "timeframe": timeframe,
+                            "structure_type": structure_name,
+                            "signal_type": event_name,
+                            "horizon": horizon,
+                            "status": extension_reason,
+                        })
+                        continue
+
+                    extended_trade["timeframe"] = timeframe
+                    extended_trade["structure_type"] = structure_name
+                    extended_trade["signal_type"] = event_name
+                    extended_trade["horizon"] = horizon
+                    extended_trade["status"] = "AVAILABLE"
+
+                    extensions.append(extended_trade)
+
+    return trades, extensions, skipped
+
+
+def print_grouped_summary(frame, group_columns, heading):
+    print(f"\n{heading}")
+
+    grouped = frame.groupby(group_columns)
+
+    for group_key, group in grouped:
+        summary = calculate_summary(
+            group.to_dict("records")
+        )
+
+        if not isinstance(group_key, tuple):
+            group_key = (group_key,)
+
+        label = " | ".join(str(value) for value in group_key)
+        print(f"{label}: {summary}")
+
+
+def print_extension_report(extensions):
+    print("\nEXTENDED HOLDING ANALYSIS")
+
+    if not extensions:
+        print("No Time Exit trades available for extension analysis.")
+        return
+
+    extension_frame = pd.DataFrame(extensions)
+
+    for horizon in EXTENDED_HORIZONS:
+        subset = extension_frame[
+            (extension_frame["horizon"] == horizon)
+            & (extension_frame["status"] == "AVAILABLE")
+        ]
+
+        unavailable = extension_frame[
+            (extension_frame["horizon"] == horizon)
+            & (extension_frame["status"] != "AVAILABLE")
+        ]
+
+        print(f"\nHORIZON: {horizon} CANDLES")
+        print(f"Available extended trades: {len(subset)}")
+        print(f"Unavailable due to data limits: {len(unavailable)}")
+
+        if subset.empty:
+            continue
+
+        print("Extended outcome summary:")
+        print(calculate_summary(subset.to_dict("records")))
+
+        print("Extended exit reasons:")
+        print(subset["exit_reason"].value_counts().to_dict())
+
+        print("Results by timeframe:")
+        for timeframe, group in subset.groupby("timeframe"):
+            print(
+                f"{timeframe}: "
+                f"{calculate_summary(group.to_dict('records'))}"
+            )
+
+        print("Results by structure:")
+        for structure_type, group in subset.groupby("structure_type"):
+            print(
+                f"{structure_type}: "
+                f"{calculate_summary(group.to_dict('records'))}"
+            )
+
+    print("\nEXTENSION COMPARISON")
+    print(
+        "Only trades that reached TIME_EXIT at the base "
+        "24-candle horizon are included."
+    )
+    print(
+        "Extended simulations restart from the original entry "
+        "with the original stop and target."
+    )
 
 
 def main():
@@ -413,7 +568,8 @@ def main():
 
     print(f"Timeframes: {', '.join(TIMEFRAMES)}")
     print(f"Risk/Reward: 1:{RISK_REWARD}")
-    print(f"Maximum holding candles: {MAX_HOLDING_CANDLES}")
+    print(f"Base holding candles: {BASE_HOLDING_CANDLES}")
+    print(f"Extended horizons: {EXTENDED_HORIZONS}")
     print(f"Fee per side: {FEE_RATE * 100:.3f}%")
     print(f"Slippage per side: {SLIPPAGE_RATE * 100:.3f}%")
     print("Entry: Next candle Open")
@@ -427,23 +583,19 @@ def main():
     detect_market_structure = load_structure_module()
 
     all_trades = []
-    all_skipped = {}
+    all_extensions = []
     successful_timeframes = 0
 
     for timeframe in TIMEFRAMES:
         try:
-            trades, skipped = analyze_timeframe(
+            trades, extensions, skipped = analyze_timeframe(
                 timeframe,
                 detect_market_structure,
             )
 
             all_trades.extend(trades)
+            all_extensions.extend(extensions)
             successful_timeframes += 1
-
-            for reason, count in skipped.items():
-                all_skipped[reason] = (
-                    all_skipped.get(reason, 0) + count
-                )
 
             print(
                 f"{timeframe}: PASS | "
@@ -454,13 +606,18 @@ def main():
             for reason, count in sorted(skipped.items()):
                 print(f"  {reason}: {count}")
 
+            time_exit_count = sum(
+                1 for trade in trades
+                if trade["exit_reason"] == "TIME_EXIT"
+            )
+
+            print(f"  Base TIME_EXIT trades: {time_exit_count}")
+
         except Exception as error:
             print(f"{timeframe}: FAIL | {error}")
 
     print("-" * 70)
-    print(
-        f"Successful timeframes: {successful_timeframes}"
-    )
+    print(f"Successful timeframes: {successful_timeframes}")
     print(
         f"Failed timeframes: {len(TIMEFRAMES) - successful_timeframes}"
     )
@@ -473,60 +630,89 @@ def main():
 
     frame = pd.DataFrame(all_trades)
 
-    print("\nSUMMARY BY TIMEFRAME")
-
-    for timeframe in TIMEFRAMES:
-        subset = frame[
-            frame["timeframe"] == timeframe
-        ]
-
-        if subset.empty:
-            continue
-
-        summary = calculate_summary(
-            subset.to_dict("records")
-        )
-
-        print(f"{timeframe}: {summary}")
-
-    print("\nSUMMARY BY TIMEFRAME, STRUCTURE AND SIGNAL")
-
-    grouped = frame.groupby(
-        ["timeframe", "structure_type", "signal_type"]
+    print_grouped_summary(
+        frame,
+        ["timeframe"],
+        "SUMMARY BY TIMEFRAME",
     )
 
-    for (timeframe, structure_type, signal_type), group in grouped:
-        summary = calculate_summary(
-            group.to_dict("records")
-        )
+    print_grouped_summary(
+        frame,
+        ["timeframe", "structure_type", "signal_type"],
+        "SUMMARY BY TIMEFRAME, STRUCTURE AND SIGNAL",
+    )
 
-        print(
-            f"{timeframe} | {structure_type} | "
-            f"{signal_type}: {summary}"
-        )
-
-    print("\nSUMMARY BY STRUCTURE")
-
-    for structure_type, group in frame.groupby("structure_type"):
-        summary = calculate_summary(
-            group.to_dict("records")
-        )
-
-        print(f"{structure_type}: {summary}")
+    print_grouped_summary(
+        frame,
+        ["structure_type"],
+        "SUMMARY BY STRUCTURE",
+    )
 
     print("\nOVERALL SUMMARY")
     print(calculate_summary(all_trades))
 
     print("\nEXIT REASONS")
-    print(
-        frame["exit_reason"].value_counts().to_dict()
-    )
+    print(frame["exit_reason"].value_counts().to_dict())
+
+    print("\nTIME EXIT DIAGNOSTICS")
+    time_exit_frame = frame[
+        frame["exit_reason"] == "TIME_EXIT"
+    ]
+
+    print(f"Total TIME_EXIT trades: {len(time_exit_frame)}")
+
+    if not time_exit_frame.empty:
+        print("TIME_EXIT performance:")
+        print(
+            calculate_summary(
+                time_exit_frame.to_dict("records")
+            )
+        )
+
+        print_grouped_summary(
+            time_exit_frame,
+            ["timeframe"],
+            "TIME EXIT BY TIMEFRAME",
+        )
+
+        print_grouped_summary(
+            time_exit_frame,
+            ["timeframe", "structure_type", "signal_type"],
+            "TIME EXIT BY TIMEFRAME, STRUCTURE AND SIGNAL",
+        )
+
+        print("\nTIME EXIT NET R DISTRIBUTION")
+        print(
+            time_exit_frame["net_R"].describe().round(4).to_dict()
+        )
+
+        print("\nTIME EXIT MFE / MAE")
+        print({
+            "average_mfe_R": round(
+                time_exit_frame["mfe_R"].mean(), 4
+            ),
+            "average_mae_R": round(
+                time_exit_frame["mae_R"].mean(), 4
+            ),
+            "median_mfe_R": round(
+                time_exit_frame["mfe_R"].median(), 4
+            ),
+            "median_mae_R": round(
+                time_exit_frame["mae_R"].median(), 4
+            ),
+        })
+
+    print_extension_report(all_extensions)
 
     print("\nIMPORTANT LIMITATIONS")
     print("- Signals may overlap; this is not a portfolio simulation.")
     print("- Internal and external signals are evaluated independently.")
     print("- Each trade is evaluated independently.")
     print("- Stops use the last confirmed opposite swing of the same structure.")
+    print("- Extended tests include only trades that reached the base TIME_EXIT.")
+    print("- Extended tests retain the original stop and target.")
+    print("- MFE and MAE use candle high/low, including the exit candle.")
+    print("- OHLC data cannot determine the exact intrabar order of all price movements.")
     print("- No position sizing or capital compounding is applied.")
     print("- Results are historical analysis, not a profitability guarantee.")
 
