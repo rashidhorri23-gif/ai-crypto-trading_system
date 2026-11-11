@@ -129,6 +129,38 @@ def infer_candle_duration(
     return int(median(differences))
 
 
+def was_swing_broken_before_confirmation(
+    candles: List[Dict[str, Any]],
+    swing: Dict[str, Any]
+) -> bool:
+
+    pivot_index = int(swing["index"])
+    confirmation_index = int(swing["confirmation_index"])
+    level = float(swing["price"])
+    swing_type = str(swing["type"]).upper()
+
+    if (
+        pivot_index < 0
+        or confirmation_index >= len(candles)
+        or confirmation_index <= pivot_index
+    ):
+        raise ValueError("Invalid swing confirmation indexes.")
+
+    for index in range(
+        pivot_index + 1,
+        confirmation_index + 1
+    ):
+        close = float(candles[index]["close"])
+
+        if swing_type == "HIGH" and close > level:
+            return True
+
+        if swing_type == "LOW" and close < level:
+            return True
+
+    return False
+
+
 def detect_swings(
     candles: List[Dict[str, Any]],
     left_bars: int = 3,
@@ -312,19 +344,24 @@ def analyze_structure_events(
 ) -> Dict[str, Any]:
 
     swings_by_confirmation = {}
-
     tracked_swings = []
 
     for original_swing in swings:
         swing = dict(original_swing)
         swing["status"] = "PENDING"
-        swing["available_timestamp"] = (
-            swing["confirmation_timestamp"] + candle_duration
-        )
-
-        tracked_swings.append(swing)
 
         confirmation_index = swing["confirmation_index"]
+
+        if confirmation_index + 1 < len(candles):
+            swing["available_timestamp"] = int(
+                float(candles[confirmation_index + 1]["timestamp"])
+            )
+        else:
+            swing["available_timestamp"] = (
+                swing["confirmation_timestamp"] + candle_duration
+            )
+
+        tracked_swings.append(swing)
 
         swings_by_confirmation.setdefault(
             confirmation_index, []
@@ -351,28 +388,26 @@ def analyze_structure_events(
             float(candle["timestamp"])
         )
 
-        # Swings become usable at the candle after confirmation.
         newly_confirmed = swings_by_confirmation.get(
             i - 1, []
         )
 
         for swing in newly_confirmed:
 
-            if swing["type"] == "HIGH":
+            if was_swing_broken_before_confirmation(
+                candles,
+                swing
+            ):
+                swing["status"] = "PRE_BROKEN"
+                continue
 
-                if previous_close > swing["price"]:
-                    swing["status"] = "PRE_BROKEN"
-                else:
-                    swing["status"] = "ACTIVE"
-                    active_highs.append(swing)
+            if swing["type"] == "HIGH":
+                swing["status"] = "ACTIVE"
+                active_highs.append(swing)
 
             else:
-
-                if previous_close < swing["price"]:
-                    swing["status"] = "PRE_BROKEN"
-                else:
-                    swing["status"] = "ACTIVE"
-                    active_lows.append(swing)
+                swing["status"] = "ACTIVE"
+                active_lows.append(swing)
 
         current_structure = classify_market_structure(
             active_highs + active_lows,
@@ -538,13 +573,16 @@ def analyze_structure_events(
         if swing["confirmation_index"] <= len(candles) - 1
     ]
 
-    # A swing confirmed on the final candle is not usable
-    # inside that candle. It becomes usable next candle.
     for swing in final_confirmed_swings:
         if swing["status"] == "PENDING":
             swing["status"] = (
                 "CONFIRMED_PENDING_NEXT_CANDLE"
             )
+
+    valid_structure_swings = [
+        swing for swing in final_confirmed_swings
+        if swing["status"] != "PRE_BROKEN"
+    ]
 
     final_highs = [
         swing for swing in final_confirmed_swings
@@ -573,7 +611,7 @@ def analyze_structure_events(
     ]
 
     final_structure = classify_market_structure(
-        final_confirmed_swings,
+        valid_structure_swings,
         structure_type
     )
 
