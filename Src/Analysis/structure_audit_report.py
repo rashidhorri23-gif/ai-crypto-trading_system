@@ -108,6 +108,11 @@ def load_candles(file_path):
 
     candles.sort(key=lambda item: item["timestamp"])
 
+    if not candles:
+        raise ValueError(
+            f"No candles found in archive: {file_path}"
+        )
+
     return candles
 
 
@@ -169,11 +174,11 @@ def audit_failed_breaks(events, candles):
                     break
 
         if returned:
-            status = "RETURNED_WITHIN_3_CANDLES"
+            status = "RETURNED_TO_LEVEL_WITHIN_3_CANDLES"
         elif len(future_candles) < FAILED_BREAK_LOOKAHEAD:
             status = "INSUFFICIENT_FUTURE_DATA"
         else:
-            status = "HELD_FOR_3_CANDLES"
+            status = "HELD_BEYOND_LEVEL_FOR_3_CANDLES"
 
         results.append({
             "event": event_type,
@@ -196,7 +201,8 @@ def add_structure_report(
     timeframe,
     structure_name,
     result,
-    candles
+    candles,
+    candle_duration_seconds
 ):
     lines.append("")
     lines.append("=" * 70)
@@ -213,8 +219,12 @@ def add_structure_report(
     lines.append("-" * 70)
 
     for swing in result["swings"]:
-        confirmation_time = (
+        confirmation_time = int(
             swing["confirmation_timestamp"]
+        )
+
+        available_time = (
+            confirmation_time + candle_duration_seconds
         )
 
         lines.append(
@@ -222,9 +232,7 @@ def add_structure_report(
             f"Price: {format_price(swing['price'])} | "
             f"Pivot: {format_time(swing['timestamp'])} | "
             f"Confirmed: {format_time(confirmation_time)} | "
-            f"Available: {format_time(confirmation_time + (
-                result.get('candle_duration_seconds', 0)
-            ))} | "
+            f"Available: {format_time(available_time)} | "
             f"Index: {swing['index']}"
         )
 
@@ -291,6 +299,10 @@ def generate_report(timeframe, filename):
         timeframe=timeframe
     )
 
+    candle_duration_seconds = int(
+        result["candle_duration_seconds"]
+    )
+
     lines = []
 
     lines.append("=" * 70)
@@ -299,6 +311,9 @@ def generate_report(timeframe, filename):
 
     lines.append(f"Source: {filename}")
     lines.append(f"Timeframe: {timeframe}")
+    lines.append(
+        f"Candle Duration: {candle_duration_seconds} seconds"
+    )
     lines.append(f"Total Candles: {len(candles)}")
     lines.append(
         f"First Candle: {format_time(candles[0]['timestamp'])}"
@@ -330,7 +345,8 @@ def generate_report(timeframe, filename):
         timeframe,
         "INTERNAL",
         result["internal_structure"],
-        candles
+        candles,
+        candle_duration_seconds
     )
 
     add_structure_report(
@@ -338,7 +354,8 @@ def generate_report(timeframe, filename):
         timeframe,
         "EXTERNAL",
         result["external_structure"],
-        candles
+        candles,
+        candle_duration_seconds
     )
 
     return "\n".join(lines)
