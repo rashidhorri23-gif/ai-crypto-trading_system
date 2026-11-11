@@ -1,5 +1,4 @@
 
-
 name: Manual Test
 
 on:
@@ -38,30 +37,44 @@ jobs:
 
       - name: Run technical indicators test
         run: python Src/Analysis/indicator_test.py
-       
+
       - name: Run independent indicator unit test
         run: python Src/Analysis/indicator_unit_test.py
-        
+
       - name: Run Market Structure Unit Test
         run: python Src/Analysis/market_structure_test.py
-        
+
       - name: Run BOS and CHOCH Unit Test
         run: python Src/Analysis/market_structure_bos_test.py
-        
+
       - name: Run Real Daily Structure Analysis
         run: python -m Src.Analysis.test_daily_structure_real
-        
+
       - name: Run Real 4H Structure Analysis
         run: python -m Src.Analysis.test_4h_structure_real
 
       - name: Run Real Market Structure History Audit
         run: python Src/Analysis/market_structure_history_test.py
-        
+
       - name: Run Signal Outcome Analysis
         run: python Src/Analysis/signal_outcome_test.py
-               
+
       - name: Run Trade Backtest
         run: python Src/Analysis/trade_backtest_test.py
+
+      - name: Generate BTC Structure Charts
+        run: python -m Src.Analysis.generate_structure_charts
+
+      - name: Upload BTC Structure Charts
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-structure-charts
+          path: |
+            Reports/BTC_1D_Structure.png
+            Reports/BTC_4H_Structure.png
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Save historical archive to GitHub
         run: |
           git config user.name "github-actions[bot]"
