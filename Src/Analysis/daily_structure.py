@@ -401,16 +401,21 @@ def analyze_structure_events(
                 swing["status"] = "PRE_BROKEN"
                 continue
 
-            if swing["type"] == "HIGH":
-                swing["status"] = "ACTIVE"
-                active_highs.append(swing)
+            swing["status"] = "ACTIVE"
 
+            if swing["type"] == "HIGH":
+                active_highs.append(swing)
             else:
-                swing["status"] = "ACTIVE"
                 active_lows.append(swing)
 
+        valid_current_swings = [
+            swing
+            for swing in active_highs + active_lows
+            if swing["status"] == "ACTIVE"
+        ]
+
         current_structure = classify_market_structure(
-            active_highs + active_lows,
+            valid_current_swings,
             structure_type
         )
 
@@ -681,9 +686,6 @@ def analyze_daily_structure(
         candle_duration
     )
 
-    internal_trend = internal_result["event_bias"]
-    external_trend = external_result["event_bias"]
-
     return {
         "timeframe": timeframe,
         "last_candle_timestamp": int(
@@ -693,8 +695,16 @@ def analyze_daily_structure(
         "internal_structure": internal_result,
         "external_structure": external_result,
         "context_direction": {
-            "internal": internal_trend,
-            "external": external_trend,
+            "internal": internal_result["event_bias"],
+            "external": external_result["event_bias"],
+        },
+        "structure_trend": {
+            "internal": internal_result["trend"],
+            "external": external_result["trend"],
+        },
+        "event_bias": {
+            "internal": internal_result["event_bias"],
+            "external": external_result["event_bias"],
         },
         "allowed_direction": "BOTH",
         "trade_directions_to_evaluate": [
