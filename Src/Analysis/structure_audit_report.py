@@ -1,12 +1,33 @@
+
+FAILED_BREAK_LOOKAHEAD = 3
+
+
 def audit_failed_breaks(events, candles):
     results = []
 
-    valid_events = (
+    valid_events = {
         "BOS_BULLISH",
         "CHOCH_BULLISH",
         "BOS_BEARISH",
         "CHOCH_BEARISH",
-    )
+    }
+
+    if isinstance(candles, pd.DataFrame):
+        candle_records = candles.to_dict("records")
+    else:
+        candle_records = list(candles)
+
+    if FAILED_BREAK_LOOKAHEAD < 1:
+        raise ValueError(
+            "FAILED_BREAK_LOOKAHEAD must be positive."
+        )
+
+    required_columns = {
+        "timestamp",
+        "high",
+        "low",
+        "close",
+    }
 
     for event in events:
         event_type = event.get("event")
@@ -20,71 +41,139 @@ def audit_failed_breaks(events, candles):
         except (KeyError, TypeError, ValueError):
             continue
 
-        if event_index < 0 or event_index >= len(candles):
+        if not np.isfinite(level) or level <= 0:
             continue
 
-        future_candles = candles[
-            event_index + 1:
-            event_index + 1 + FAILED_BREAK_LOOKAHEAD
+        if event_index < 0 or event_index >= len(candle_records):
+            continue
+
+        missing_columns = (
+            required_columns
+            - set(candle_records[event_index].keys())
+        )
+
+        if missing_columns:
+            raise ValueError(
+                f"Missing candle fields: {missing_columns}"
+            )
+
+        event_candle = candle_records[event_index]
+
+        if event.get("timestamp") is not None:
+            if int(event["timestamp"]) != int(
+                event_candle["timestamp"]
+            ):
+                raise ValueError(
+                    "Event timestamp does not match its candle index."
+                )
+
+        future_start = event_index + 1
+
+        future_end = min(
+            future_start + FAILED_BREAK_LOOKAHEAD,
+            len(candle_records)
+        )
+
+        future_candles = candle_records[
+            future_start:future_end
         ]
 
         status = None
         return_index = None
         return_close = None
+        return_timestamp = None
 
-        for offset, candle in enumerate(future_candles, start=1):
+        for offset, candle in enumerate(
+            future_candles,
+            start=1
+        ):
+            missing_columns = (
+                required_columns - set(candle.keys())
+            )
+
+            if missing_columns:
+                raise ValueError(
+                    f"Missing future candle fields: {missing_columns}"
+                )
+
             try:
                 high = float(candle["high"])
                 low = float(candle["low"])
                 close = float(candle["close"])
-            except (KeyError, TypeError, ValueError):
-                continue
+                timestamp = int(candle["timestamp"])
+
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "Invalid future candle data during break audit."
+                )
+
+            if not all(
+                np.isfinite(value)
+                for value in (high, low, close)
+            ):
+                raise ValueError(
+                    "Non-finite future candle prices found."
+                )
+
+            if high < low:
+                raise ValueError(
+                    "Invalid future candle: high is below low."
+                )
 
             if event_type.endswith("BULLISH"):
+
                 if close <= level:
                     status = "BREAKOUT_FAILED"
-                    return_index = event_index + offset
-                    return_close = close
-                    break
 
-                if low <= level:
+                elif low <= level:
                     status = "RETEST_CONFIRMED"
-                    return_index = event_index + offset
-                    return_close = close
-                    break
 
             else:
+
                 if close >= level:
                     status = "BREAKOUT_FAILED"
-                    return_index = event_index + offset
-                    return_close = close
-                    break
 
-                if high >= level:
+                elif high >= level:
                     status = "RETEST_CONFIRMED"
-                    return_index = event_index + offset
-                    return_close = close
-                    break
+
+            if status is not None:
+                return_index = event_index + offset
+                return_close = close
+                return_timestamp = timestamp
+                break
 
         if status is None:
+
             if len(future_candles) < FAILED_BREAK_LOOKAHEAD:
                 status = "INSUFFICIENT_FUTURE_DATA"
+
             else:
-                status = "NO_RETEST"
+                status = (
+                    "HELD_BEYOND_LEVEL_FOR_3_CANDLES"
+                )
 
         results.append({
             "event": event_type,
             "level": level,
+            "event_index": event_index,
+            "event_timestamp": int(
+                event_candle["timestamp"]
+            ),
             "status": status,
-            "return_timestamp": (
-                candles[return_index]["timestamp"]
+            "candles_checked": len(future_candles),
+            "bars_to_return": (
+                return_index - event_index
                 if return_index is not None
                 else None
             ),
+            "return_index": return_index,
+            "return_timestamp": return_timestamp,
             "return_close": return_close,
         })
 
     return results
+
+
 def add_structure_report(
     lines,
     timeframe,
@@ -108,6 +197,7 @@ def add_structure_report(
     lines.append("-" * 70)
 
     for swing in result["swings"]:
+
         confirmation_time = int(
             swing["confirmation_timestamp"]
         )
@@ -134,9 +224,11 @@ def add_structure_report(
     lines.append("-" * 70)
 
     for event in result["events"]:
+
         event_name = event["event"]
 
         if event_name == "AMBIGUOUS_DOUBLE_BREAK":
+
             bullish_levels = event.get(
                 "bullish_levels",
                 []
@@ -147,11 +239,21 @@ def add_structure_report(
                 []
             )
 
-            if not bullish_levels and event.get("bullish_level") is not None:
-                bullish_levels = [event["bullish_level"]]
+            if (
+                not bullish_levels
+                and event.get("bullish_level") is not None
+            ):
+                bullish_levels = [
+                    event["bullish_level"]
+                ]
 
-            if not bearish_levels and event.get("bearish_level") is not None:
-                bearish_levels = [event["bearish_level"]]
+            if (
+                not bearish_levels
+                and event.get("bearish_level") is not None
+            ):
+                bearish_levels = [
+                    event["bearish_level"]
+                ]
 
             bullish_text = ", ".join(
                 format_price(level)
@@ -173,12 +275,24 @@ def add_structure_report(
 
             continue
 
+        event_timestamp = event["timestamp"]
+
+        available_timestamp = event.get(
+            "available_timestamp"
+        )
+
+        if available_timestamp is None:
+            available_timestamp = (
+                int(event_timestamp)
+                + candle_duration_seconds
+            )
+
         lines.append(
             f"{event_name} | "
             f"Level: {format_price(event['level'])} | "
             f"Close: {format_price(event['close'])} | "
-            f"Time: {format_time(event['timestamp'])} | "
-            f"Available: {format_time(event['available_timestamp'])}"
+            f"Time: {format_time(event_timestamp)} | "
+            f"Available: {format_time(available_timestamp)}"
         )
 
     lines.append("")
@@ -190,22 +304,49 @@ def add_structure_report(
         candles
     )
 
+    status_counts = {}
+
     for item in failed_results:
+
+        status = item["status"]
+
+        status_counts[status] = (
+            status_counts.get(status, 0) + 1
+        )
+
         line = (
             f"{item['event']} | "
             f"Level: {format_price(item['level'])} | "
-            f"Status: {item['status']}"
+            f"Status: {status} | "
+            f"Checked: {item['candles_checked']} candles"
         )
 
         if item["return_timestamp"] is not None:
+
             line += (
                 f" | Return Time: "
                 f"{format_time(item['return_timestamp'])}"
                 f" | Return Close: "
                 f"{format_price(item['return_close'])}"
+                f" | Bars: {item['bars_to_return']}"
             )
 
         lines.append(line)
 
+    lines.append("")
+    lines.append("AUDIT SUMMARY")
+    lines.append("-" * 70)
+
+    lines.append(
+        f"Total Audited Events: {len(failed_results)}"
+    )
+
+    for status, count in sorted(status_counts.items()):
+        lines.append(
+            f"{status}: {count}"
+        )
+
     if not failed_results:
-        lines.append("No directional break events found.")
+        lines.append(
+            "No directional break events found."
+        )
