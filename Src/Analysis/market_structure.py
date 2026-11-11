@@ -3,9 +3,15 @@ import numpy as np
 import pandas as pd
 
 try:
-    from .daily_structure import analyze_daily_structure
+    from .daily_structure import (
+        analyze_daily_structure,
+        detect_swings as detect_confirmed_swings,
+    )
 except ImportError:
-    from daily_structure import analyze_daily_structure
+    from daily_structure import (
+        analyze_daily_structure,
+        detect_swings as detect_confirmed_swings,
+    )
 
 
 DEFAULT_LEFT_BARS = 3
@@ -109,7 +115,6 @@ def validate_input_data(data):
 
 def infer_timeframe(data):
     timestamps = data["timestamp"].to_numpy(dtype=np.int64)
-
     differences = np.diff(timestamps)
 
     if len(differences) == 0:
@@ -125,7 +130,6 @@ def infer_timeframe(data):
     median_timestamp = int(np.median(timestamps))
     median_duration = int(np.median(differences))
 
-    # Convert millisecond intervals to seconds.
     if median_timestamp >= 100_000_000_000:
         if median_duration % 1000 != 0:
             raise ValueError(
@@ -166,12 +170,6 @@ def prepare_candles(data):
 
 
 def scale_analysis_timestamps(value, factor):
-    """
-    Recursively convert timestamp fields in an analysis result.
-
-    Candle duration fields remain in seconds.
-    """
-
     if isinstance(value, dict):
         result = {}
 
@@ -229,7 +227,6 @@ def create_analysis(data, timeframe=None):
 
     engine_data = validated.copy()
 
-    # The canonical structure engine uses Unix seconds.
     if timestamp_is_milliseconds:
         if (engine_data["timestamp"] % 1000 != 0).any():
             raise ValueError(
@@ -257,8 +254,6 @@ def create_analysis(data, timeframe=None):
             "Daily structure analysis did not complete successfully."
         )
 
-    # Restore milliseconds in all timestamp fields.
-    # Candle duration remains expressed in seconds.
     if timestamp_is_milliseconds:
         analysis = scale_analysis_timestamps(
             analysis,
@@ -283,29 +278,19 @@ def add_swing_columns(result, analysis):
     result["external_swing_high_price"] = np.nan
     result["external_swing_low_price"] = np.nan
 
-    result["internal_swing_high_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+    timestamp_columns = [
+        "internal_swing_high_pivot_timestamp",
+        "internal_swing_low_pivot_timestamp",
+        "external_swing_high_pivot_timestamp",
+        "external_swing_low_pivot_timestamp",
+    ]
 
-    result["internal_swing_low_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["external_swing_high_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["external_swing_low_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+    for column in timestamp_columns:
+        result[column] = pd.Series(
+            pd.NA,
+            index=result.index,
+            dtype="Int64"
+        )
 
     structures = {
         "internal": analysis["internal_structure"],
@@ -331,11 +316,9 @@ def add_swing_columns(result, analysis):
                 confirmed_column = (
                     f"{structure_name}_swing_high_confirmed"
                 )
-
                 price_column = (
                     f"{structure_name}_swing_high_price"
                 )
-
                 timestamp_column = (
                     f"{structure_name}_swing_high_pivot_timestamp"
                 )
@@ -344,11 +327,9 @@ def add_swing_columns(result, analysis):
                 confirmed_column = (
                     f"{structure_name}_swing_low_confirmed"
                 )
-
                 price_column = (
                     f"{structure_name}_swing_low_price"
                 )
-
                 timestamp_column = (
                     f"{structure_name}_swing_low_pivot_timestamp"
                 )
@@ -431,6 +412,157 @@ def add_swing_columns(result, analysis):
                 index,
                 "swing_low_confirmation_timestamp"
             ] = int(result.at[index, "timestamp"])
+
+    return result
+
+
+def add_direct_swing_columns(result, swings):
+    count = len(result)
+
+    result["internal_swing_high_confirmed"] = False
+    result["internal_swing_low_confirmed"] = False
+    result["external_swing_high_confirmed"] = False
+    result["external_swing_low_confirmed"] = False
+
+    result["internal_swing_high_price"] = np.nan
+    result["internal_swing_low_price"] = np.nan
+    result["external_swing_high_price"] = np.nan
+    result["external_swing_low_price"] = np.nan
+
+    timestamp_columns = [
+        "internal_swing_high_pivot_timestamp",
+        "internal_swing_low_pivot_timestamp",
+        "external_swing_high_pivot_timestamp",
+        "external_swing_low_pivot_timestamp",
+    ]
+
+    for column in timestamp_columns:
+        result[column] = pd.Series(
+            pd.NA,
+            index=result.index,
+            dtype="Int64"
+        )
+
+    result["swing_high_confirmed"] = False
+    result["swing_low_confirmed"] = False
+    result["swing_high_price"] = np.nan
+    result["swing_low_price"] = np.nan
+
+    result["swing_high_pivot_timestamp"] = pd.Series(
+        pd.NA,
+        index=result.index,
+        dtype="Int64"
+    )
+
+    result["swing_low_pivot_timestamp"] = pd.Series(
+        pd.NA,
+        index=result.index,
+        dtype="Int64"
+    )
+
+    result["swing_high_confirmation_timestamp"] = pd.Series(
+        pd.NA,
+        index=result.index,
+        dtype="Int64"
+    )
+
+    result["swing_low_confirmation_timestamp"] = pd.Series(
+        pd.NA,
+        index=result.index,
+        dtype="Int64"
+    )
+
+    for swing in swings:
+        confirmation_index = int(
+            swing["confirmation_index"]
+        )
+
+        if not 0 <= confirmation_index < count:
+            raise ValueError(
+                "Swing confirmation index is outside candle data."
+            )
+
+        pivot_index = int(swing["index"])
+        swing_type = str(swing["type"]).upper()
+        price = float(swing["price"])
+        pivot_timestamp = int(swing["timestamp"])
+
+        if swing_type == "HIGH":
+            result.at[
+                confirmation_index,
+                "internal_swing_high_confirmed"
+            ] = True
+
+            result.at[
+                confirmation_index,
+                "internal_swing_high_price"
+            ] = price
+
+            result.at[
+                confirmation_index,
+                "internal_swing_high_pivot_timestamp"
+            ] = pivot_timestamp
+
+            result.at[
+                confirmation_index,
+                "swing_high_confirmed"
+            ] = True
+
+            result.at[
+                confirmation_index,
+                "swing_high_price"
+            ] = price
+
+            result.at[
+                confirmation_index,
+                "swing_high_pivot_timestamp"
+            ] = pivot_timestamp
+
+            result.at[
+                confirmation_index,
+                "swing_high_confirmation_timestamp"
+            ] = int(result.at[confirmation_index, "timestamp"])
+
+        elif swing_type == "LOW":
+            result.at[
+                confirmation_index,
+                "internal_swing_low_confirmed"
+            ] = True
+
+            result.at[
+                confirmation_index,
+                "internal_swing_low_price"
+            ] = price
+
+            result.at[
+                confirmation_index,
+                "internal_swing_low_pivot_timestamp"
+            ] = pivot_timestamp
+
+            result.at[
+                confirmation_index,
+                "swing_low_confirmed"
+            ] = True
+
+            result.at[
+                confirmation_index,
+                "swing_low_price"
+            ] = price
+
+            result.at[
+                confirmation_index,
+                "swing_low_pivot_timestamp"
+            ] = pivot_timestamp
+
+            result.at[
+                confirmation_index,
+                "swing_low_confirmation_timestamp"
+            ] = int(result.at[confirmation_index, "timestamp"])
+
+        else:
+            raise ValueError(
+                f"Unknown swing type: {swing_type}"
+            )
 
     return result
 
@@ -734,17 +866,19 @@ def detect_swings(
     if left_bars < 1 or right_bars < 1:
         raise ValueError("Swing periods must be positive.")
 
-    result, analysis = create_analysis(
-        data,
-        timeframe=timeframe
+    validated = validate_input_data(data)
+    candles = prepare_candles(validated)
+
+    swings = detect_confirmed_swings(
+        candles,
+        left_bars=left_bars,
+        right_bars=right_bars
     )
 
-    result = add_swing_columns(
-        result,
-        analysis
+    return add_direct_swing_columns(
+        validated.copy(),
+        swings
     )
-
-    return result
 
 
 def detect_market_structure(
