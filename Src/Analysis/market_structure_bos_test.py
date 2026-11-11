@@ -16,7 +16,7 @@ def check(condition, message):
 def build_data():
     rows = []
 
-    for index in range(16):
+    for index in range(24):
         rows.append({
             "timestamp": 1700000000000 + index * 300000,
             "open": 100.0,
