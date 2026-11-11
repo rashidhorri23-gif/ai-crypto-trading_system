@@ -1,7 +1,10 @@
 
 from pathlib import Path
 import sys
+
+import numpy as np
 import pandas as pd
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE_DIR = PROJECT_ROOT / "Data" / "Archive"
@@ -13,6 +16,7 @@ from Src.Analysis.daily_structure import analyze_daily_structure
 
 
 TIMEFRAMES = ["5m", "15m", "1H", "4H", "1D"]
+
 HORIZONS = [1, 3, 6, 12, 24]
 
 EVENT_TYPES = [
@@ -27,12 +31,29 @@ DIRECTIONS = {
     "SHORT": -1,
 }
 
+TIMEFRAME_SECONDS = {
+    "5m": 300,
+    "15m": 900,
+    "1H": 3600,
+    "4H": 14400,
+    "1D": 86400,
+}
+
+LEFT_BARS = 3
+RIGHT_BARS = 3
+
 
 def load_archive(timeframe):
-    file_path = ARCHIVE_DIR / f"BTC_USDT_SPOT_{timeframe}.csv"
+
+    file_path = (
+        ARCHIVE_DIR
+        / f"BTC_USDT_SPOT_{timeframe}.csv"
+    )
 
     if not file_path.exists():
-        raise FileNotFoundError(f"Archive not found: {file_path}")
+        raise FileNotFoundError(
+            f"Archive not found: {file_path}"
+        )
 
     data = pd.read_csv(file_path)
 
@@ -46,7 +67,8 @@ def load_archive(timeframe):
     ]
 
     missing = [
-        column for column in required
+        column
+        for column in required
         if column not in data.columns
     ]
 
@@ -61,17 +83,57 @@ def load_archive(timeframe):
             errors="raise"
         )
 
-    if data[required].isna().any().any():
+    values = data[required].to_numpy(dtype=float)
+
+    if not np.isfinite(values).all():
         raise ValueError(
-            f"Null values found in {timeframe}"
+            f"NaN or infinite values found in {timeframe}"
         )
 
-    if not data[required].map(
-        lambda value: pd.notna(value) and abs(value) != float("inf")
-    ).all().all():
+    if (data["timestamp"] < 0).any():
         raise ValueError(
-            f"Non-finite values found in {timeframe}"
+            f"Negative timestamps found in {timeframe}"
         )
+
+    if (data["open"] <= 0).any():
+        raise ValueError(
+            f"Invalid open prices in {timeframe}"
+        )
+
+    if (data["high"] <= 0).any():
+        raise ValueError(
+            f"Invalid high prices in {timeframe}"
+        )
+
+    if (data["low"] <= 0).any():
+        raise ValueError(
+            f"Invalid low prices in {timeframe}"
+        )
+
+    if (data["close"] <= 0).any():
+        raise ValueError(
+            f"Invalid close prices in {timeframe}"
+        )
+
+    if (data["volume"] < 0).any():
+        raise ValueError(
+            f"Negative volume found in {timeframe}"
+        )
+
+    invalid_ohlc = (
+        (data["high"] < data["low"])
+        | (data["high"] < data["open"])
+        | (data["high"] < data["close"])
+        | (data["low"] > data["open"])
+        | (data["low"] > data["close"])
+    )
+
+    if invalid_ohlc.any():
+        raise ValueError(
+            f"Invalid OHLC relationships in {timeframe}"
+        )
+
+    data["timestamp"] = data["timestamp"].astype("int64")
 
     data = data.sort_values(
         "timestamp"
@@ -79,51 +141,85 @@ def load_archive(timeframe):
 
     if data["timestamp"].duplicated().any():
         raise ValueError(
-            f"Duplicate timestamps in {timeframe}"
+            f"Duplicate timestamps found in {timeframe}"
         )
 
-    if (data["timestamp"] <= 0).any():
+    if len(data) < 20:
         raise ValueError(
-            f"Invalid timestamps in {timeframe}"
-        )
-
-    if (data[["open", "high", "low", "close"]] <= 0).any().any():
-        raise ValueError(
-            f"Non-positive prices in {timeframe}"
-        )
-
-    if (data["volume"] < 0).any():
-        raise ValueError(
-            f"Negative volume in {timeframe}"
-        )
-
-    invalid_high = data["high"] < data[
-        ["open", "close", "low"]
-    ].max(axis=1)
-
-    invalid_low = data["low"] > data[
-        ["open", "close", "high"]
-    ].min(axis=1)
-
-    if invalid_high.any() or invalid_low.any():
-        raise ValueError(
-            f"Invalid OHLC values in {timeframe}"
+            f"Insufficient candles in {timeframe}"
         )
 
     return data
+
+
+def collect_structure_events(analysis, timeframe):
+
+    collected = []
+
+    structures = {
+        "INTERNAL": analysis["internal_structure"],
+        "EXTERNAL": analysis["external_structure"],
+    }
+
+    candle_duration = TIMEFRAME_SECONDS[timeframe]
+
+    for structure_name, structure in structures.items():
+
+        events = structure.get("events", [])
+
+        for event in events:
+
+            event_type = event.get("event")
+
+            if event_type not in EVENT_TYPES:
+                continue
+
+            try:
+                event_index = int(event["index"])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(
+                    f"Invalid event index in {structure_name}"
+                )
+
+            if event_index < 0:
+                raise ValueError(
+                    "Negative event index detected."
+                )
+
+            event_timestamp = event.get("timestamp")
+
+            available_timestamp = event.get(
+                "available_timestamp"
+            )
+
+            collected.append({
+                "structure": structure_name,
+                "event": event_type,
+                "index": event_index,
+                "timestamp": (
+                    int(event_timestamp)
+                    if event_timestamp is not None
+                    else None
+                ),
+                "available_timestamp": (
+                    int(available_timestamp)
+                    if available_timestamp is not None
+                    else None
+                ),
+                "level": event.get("level"),
+                "candle_duration": candle_duration,
+            })
+
+    return collected
 
 
 def calculate_outcome(
     data,
     signal_index,
     direction,
-    horizon
+    horizon,
+    available_timestamp=None
 ):
-    if direction not in (1, -1):
-        raise ValueError("Direction must be 1 or -1.")
-
-    if horizon < 1:
-        raise ValueError("Horizon must be positive.")
 
     entry_index = signal_index + 1
 
@@ -135,17 +231,32 @@ def calculate_outcome(
     if end_index > len(data):
         return None
 
-    entry_price = float(
-        data.iloc[entry_index]["open"]
+    entry_candle = data.iloc[entry_index]
+
+    entry_timestamp = int(
+        entry_candle["timestamp"]
     )
 
-    if entry_price <= 0:
-        raise ValueError("Invalid entry price.")
+    if (
+        available_timestamp is not None
+        and entry_timestamp < available_timestamp
+    ):
+        raise ValueError(
+            "Entry candle starts before signal availability."
+        )
 
-    future = data.iloc[entry_index:end_index]
+    entry_price = float(
+        entry_candle["open"]
+    )
 
-    if len(future) != horizon:
-        return None
+    if not np.isfinite(entry_price) or entry_price <= 0:
+        raise ValueError(
+            "Invalid entry price."
+        )
+
+    future = data.iloc[
+        entry_index:end_index
+    ]
 
     final_close = float(
         future.iloc[-1]["close"]
@@ -160,42 +271,48 @@ def calculate_outcome(
     )
 
     if direction == 1:
+
         directional_return = (
-            (final_close - entry_price) / entry_price
+            (final_close - entry_price)
+            / entry_price
         ) * 100
 
         mfe = (
-            (highest_price - entry_price) / entry_price
+            (highest_price - entry_price)
+            / entry_price
         ) * 100
 
         mae = (
-            (lowest_price - entry_price) / entry_price
+            (entry_price - lowest_price)
+            / entry_price
+        ) * 100
+
+    elif direction == -1:
+
+        directional_return = (
+            (entry_price - final_close)
+            / entry_price
+        ) * 100
+
+        mfe = (
+            (entry_price - lowest_price)
+            / entry_price
+        ) * 100
+
+        mae = (
+            (highest_price - entry_price)
+            / entry_price
         ) * 100
 
     else:
-        directional_return = (
-            (entry_price - final_close) / entry_price
-        ) * 100
-
-        mfe = (
-            (entry_price - lowest_price) / entry_price
-        ) * 100
-
-        mae = (
-            (entry_price - highest_price) / entry_price
-        ) * 100
+        raise ValueError(
+            "Direction must be 1 or -1."
+        )
 
     return {
-        "entry_index": entry_index,
-        "entry_timestamp": int(
-            data.iloc[entry_index]["timestamp"]
-        ),
         "entry_price": entry_price,
-        "exit_index": end_index - 1,
-        "exit_timestamp": int(
-            future.iloc[-1]["timestamp"]
-        ),
-        "exit_price": final_close,
+        "entry_timestamp": entry_timestamp,
+        "final_close": final_close,
         "return": directional_return,
         "mfe": mfe,
         "mae": mae,
@@ -209,19 +326,19 @@ def evaluate_event_type(
     direction,
     horizon
 ):
+
     outcomes = []
 
     for event in events:
-        signal_index = int(event["index"])
-
-        if signal_index < 0 or signal_index >= len(data):
-            continue
 
         result = calculate_outcome(
-            data,
-            signal_index,
-            direction,
-            horizon,
+            data=data,
+            signal_index=event["index"],
+            direction=direction,
+            horizon=horizon,
+            available_timestamp=event[
+                "available_timestamp"
+            ],
         )
 
         if result is not None:
@@ -234,209 +351,211 @@ def evaluate_event_type(
 
     return {
         "observations": len(results),
-        "win_rate": results["win"].mean() * 100,
-        "average_return": results["return"].mean(),
-        "median_return": results["return"].median(),
-        "average_mfe": results["mfe"].mean(),
-        "average_mae": results["mae"].mean(),
+        "wins": int(results["win"].sum()),
+        "losses": int((~results["win"]).sum()),
+        "win_rate": (
+            results["win"].mean() * 100
+        ),
+        "average_return": (
+            results["return"].mean()
+        ),
+        "median_return": (
+            results["return"].median()
+        ),
+        "average_mfe": (
+            results["mfe"].mean()
+        ),
+        "average_mae": (
+            results["mae"].mean()
+        ),
     }
 
 
-def collect_structure_events(structure_result):
-    collected = []
-
-    structure_groups = [
-        ("INTERNAL", structure_result["internal_structure"]),
-        ("EXTERNAL", structure_result["external_structure"]),
-    ]
-
-    for structure_type, structure_data in structure_groups:
-
-        for event in structure_data["events"]:
-
-            event_type = event.get("event")
-
-            if event_type not in EVENT_TYPES:
-                continue
-
-            event_copy = dict(event)
-            event_copy["structure_type"] = structure_type
-
-            collected.append(event_copy)
-
-    collected.sort(
-        key=lambda item: (
-            item["index"],
-            item["structure_type"],
-            item["event"],
-        )
-    )
-
-    return collected
-
-
-def print_result(
-    structure_type,
-    event_type,
-    direction_name,
-    horizon,
-    result
-):
-    if result is None:
-        print(
-            f"  {direction_name} | Horizon {horizon}: "
-            "No eligible observations"
-        )
-        return
-
-    print(
-        f"  {direction_name} | Horizon {horizon}: "
-        f"N={result['observations']}, "
-        f"WinRate={result['win_rate']:.2f}%, "
-        f"AvgReturn={result['average_return']:.5f}%, "
-        f"MedianReturn={result['median_return']:.5f}%, "
-        f"AvgMFE={result['average_mfe']:.5f}%, "
-        f"AvgMAE={result['average_mae']:.5f}%"
-    )
-
-
 def analyze_timeframe(timeframe):
+
     data = load_archive(timeframe)
 
-    candles = data.to_dict(
-        orient="records"
-    )
+    candles = [
+        {
+            "timestamp": int(row.timestamp),
+            "open": float(row.open),
+            "high": float(row.high),
+            "low": float(row.low),
+            "close": float(row.close),
+            "volume": float(row.volume),
+        }
+        for row in data.itertuples(index=False)
+    ]
 
-    structure_result = analyze_daily_structure(
+    analysis = analyze_daily_structure(
         candles,
         timeframe=timeframe
     )
 
+    if not isinstance(analysis, dict):
+        raise ValueError(
+            "Invalid daily structure analysis result."
+        )
+
+    if (
+        "internal_structure" not in analysis
+        or "external_structure" not in analysis
+    ):
+        raise ValueError(
+            "Internal or external structure missing."
+        )
+
     events = collect_structure_events(
-        structure_result
+        analysis,
+        timeframe
     )
+
+    for event in events:
+
+        if event["index"] >= len(data):
+            raise ValueError(
+                "Event index exceeds archive length."
+            )
+
+        actual_timestamp = int(
+            data.iloc[event["index"]]["timestamp"]
+        )
+
+        if (
+            event["timestamp"] is not None
+            and event["timestamp"] != actual_timestamp
+        ):
+            raise ValueError(
+                "Event timestamp does not match archive index."
+            )
+
+        if event["available_timestamp"] is None:
+            event["available_timestamp"] = (
+                actual_timestamp
+                + event["candle_duration"]
+            )
 
     print()
     print("=" * 75)
     print(f"TIMEFRAME: {timeframe}")
     print(f"Archive Candles: {len(data)}")
-    print(
-        "Internal Trend: "
-        f"{structure_result['internal_structure']['trend']}"
-    )
-    print(
-        "Internal Event Bias: "
-        f"{structure_result['internal_structure']['event_bias']}"
-    )
-    print(
-        "External Trend: "
-        f"{structure_result['external_structure']['trend']}"
-    )
-    print(
-        "External Event Bias: "
-        f"{structure_result['external_structure']['event_bias']}"
-    )
+    print(f"Total Structure Events: {len(events)}")
     print("=" * 75)
 
-    event_counts = {}
+    structure_names = [
+        "INTERNAL",
+        "EXTERNAL",
+    ]
 
-    for structure_type in ("INTERNAL", "EXTERNAL"):
+    total_evaluations = 0
+    total_eligible_events = 0
+
+    for structure_name in structure_names:
 
         structure_events = [
-            event for event in events
-            if event["structure_type"] == structure_type
+            event
+            for event in events
+            if event["structure"] == structure_name
         ]
 
         print()
         print("-" * 75)
-        print(f"STRUCTURE TYPE: {structure_type}")
+        print(f"STRUCTURE: {structure_name}")
+        print(f"Total Events: {len(structure_events)}")
         print("-" * 75)
 
         for event_type in EVENT_TYPES:
 
-            matching_events = [
-                event for event in structure_events
+            event_group = [
+                event
+                for event in structure_events
                 if event["event"] == event_type
             ]
 
-            event_count = len(matching_events)
-
-            event_counts[
-                (structure_type, event_type)
-            ] = event_count
-
             print()
-            print(f"EVENT TYPE: {event_type}")
-            print(f"Signal Count: {event_count}")
+            print(f"EVENT: {event_type}")
+            print(f"Signal Count: {len(event_group)}")
 
-            for direction_name, direction in DIRECTIONS.items():
+            for direction_name, direction_value in DIRECTIONS.items():
 
-                print(f"\nEvaluation Direction: {direction_name}")
+                print()
+                print(f"DIRECTION: {direction_name}")
 
                 for horizon in HORIZONS:
 
                     result = evaluate_event_type(
-                        data,
-                        matching_events,
-                        direction,
-                        horizon,
+                        data=data,
+                        events=event_group,
+                        direction=direction_value,
+                        horizon=horizon,
                     )
 
-                    print_result(
-                        structure_type,
-                        event_type,
-                        direction_name,
-                        horizon,
-                        result,
+                    if result is None:
+                        print(
+                            f"Horizon {horizon}: "
+                            "No eligible observations"
+                        )
+                        continue
+
+                    total_evaluations += 1
+
+                    if horizon == HORIZONS[0]:
+                        total_eligible_events += (
+                            result["observations"]
+                        )
+
+                    print(
+                        f"Horizon {horizon}: "
+                        f"N={result['observations']}, "
+                        f"Wins={result['wins']}, "
+                        f"Losses={result['losses']}, "
+                        f"WinRate={result['win_rate']:.2f}%, "
+                        f"AvgReturn={result['average_return']:.5f}%, "
+                        f"MedianReturn={result['median_return']:.5f}%, "
+                        f"AvgMFE={result['average_mfe']:.5f}%, "
+                        f"AvgMAE={result['average_mae']:.5f}%"
                     )
-
-    total_signals = sum(event_counts.values())
-
-    internal_count = sum(
-        count
-        for (structure_type, _), count in event_counts.items()
-        if structure_type == "INTERNAL"
-    )
-
-    external_count = sum(
-        count
-        for (structure_type, _), count in event_counts.items()
-        if structure_type == "EXTERNAL"
-    )
 
     print()
     print("=" * 75)
-    print(f"TOTAL INTERNAL SIGNALS: {internal_count}")
-    print(f"TOTAL EXTERNAL SIGNALS: {external_count}")
-    print(f"TOTAL STRUCTURE EVENTS: {total_signals}")
-    print("TIMEFRAME STATUS: PASS")
+    print(f"TIMEFRAME SUMMARY: {timeframe}")
+    print(f"Internal Events: {sum(1 for e in events if e['structure'] == 'INTERNAL')}")
+    print(f"External Events: {sum(1 for e in events if e['structure'] == 'EXTERNAL')}")
+    print(f"Eligible Event Observations: {total_eligible_events}")
+    print(f"Evaluation Groups: {total_evaluations}")
     print("=" * 75)
 
     return {
         "timeframe": timeframe,
         "candles": len(data),
-        "internal_signals": internal_count,
-        "external_signals": external_count,
-        "total_signals": total_signals,
+        "events": len(events),
+        "eligible_events": total_eligible_events,
+        "evaluation_groups": total_evaluations,
     }
 
 
 def main():
-    print("BOS AND CHOCH SIGNAL OUTCOME TEST")
+
+    print()
     print("=" * 75)
-    print("Structure Engine: DAILY_STRUCTURE")
-    print("Entry: Next Candle Open")
-    print("Outcome: Forward Candle Close")
-    print(f"Forward Horizons: {HORIZONS}")
-    print("Directions: LONG AND SHORT")
-    print("Structure Types: INTERNAL AND EXTERNAL")
+    print("BOS AND CHOCH LONG / SHORT EVENT STUDY")
+    print("=" * 75)
+
     print("Market: BTC-USDT SPOT")
     print("Data Source: Local OKX Archive")
-    print("Execution: Read Only")
-    print("Trading: DISABLED")
-    print("Fees and Slippage: NOT INCLUDED")
-    print("Stop Loss and Take Profit: NOT INCLUDED")
-    print("Cross-Timeframe Aggregation: DISABLED")
+    print("Structure Engine: DAILY_STRUCTURE")
+    print("Structures: INTERNAL + EXTERNAL")
+    print("Event Types: BOS + CHOCH")
+    print("Directions: LONG + SHORT")
+    print("Entry: Next Candle Open")
+    print(f"Forward Horizons: {HORIZONS}")
+    print("Swing Configuration: Engine Defaults")
+    print("Fees: NOT INCLUDED")
+    print("Slippage: NOT INCLUDED")
+    print("Stop Loss / Take Profit: NOT INCLUDED")
+    print("Overlapping Event Windows: NOT REMOVED")
+    print("Trading Execution: DISABLED")
+    print("Archive Modification: NO")
 
     successful = []
     failed = []
@@ -444,7 +563,11 @@ def main():
     for timeframe in TIMEFRAMES:
 
         try:
-            result = analyze_timeframe(timeframe)
+
+            result = analyze_timeframe(
+                timeframe
+            )
+
             successful.append(result)
 
         except Exception as error:
@@ -455,39 +578,32 @@ def main():
             })
 
             print()
+            print("=" * 75)
             print(f"TIMEFRAME FAILED: {timeframe}")
             print(f"ERROR: {error}")
+            print("=" * 75)
 
     print()
     print("=" * 75)
     print("FINAL EXECUTION REPORT")
     print("=" * 75)
-    print(f"Successful Timeframes: {len(successful)}")
-    print(f"Failed Timeframes: {len(failed)}")
-    print(f"Total Timeframes: {len(TIMEFRAMES)}")
 
-    total_internal = sum(
-        item["internal_signals"]
-        for item in successful
+    print(
+        f"Successful Timeframes: {len(successful)}"
     )
 
-    total_external = sum(
-        item["external_signals"]
-        for item in successful
+    print(
+        f"Failed Timeframes: {len(failed)}"
     )
 
-    total_signals = sum(
-        item["total_signals"]
-        for item in successful
+    print(
+        f"Total Timeframes: {len(TIMEFRAMES)}"
     )
-
-    print(f"Total Internal Signals: {total_internal}")
-    print(f"Total External Signals: {total_external}")
-    print(f"Total Structure Events: {total_signals}")
 
     if failed:
+
         print()
-        print("FAILED TIMEFRAMES:")
+        print("FAILED TIMEFRAMES")
 
         for item in failed:
             print(
