@@ -1,5 +1,6 @@
 
 VALID_TRENDS = {"BULLISH", "BEARISH"}
+
 VALID_EVENT_NAMES = {
     "BOS_BULLISH",
     "CHOCH_BULLISH",
@@ -143,6 +144,8 @@ def determine_market_direction(daily_result, four_hour_result):
         "event_bias": four_hour_event_bias or "UNKNOWN",
         "daily_reason": daily["reason"],
         "four_hour_reason": four_hour["reason"],
+        "daily_structure_reason": daily["reason"],
+        "four_hour_structure_reason": four_hour["reason"],
         "reason": "",
     }
 
