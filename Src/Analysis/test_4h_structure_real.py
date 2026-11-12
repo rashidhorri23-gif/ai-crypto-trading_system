@@ -1,5 +1,6 @@
 
 import csv
+from datetime import datetime, timezone
 from pathlib import Path
 
 from Src.Analysis.daily_structure import analyze_daily_structure
@@ -16,7 +17,8 @@ ARCHIVE_FILE = (
 
 
 def format_timestamp(timestamp):
-    from datetime import datetime, timezone
+    if timestamp is None:
+        return "N/A"
 
     timestamp = int(float(timestamp))
 
@@ -40,53 +42,81 @@ def load_candles():
     with ARCHIVE_FILE.open(
         "r",
         newline="",
-        encoding="utf-8"
+        encoding="utf-8-sig"
     ) as file:
         reader = csv.DictReader(file)
 
-        for row in reader:
-            candles.append({
-                "timestamp": int(float(row["timestamp"])),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row["volume"]),
-            })
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                candles.append({
+                    "timestamp": int(float(row["timestamp"])),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row.get("volume") or 0),
+                })
+            except (ValueError, TypeError, KeyError) as error:
+                raise ValueError(
+                    f"Invalid CSV row {row_number}: {error}"
+                ) from error
 
     return candles[-540:]
 
 
+def print_swing(title, swing):
+    if not swing:
+        print(f"{title}: NONE")
+        return
+
+    print(
+        f"{title} | "
+        f"Type: {swing.get('type')} | "
+        f"Price: {swing.get('price')} | "
+        f"Pivot: {format_timestamp(swing.get('timestamp'))} | "
+        f"Confirmed: {format_timestamp(swing.get('confirmation_timestamp'))} | "
+        f"Index: {swing.get('index')} | "
+        f"Confirmation Index: {swing.get('confirmation_index')}"
+    )
+
+
 def print_structure(title, result):
-    print("\n" + "=" * 55)
+    print("\n" + "=" * 72)
     print(title)
-    print("=" * 55)
+    print("=" * 72)
 
     print("Trend:", result.get("trend"))
+    print("Structure Reason:", result.get("reason"))
+    print("High Structure:", result.get("high_structure"))
+    print("Low Structure:", result.get("low_structure"))
     print("Event Bias:", result.get("event_bias"))
 
-    structure = result.get("structure", {})
+    print("Swing High Count:", result.get("swing_high_count"))
+    print("Swing Low Count:", result.get("swing_low_count"))
 
-    print("Structure Reason:", structure.get("reason"))
-    print("Swing High Count:", structure.get("high_count"))
-    print("Swing Low Count:", structure.get("low_count"))
+    print_swing(
+        "Latest Swing High",
+        result.get("latest_swing_high")
+    )
 
-    for key in (
-        "previous_high",
-        "latest_high",
-        "previous_low",
-        "latest_low"
-    ):
-        point = structure.get(key)
+    print_swing(
+        "Latest Swing Low",
+        result.get("latest_swing_low")
+    )
 
-        if point:
-            print(
-                key,
-                "| Price:", point["price"],
-                "| Time:", format_timestamp(point["timestamp"]),
-                "| Confirmed:",
-                format_timestamp(point["confirmation_timestamp"])
-            )
+    swings = result.get("swings", [])
+
+    print("\nConfirmed Swings:", len(swings))
+
+    for swing in swings[-10:]:
+        print(
+            f"{swing.get('type')} | "
+            f"Price: {swing.get('price')} | "
+            f"Pivot: {format_timestamp(swing.get('timestamp'))} | "
+            f"Available: {format_timestamp(swing.get('confirmation_timestamp'))} | "
+            f"Index: {swing.get('index')} | "
+            f"Confirmation Index: {swing.get('confirmation_index')}"
+        )
 
     events = result.get("events", [])
 
@@ -94,17 +124,19 @@ def print_structure(title, result):
 
     for event in events:
         print(
-            event.get("event"),
-            "| Level:", event.get("level", "N/A"),
-            "| Close:", event.get("close", "N/A"),
-            "| Time:", format_timestamp(event["timestamp"]),
-            "| Confirmation:", event.get("confirmation", "N/A")
+            f"{event.get('event')} | "
+            f"Direction: {event.get('direction')} | "
+            f"Level: {event.get('level', 'N/A')} | "
+            f"Time: {format_timestamp(event.get('timestamp'))} | "
+            f"Available: {format_timestamp(event.get('available_timestamp'))} | "
+            f"Broken Swing: {event.get('broken_swing_type')} | "
+            f"Broken Swing Index: {event.get('broken_swing_index')}"
         )
 
 
 def run_real_4h_test():
     print("REAL OKX 4H STRUCTURE TEST")
-    print("=" * 55)
+    print("=" * 72)
 
     candles = load_candles()
 
@@ -119,7 +151,10 @@ def run_real_4h_test():
     print("Last candle:", format_timestamp(candles[-1]["timestamp"]))
     print("Latest close:", candles[-1]["close"])
 
-    result = analyze_daily_structure(candles)
+    result = analyze_daily_structure(
+        candles,
+        timeframe="4H"
+    )
 
     print_structure(
         "4H INTERNAL STRUCTURE",
@@ -131,12 +166,15 @@ def run_real_4h_test():
         result["external_structure"]
     )
 
-    print("\n" + "=" * 55)
+    print("\n" + "=" * 72)
     print("FINAL 4H DECISION")
-    print("=" * 55)
+    print("=" * 72)
 
-    print("Allowed Direction:", result["allowed_direction"])
-    print("Status:", result["status"])
+    print("Combined Trend:", result.get("trend"))
+    print("External Event Bias:", result.get("event_bias"))
+    print("Allowed Direction:", result.get("allowed_direction"))
+    print("Directions to Evaluate:", result.get("trade_directions_to_evaluate"))
+    print("Status:", result.get("status"))
 
     print("\nREAL 4H DATA TEST COMPLETED")
 
