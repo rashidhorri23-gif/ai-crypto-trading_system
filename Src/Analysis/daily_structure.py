@@ -26,15 +26,14 @@ def validate_candles(candles):
                 f"Candle at index {index} must be a dictionary"
             )
 
+        converted = dict(candle)
+
         for field in required_fields:
-            if field not in candle:
+            if field not in converted:
                 raise ValueError(
                     f"Missing field '{field}' at candle index {index}"
                 )
 
-        converted = dict(candle)
-
-        for field in required_fields:
             value = converted[field]
 
             if isinstance(value, bool):
@@ -117,16 +116,17 @@ def infer_candle_duration(candles):
             "At least two candles are required"
         )
 
-    differences = []
+    differences = [
+        candles[index]["timestamp"]
+        - candles[index - 1]["timestamp"]
+        for index in range(1, len(candles))
+    ]
 
-    for index in range(1, len(candles)):
-        difference = (
-            candles[index]["timestamp"]
-            - candles[index - 1]["timestamp"]
-        )
-
-        if difference > 0:
-            differences.append(difference)
+    differences = [
+        difference
+        for difference in differences
+        if difference > 0
+    ]
 
     if not differences:
         raise ValueError(
@@ -163,6 +163,7 @@ def detect_swings(
     candles,
     left_bars=3,
     right_bars=3,
+    candle_duration=None,
 ):
     for name, value in (
         ("left_bars", left_bars),
@@ -176,6 +177,9 @@ def detect_swings(
             raise ValueError(
                 f"{name} must be a positive integer"
             )
+
+    if candle_duration is None:
+        candle_duration = infer_candle_duration(candles)
 
     swings = []
 
@@ -233,14 +237,17 @@ def detect_swings(
 
         confirmation_index = index + right_bars
 
+        confirmation_timestamp = (
+            candles[confirmation_index]["timestamp"]
+            + candle_duration
+        )
+
         if is_swing_high:
             swing = {
                 "index": index,
                 "timestamp": current["timestamp"],
                 "confirmation_index": confirmation_index,
-                "confirmation_timestamp": (
-                    candles[confirmation_index]["timestamp"]
-                ),
+                "confirmation_timestamp": confirmation_timestamp,
                 "ambiguous_same_candle": is_swing_low,
                 "type": "HIGH",
                 "price": current["high"],
@@ -257,9 +264,7 @@ def detect_swings(
                 "index": index,
                 "timestamp": current["timestamp"],
                 "confirmation_index": confirmation_index,
-                "confirmation_timestamp": (
-                    candles[confirmation_index]["timestamp"]
-                ),
+                "confirmation_timestamp": confirmation_timestamp,
                 "ambiguous_same_candle": is_swing_high,
                 "type": "LOW",
                 "price": current["low"],
@@ -314,25 +319,28 @@ def classify_market_structure(swings):
         higher_highs > lower_highs
         and higher_lows > lower_lows
     ):
-        trend = "BULLISH"
+        swing_trend = "BULLISH"
 
     elif (
         lower_highs > higher_highs
         and lower_lows > higher_lows
     ):
-        trend = "BEARISH"
+        swing_trend = "BEARISH"
 
     else:
-        trend = "SIDEWAYS"
+        swing_trend = "SIDEWAYS"
 
     return {
-        "trend": trend,
+        "trend": swing_trend,
+        "swing_trend": swing_trend,
         "higher_highs": higher_highs,
         "lower_highs": lower_highs,
         "higher_lows": higher_lows,
         "lower_lows": lower_lows,
         "swing_high_count": len(highs),
         "swing_low_count": len(lows),
+        "high_count": len(highs),
+        "low_count": len(lows),
     }
 
 
@@ -347,7 +355,6 @@ def analyze_structure_events(
     active_lows = []
 
     broken_levels = set()
-
     previous_direction = 0
 
     swings_by_confirmation = {}
@@ -369,12 +376,10 @@ def analyze_structure_events(
         for swing in newly_confirmed:
             if swing["type"] == "HIGH":
                 active_highs.append(swing)
-
             elif swing["type"] == "LOW":
                 active_lows.append(swing)
 
         close_price = candle["close"]
-
         broken_candidates = []
 
         for swing in active_highs:
@@ -441,6 +446,10 @@ def analyze_structure_events(
                 else "CHOCH_BEARISH"
             )
 
+        event_confirmation = (
+            candle["timestamp"] + candle_duration
+        )
+
         events.append({
             "event": event_name,
             "type": event_name,
@@ -453,23 +462,142 @@ def analyze_structure_events(
             "level_timestamp": selected_swing["timestamp"],
             "timestamp": candle["timestamp"],
             "index": candle_index,
+            "close": close_price,
             "swing_index": selected_swing["index"],
-            "confirmation_timestamp": (
+            "confirmation": event_confirmation,
+            "confirmation_timestamp": event_confirmation,
+            "available_timestamp": event_confirmation,
+            "broken_swing_confirmation_timestamp": (
                 selected_swing["confirmation_timestamp"]
-            ),
-            "available_timestamp": (
-                candle["timestamp"] + candle_duration
             ),
         })
 
-        # All levels already broken by this candle are consumed.
-        # This prevents delayed duplicate events on later candles.
         for _, _, broken_key in broken_candidates:
             broken_levels.add(broken_key)
 
         previous_direction = direction
 
     return events
+
+
+def get_latest_swing_points(swings):
+    highs = [
+        swing for swing in swings
+        if swing["type"] == "HIGH"
+    ]
+
+    lows = [
+        swing for swing in swings
+        if swing["type"] == "LOW"
+    ]
+
+    highs.sort(
+        key=lambda swing: swing["confirmation_index"]
+    )
+
+    lows.sort(
+        key=lambda swing: swing["confirmation_index"]
+    )
+
+    def convert_point(swing):
+        if swing is None:
+            return None
+
+        return {
+            "price": swing["price"],
+            "timestamp": swing["timestamp"],
+            "confirmation_timestamp": (
+                swing["confirmation_timestamp"]
+            ),
+            "index": swing["index"],
+            "confirmation_index": swing["confirmation_index"],
+        }
+
+    return {
+        "previous_high": (
+            convert_point(highs[-2])
+            if len(highs) >= 2
+            else None
+        ),
+        "latest_high": (
+            convert_point(highs[-1])
+            if highs
+            else None
+        ),
+        "previous_low": (
+            convert_point(lows[-2])
+            if len(lows) >= 2
+            else None
+        ),
+        "latest_low": (
+            convert_point(lows[-1])
+            if lows
+            else None
+        ),
+    }
+
+
+def build_structure_result(
+    candles,
+    swings,
+    events,
+    classification,
+    structure_type,
+):
+    latest_event = events[-1] if events else None
+
+    event_bias = (
+        latest_event["direction"]
+        if latest_event
+        else None
+    )
+
+    swing_trend = classification["swing_trend"]
+
+    trend = (
+        event_bias
+        if event_bias is not None
+        else swing_trend
+    )
+
+    swing_points = get_latest_swing_points(swings)
+
+    if latest_event:
+        reason = (
+            f"Latest confirmed structure event: "
+            f"{latest_event['event']}"
+        )
+    else:
+        reason = (
+            f"No confirmed structure event; "
+            f"using swing classification: {swing_trend}"
+        )
+
+    structure = {
+        "reason": reason,
+        "structure_type": structure_type,
+        "high_count": classification["swing_high_count"],
+        "low_count": classification["swing_low_count"],
+        "swing_high_count": classification["swing_high_count"],
+        "swing_low_count": classification["swing_low_count"],
+        "higher_highs": classification["higher_highs"],
+        "lower_highs": classification["lower_highs"],
+        "higher_lows": classification["higher_lows"],
+        "lower_lows": classification["lower_lows"],
+        "swing_trend": swing_trend,
+        **swing_points,
+    }
+
+    return {
+        "trend": trend,
+        "event_bias": event_bias,
+        "structure": structure,
+        "swings": swings,
+        "events": events,
+        "swing_high_count": classification["swing_high_count"],
+        "swing_low_count": classification["swing_low_count"],
+        "latest_event": latest_event,
+    }
 
 
 def analyze_daily_structure(
@@ -499,19 +627,21 @@ def analyze_daily_structure(
         candles,
         left_bars=internal_left_bars,
         right_bars=internal_right_bars,
+        candle_duration=candle_duration,
     )
 
     external_swings = detect_swings(
         candles,
         left_bars=5,
         right_bars=5,
+        candle_duration=candle_duration,
     )
 
-    internal_structure = classify_market_structure(
+    internal_classification = classify_market_structure(
         internal_swings
     )
 
-    external_structure = classify_market_structure(
+    external_classification = classify_market_structure(
         external_swings
     )
 
@@ -527,17 +657,21 @@ def analyze_daily_structure(
         candle_duration,
     )
 
-    internal_data = {
-        "swings": internal_swings,
-        "structure": internal_structure,
-        "events": internal_events,
-    }
+    internal_data = build_structure_result(
+        candles,
+        internal_swings,
+        internal_events,
+        internal_classification,
+        "INTERNAL",
+    )
 
-    external_data = {
-        "swings": external_swings,
-        "structure": external_structure,
-        "events": external_events,
-    }
+    external_data = build_structure_result(
+        candles,
+        external_swings,
+        external_events,
+        external_classification,
+        "EXTERNAL",
+    )
 
     return {
         "timeframe": timeframe,
@@ -546,10 +680,17 @@ def analyze_daily_structure(
         "internal": internal_data,
         "external": external_data,
         "context": {
-            "internal_trend": internal_structure.get("trend"),
-            "external_trend": external_structure.get("trend"),
+            "internal_trend": internal_data["trend"],
+            "external_trend": external_data["trend"],
+            "internal_swing_trend": (
+                internal_classification["swing_trend"]
+            ),
+            "external_swing_trend": (
+                external_classification["swing_trend"]
+            ),
         },
-        "trend": external_structure.get("trend"),
+        "trend": external_data["trend"],
+        "event_bias": external_data["event_bias"],
         "allowed_direction": "BOTH",
         "trade_directions_to_evaluate": [
             "LONG",
