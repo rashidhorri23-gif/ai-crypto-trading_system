@@ -1,22 +1,105 @@
 
+import csv
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from Src.Analysis.four_hour_setup import generate_four_hour_setup
+
+
+SYMBOL = "BTC-USDT"
+TIMEFRAME = "4H"
+
+ARCHIVE_PATH = (
+    PROJECT_ROOT
+    / "Data"
+    / "Historical"
+    / "BTC_USDT_SPOT_4H.csv"
+)
+
+MINIMUM_CANDLES = 100
+
+
+def load_four_hour_candles():
+    if not ARCHIVE_PATH.exists():
+        raise FileNotFoundError(
+            f"4H archive not found: {ARCHIVE_PATH}"
+        )
+
+    candles = []
+
+    with ARCHIVE_PATH.open(
+        "r",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            try:
+                candle = {
+                    "timestamp": int(
+                        float(row["timestamp"])
+                    ),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                }
+
+                candles.append(candle)
+
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    candles.sort(
+        key=lambda item: item["timestamp"]
+    )
+
+    unique_candles = []
+    seen_timestamps = set()
+
+    for candle in candles:
+        timestamp = candle["timestamp"]
+
+        if timestamp in seen_timestamps:
+            continue
+
+        seen_timestamps.add(timestamp)
+        unique_candles.append(candle)
+
+    return unique_candles
+
+
 def run_historical_confluence_audit(candles):
     print("\n" + "=" * 72, flush=True)
     print("HISTORICAL 4H CONFLUENCE AUDIT", flush=True)
     print("=" * 72, flush=True)
+    print("Symbol:", SYMBOL, flush=True)
+    print("Timeframe:", TIMEFRAME, flush=True)
     print("Method: Historical prefix scan", flush=True)
-    print("Timeframe: 4H", flush=True)
     print("Directions: LONG and SHORT", flush=True)
     print("OB/FVG overlap filter: STRICT", flush=True)
+    print("Lookahead: DISABLED", flush=True)
     print("Live Trading: DISABLED", flush=True)
     print("Archive Modification: NO", flush=True)
 
-    if not isinstance(candles, (list, tuple)) or len(candles) < 100:
-        print("AUDIT STATUS: INSUFFICIENT_DATA", flush=True)
-        print("Minimum required candles: 100", flush=True)
-        print("Received candles:", len(candles) if candles else 0, flush=True)
+    if not isinstance(candles, (list, tuple)):
+        print("AUDIT STATUS: INVALID_DATA", flush=True)
         return
 
-    total_prefixes = len(candles) - 99
+    if len(candles) < MINIMUM_CANDLES:
+        print("AUDIT STATUS: INSUFFICIENT_DATA", flush=True)
+        print("Minimum required:", MINIMUM_CANDLES, flush=True)
+        print("Received:", len(candles), flush=True)
+        return
+
+    total_prefixes = len(candles) - MINIMUM_CANDLES + 1
     total_evaluations = 0
 
     discovered_setups = {}
@@ -33,11 +116,10 @@ def run_historical_confluence_audit(candles):
 
     print("\nAUDIT STARTED", flush=True)
     print("Historical Candles:", len(candles), flush=True)
-    print("Total Prefixes:", total_prefixes, flush=True)
+    print("Evaluated Prefixes:", total_prefixes, flush=True)
     print("Expected Evaluations:", total_prefixes * 2, flush=True)
 
-    for end_index in range(100, len(candles) + 1):
-
+    for end_index in range(MINIMUM_CANDLES, len(candles) + 1):
         historical_candles = candles[:end_index]
 
         for direction in ("LONG", "SHORT"):
@@ -61,10 +143,8 @@ def run_historical_confluence_audit(candles):
 
                 if isinstance(nested_setup, dict):
                     setup = dict(nested_setup)
-
                 elif result.get("setup_id"):
                     setup = dict(result)
-
                 else:
                     skipped_results["MISSING_SETUP"] += 1
                     continue
@@ -103,20 +183,22 @@ def run_historical_confluence_audit(candles):
 
                 previous = discovered_setups.get(setup_id)
 
-                if previous:
-                    first_seen_index = previous["first_seen_index"]
-                    observations = previous["observations"] + 1
+                if previous is None:
+                    setup["first_seen_index"] = end_index - 1
+                    setup["observations"] = 1
                 else:
-                    first_seen_index = end_index - 1
-                    observations = 1
+                    setup["first_seen_index"] = (
+                        previous["first_seen_index"]
+                    )
+                    setup["observations"] = (
+                        previous["observations"] + 1
+                    )
 
                 setup["available_timestamp"] = available_timestamp
                 setup["direction"] = setup_direction
                 setup["status"] = status
                 setup["reason"] = reason
-                setup["first_seen_index"] = first_seen_index
                 setup["last_seen_index"] = end_index - 1
-                setup["observations"] = observations
 
                 discovered_setups[setup_id] = setup
 
@@ -135,7 +217,7 @@ def run_historical_confluence_audit(candles):
                         "message": str(error),
                     })
 
-        completed_prefixes = end_index - 99
+        completed_prefixes = end_index - MINIMUM_CANDLES + 1
 
         if (
             completed_prefixes % 25 == 0
@@ -148,7 +230,7 @@ def run_historical_confluence_audit(candles):
                 total_prefixes,
                 "| Evaluations:",
                 total_evaluations,
-                "| Unique Setups:",
+                "| Setups:",
                 len(discovered_setups),
                 "| Errors:",
                 sum(error_counts.values()),
@@ -157,33 +239,33 @@ def run_historical_confluence_audit(candles):
 
     setups = list(discovered_setups.values())
 
-    status_counts = {}
     direction_counts = {
         "LONG": 0,
         "SHORT": 0,
     }
 
-    confluence_counts = {
-        "CONFIRMED_CONFLUENCE": 0,
-        "WATCH_NO_ZONE_OVERLAP": 0,
-        "OTHER": 0,
-    }
+    status_counts = {}
 
     for setup in setups:
-        status = str(setup.get("status", "UNKNOWN"))
         direction = str(setup.get("direction", "UNKNOWN"))
+        status = str(setup.get("status", "UNKNOWN"))
+
+        if direction in direction_counts:
+            direction_counts[direction] += 1
 
         status_counts[status] = (
             status_counts.get(status, 0) + 1
         )
 
-        if direction in direction_counts:
-            direction_counts[direction] += 1
+    confirmed = status_counts.get(
+        "CONFIRMED_CONFLUENCE", 0
+    )
 
-        if status in confluence_counts:
-            confluence_counts[status] += 1
-        else:
-            confluence_counts["OTHER"] += 1
+    no_overlap = status_counts.get(
+        "WATCH_NO_ZONE_OVERLAP", 0
+    )
+
+    other = len(setups) - confirmed - no_overlap
 
     print("\nHISTORICAL SUMMARY", flush=True)
     print("-" * 72, flush=True)
@@ -200,29 +282,21 @@ def run_historical_confluence_audit(candles):
 
     print("\nCONFLUENCE RESULTS", flush=True)
     print("-" * 72, flush=True)
-    print(
-        "Confirmed Confluence:",
-        confluence_counts["CONFIRMED_CONFLUENCE"],
-        flush=True
-    )
-    print(
-        "Watch Without Zone Overlap:",
-        confluence_counts["WATCH_NO_ZONE_OVERLAP"],
-        flush=True
-    )
-    print("Other Statuses:", confluence_counts["OTHER"], flush=True)
-
-    print("\nSKIPPED RESULTS", flush=True)
-    print("-" * 72, flush=True)
-
-    for name, count in skipped_results.items():
-        print(f"{name}: {count}", flush=True)
+    print("Confirmed Confluence:", confirmed, flush=True)
+    print("Watch Without Zone Overlap:", no_overlap, flush=True)
+    print("Other Statuses:", other, flush=True)
 
     print("\nSTATUS DISTRIBUTION", flush=True)
     print("-" * 72, flush=True)
 
     for status, count in sorted(status_counts.items()):
         print(f"{status}: {count}", flush=True)
+
+    print("\nSKIPPED RESULTS", flush=True)
+    print("-" * 72, flush=True)
+
+    for name, count in skipped_results.items():
+        print(f"{name}: {count}", flush=True)
 
     print("\nSETUP DETAILS", flush=True)
     print("-" * 72, flush=True)
@@ -247,13 +321,11 @@ def run_historical_confluence_audit(candles):
 
     if error_counts:
         print("\nAUDIT ERRORS", flush=True)
-        print("-" * 72, flush=True)
 
-        for error_name, count in sorted(error_counts.items()):
-            print(f"{error_name}: {count}", flush=True)
+        for name, count in sorted(error_counts.items()):
+            print(f"{name}: {count}", flush=True)
 
         print("\nERROR EXAMPLES", flush=True)
-        print("-" * 72, flush=True)
 
         for example in error_examples:
             print(
@@ -268,3 +340,17 @@ def run_historical_confluence_audit(candles):
     print("Live Trading: DISABLED", flush=True)
     print("Archive Modification: NO", flush=True)
     print("=" * 72, flush=True)
+
+
+def main():
+    print("Starting historical confluence audit", flush=True)
+
+    candles = load_four_hour_candles()
+
+    print("Loaded 4H candles:", len(candles), flush=True)
+
+    run_historical_confluence_audit(candles)
+
+
+if __name__ == "__main__":
+    main()
