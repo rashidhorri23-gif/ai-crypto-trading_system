@@ -98,15 +98,23 @@ def extract_external_state(result):
         if last_available is not None and available > last_available:
             continue
 
-        valid_events.append((available, event_index, direction, event))
+        valid_events.append(
+            (available, event_index, direction, event)
+        )
 
     if valid_events:
-        valid_events.sort(key=lambda item: (item[0], item[1]))
+        valid_events.sort(
+            key=lambda item: (item[0], item[1])
+        )
+
         latest = valid_events[-1]
         event_bias = latest[2]
         last_event = latest[3]
+
     else:
-        event_bias = _normalize_trend(external.get("event_bias"))
+        event_bias = _normalize_trend(
+            external.get("event_bias")
+        )
         last_event = None
 
     reason = (
@@ -137,6 +145,7 @@ def determine_market_direction(daily_result, four_hour_result):
         "status": "WAIT",
         "allowed_direction": "WAIT",
         "trade_directions": [],
+        "trade_directions_to_evaluate": [],
         "daily_bias": daily_bias or "UNKNOWN",
         "four_hour_bias": four_hour_bias or "UNKNOWN",
         "daily_event_bias": daily_event_bias or "UNKNOWN",
@@ -161,24 +170,40 @@ def determine_market_direction(daily_result, four_hour_result):
         result["reason"] = "Daily and 4H trends disagree. WAIT."
         return result
 
-    if daily_event_bias is not None and daily_event_bias != daily_bias:
-        result["reason"] = "Daily event bias conflicts with daily trend. WAIT."
+    if (
+        daily_event_bias is not None
+        and daily_event_bias != daily_bias
+    ):
+        result["reason"] = (
+            "Daily event bias conflicts with daily trend. WAIT."
+        )
         return result
 
-    if four_hour_event_bias is not None and four_hour_event_bias != four_hour_bias:
-        result["reason"] = "4H event bias conflicts with 4H trend. WAIT."
+    if (
+        four_hour_event_bias is not None
+        and four_hour_event_bias != four_hour_bias
+    ):
+        result["reason"] = (
+            "4H event bias conflicts with 4H trend. WAIT."
+        )
         return result
 
     if daily_bias == "BULLISH":
         result["status"] = "ALIGNED"
         result["allowed_direction"] = "LONG"
         result["trade_directions"] = ["LONG"]
-        result["reason"] = "Daily and 4H trends are aligned bullish."
+        result["trade_directions_to_evaluate"] = ["LONG"]
+        result["reason"] = (
+            "Daily and 4H trends are aligned bullish."
+        )
 
     else:
         result["status"] = "ALIGNED"
         result["allowed_direction"] = "SHORT"
         result["trade_directions"] = ["SHORT"]
-        result["reason"] = "Daily and 4H trends are aligned bearish."
+        result["trade_directions_to_evaluate"] = ["SHORT"]
+        result["reason"] = (
+            "Daily and 4H trends are aligned bearish."
+        )
 
     return result
