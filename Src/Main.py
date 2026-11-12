@@ -8,17 +8,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from Src.Config import settings
+
 from Src.Data.okx_client import (
     fetch_historical_candles,
-    fetch_new_candles
-)
-from Src.Data.archive import (
-    save_candles,
-    get_latest_timestamp
+    fetch_new_candles,
 )
 
-from Src.Analysis.daily_structure import analyze_daily_structure
-from Src.Analysis.market_direction import determine_market_direction
+from Src.Data.archive import (
+    save_candles,
+    get_latest_timestamp,
+)
+
+from Src.Analysis.daily_structure import (
+    analyze_daily_structure,
+)
+
+from Src.Analysis.market_direction import (
+    determine_market_direction,
+)
+
+from Src.Analysis.four_hour_setup import (
+    generate_four_hour_setup,
+)
 
 
 MARKET = "SPOT"
@@ -27,28 +38,28 @@ TIMEFRAME_CONFIG = {
     "1D": {
         "target": 365,
         "interval_ms": 86400000,
-        "filename": "BTC_USDT_SPOT_1D.csv"
+        "filename": "BTC_USDT_SPOT_1D.csv",
     },
     "4H": {
         "target": 540,
         "interval_ms": 14400000,
-        "filename": "BTC_USDT_SPOT_4H.csv"
+        "filename": "BTC_USDT_SPOT_4H.csv",
     },
     "1H": {
         "target": 720,
         "interval_ms": 3600000,
-        "filename": "BTC_USDT_SPOT_1H.csv"
+        "filename": "BTC_USDT_SPOT_1H.csv",
     },
     "15m": {
         "target": 960,
         "interval_ms": 900000,
-        "filename": "BTC_USDT_SPOT_15m.csv"
+        "filename": "BTC_USDT_SPOT_15m.csv",
     },
     "5m": {
         "target": 1016,
         "interval_ms": 300000,
-        "filename": "BTC_USDT_SPOT_5m.csv"
-    }
+        "filename": "BTC_USDT_SPOT_5m.csv",
+    },
 }
 
 
@@ -65,7 +76,7 @@ def count_archive_rows(filename):
     with archive_path.open(
         "r",
         newline="",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
         reader = csv.DictReader(file)
         return sum(1 for row in reader)
@@ -100,7 +111,7 @@ def initialize_archive(timeframe, config):
         market=MARKET,
         timeframe=timeframe,
         total_candles=target,
-        page_size=100
+        page_size=100,
     )
 
     if len(candles) != target:
@@ -131,7 +142,7 @@ def update_archive(timeframe, config):
 
     last_time = datetime.fromtimestamp(
         last_timestamp / 1000,
-        tz=timezone.utc
+        tz=timezone.utc,
     )
 
     print(f"\n{timeframe} INCREMENTAL UPDATE")
@@ -142,7 +153,7 @@ def update_archive(timeframe, config):
         market=MARKET,
         timeframe=timeframe,
         last_timestamp=last_timestamp,
-        page_size=100
+        page_size=100,
     )
 
     print(f"New Candles Retrieved: {len(candles)}")
@@ -155,7 +166,7 @@ def update_archive(timeframe, config):
 
         newest_time = datetime.fromtimestamp(
             candles[-1]["timestamp"] / 1000,
-            tz=timezone.utc
+            tz=timezone.utc,
         )
 
         print(f"Newest Candle UTC: {newest_time.isoformat()}")
@@ -181,7 +192,7 @@ def audit_archive(filename, interval_ms):
     with archive_path.open(
         "r",
         newline="",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
         reader = csv.DictReader(file)
 
@@ -202,18 +213,18 @@ def audit_archive(filename, interval_ms):
                         open_price,
                         high_price,
                         low_price,
-                        close_price
+                        close_price,
                     ) <= 0
                     or volume < 0
                     or high_price < max(
                         open_price,
                         close_price,
-                        low_price
+                        low_price,
                     )
                     or low_price > min(
                         open_price,
                         close_price,
-                        high_price
+                        high_price,
                     )
                 ):
                     invalid_rows += 1
@@ -259,16 +270,19 @@ def audit_archive(filename, interval_ms):
 
     first_time = datetime.fromtimestamp(
         unique_timestamps[0] / 1000,
-        tz=timezone.utc
+        tz=timezone.utc,
     )
 
     last_time = datetime.fromtimestamp(
         unique_timestamps[-1] / 1000,
-        tz=timezone.utc
+        tz=timezone.utc,
     )
 
     expected_count = (
-        (unique_timestamps[-1] - unique_timestamps[0])
+        (
+            unique_timestamps[-1]
+            - unique_timestamps[0]
+        )
         // interval_ms
     ) + 1
 
@@ -298,14 +312,13 @@ def audit_archive(filename, interval_ms):
     print(f"Last Candle UTC: {last_time.isoformat()}")
     print(f"Expected Continuous Count: {expected_count}")
     print(f"Continuous Timeline: {continuous}")
-    print(f"AUDIT STATUS: {'PASS' if passed else 'ISSUES DETECTED'}")
+    print(
+        f"AUDIT STATUS: "
+        f"{'PASS' if passed else 'ISSUES DETECTED'}"
+    )
 
     return passed
 
-
-# ============================================================
-# MARKET DIRECTION
-# ============================================================
 
 def load_structure_candles(filename, limit):
     archive_path = get_archive_path(filename)
@@ -320,7 +333,7 @@ def load_structure_candles(filename, limit):
     with archive_path.open(
         "r",
         newline="",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
         reader = csv.DictReader(file)
 
@@ -332,7 +345,7 @@ def load_structure_candles(filename, limit):
                     "high": float(row["high"]),
                     "low": float(row["low"]),
                     "close": float(row["close"]),
-                    "volume": float(row["volume"])
+                    "volume": float(row["volume"]),
                 }
 
                 candles.append(candle)
@@ -342,7 +355,9 @@ def load_structure_candles(filename, limit):
                     f"Invalid candle in {filename}: {error}"
                 )
 
-    candles.sort(key=lambda candle: candle["timestamp"])
+    candles.sort(
+        key=lambda candle: candle["timestamp"]
+    )
 
     if len(candles) < limit:
         raise RuntimeError(
@@ -359,26 +374,30 @@ def run_market_direction_analysis():
 
     daily_candles = load_structure_candles(
         TIMEFRAME_CONFIG["1D"]["filename"],
-        90
+        90,
     )
 
     four_hour_candles = load_structure_candles(
         TIMEFRAME_CONFIG["4H"]["filename"],
-        540
+        540,
     )
 
     print(f"Daily Candles: {len(daily_candles)}")
     print(f"4H Candles: {len(four_hour_candles)}")
 
-    daily_result = analyze_daily_structure(daily_candles)
+    daily_result = analyze_daily_structure(
+        daily_candles,
+        timeframe="1D",
+    )
 
     four_hour_result = analyze_daily_structure(
-        four_hour_candles
+        four_hour_candles,
+        timeframe="4H",
     )
 
     decision = determine_market_direction(
         daily_result,
-        four_hour_result
+        four_hour_result,
     )
 
     print("\nDAILY MARKET STRUCTURE")
@@ -400,10 +419,98 @@ def run_market_direction_analysis():
     print("Reason:", decision["reason"])
     print(
         "Trade Directions:",
-        decision["trade_directions_to_evaluate"]
+        decision["trade_directions_to_evaluate"],
     )
 
-    return decision
+    return decision, four_hour_candles
+
+
+def print_setup_report(result):
+    print("\n4H SETUP ENGINE REPORT")
+    print("======================")
+
+    print("Status:", result["status"])
+    print("Allowed Direction:", result["allowed_direction"])
+    print("Reason:", result["reason"])
+
+    setup = result.get("setup")
+
+    if setup is None:
+        print("Setup: NONE")
+        print("Entry Confirmation: NOT AVAILABLE")
+        return
+
+    print("\nSETUP DETAILS")
+    print("-------------")
+    print("Setup ID:", setup["setup_id"])
+    print("Symbol:", setup["symbol"])
+    print("Direction:", setup["direction"])
+    print("Structure Event:", setup["structure_event"])
+    print("Structure Event Timestamp:", setup["structure_event_timestamp"])
+    print("Available Timestamp:", setup["available_timestamp"])
+    print("Expiry Timestamp:", setup["expiry_timestamp"])
+
+    print("\nENTRY ZONE")
+    print("----------")
+    print("Zone Source:", setup["entry_zone"]["source"])
+    print("Zone Low:", setup["entry_zone"]["low"])
+    print("Zone High:", setup["entry_zone"]["high"])
+    print("Reference Entry:", setup["entry_reference"])
+
+    print("\nRISK MANAGEMENT")
+    print("---------------")
+    print("Stop Loss:", setup["stop_loss"])
+    print("Take Profit:", setup["take_profit"])
+    print("Risk Distance:", setup["risk_distance"])
+    print("Risk Reward:", setup["risk_reward"])
+
+    print("\nCONFLUENCE")
+    print("----------")
+    print("Order Block:", setup["order_block"])
+    print("FVG:", setup["fvg"])
+    print("Zone Overlap:", setup["zone_overlap"])
+    print("Stop Swing:", setup["stop_swing"])
+
+    if setup["status"] == "CONFIRMED_CONFLUENCE":
+        print("\nENTRY CONFIRMATION")
+        print("------------------")
+        print("Status: WAITING FOR LOWER-TIMEFRAME CONFIRMATION")
+        print("Entry Signal: NOT GENERATED")
+    else:
+        print("\nENTRY CONFIRMATION")
+        print("------------------")
+        print("Status: WATCH ONLY")
+        print("Entry Signal: NOT GENERATED")
+
+    print("Live Trading: DISABLED")
+
+
+def run_four_hour_setup_engine(
+    market_decision,
+    four_hour_candles,
+):
+    print("\nRUNNING 4H SETUP ENGINE")
+    print("=======================")
+
+    allowed_direction = market_decision["allowed_direction"]
+
+    if allowed_direction == "WAIT":
+        print("Setup generation blocked.")
+        print("Daily and 4H market direction are not aligned.")
+        return None
+
+    result = generate_four_hour_setup(
+        candles=four_hour_candles,
+        allowed_direction=allowed_direction,
+        setup_expiry_candles=24,
+        ob_lookback=10,
+        fvg_lookback=10,
+        risk_reward=2.0,
+    )
+
+    print_setup_report(result)
+
+    return result
 
 
 def main():
@@ -413,7 +520,7 @@ def main():
     print("Market: SPOT")
     print("Symbol: BTC-USDT")
     print("Timeframes: 1D, 4H, 1H, 15m, 5m")
-    print("Mode: MULTI-TIMEFRAME ARCHIVE + AUDIT + DIRECTION")
+    print("Mode: MULTI-TIMEFRAME ARCHIVE + AUDIT + 4H SETUP")
     print("Live Trading: DISABLED")
 
     if settings.TRADING_ENABLED or settings.ALLOW_LIVE_ORDERS:
@@ -437,7 +544,7 @@ def main():
 
         audit_results[timeframe] = audit_archive(
             config["filename"],
-            config["interval_ms"]
+            config["interval_ms"],
         )
 
     all_passed = all(audit_results.values())
@@ -447,11 +554,13 @@ def main():
 
     for timeframe, passed in audit_results.items():
         print(
-            f"{timeframe}: {'PASS' if passed else 'ISSUES DETECTED'}"
+            f"{timeframe}: "
+            f"{'PASS' if passed else 'ISSUES DETECTED'}"
         )
 
     print(
-        f"OVERALL AUDIT: {'PASS' if all_passed else 'ISSUES DETECTED'}"
+        f"OVERALL AUDIT: "
+        f"{'PASS' if all_passed else 'ISSUES DETECTED'}"
     )
 
     print("LIVE TRADING: DISABLED")
@@ -461,8 +570,9 @@ def main():
             "One or more timeframe archives failed validation."
         )
 
-    # Run market direction only after all archives pass validation.
-    market_decision = run_market_direction_analysis()
+    market_decision, four_hour_candles = (
+        run_market_direction_analysis()
+    )
 
     if market_decision["allowed_direction"] == "WAIT":
         print("\nSETUP GENERATION BLOCKED")
@@ -475,10 +585,12 @@ def main():
         print("==========================")
         print(
             "Authorized Direction:",
-            market_decision["allowed_direction"]
+            market_decision["allowed_direction"],
         )
-        print(
-            "The 4H setup engine can now evaluate this direction."
+
+        run_four_hour_setup_engine(
+            market_decision,
+            four_hour_candles,
         )
 
     print("\nLIVE TRADING: DISABLED")
