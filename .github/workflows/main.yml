@@ -53,6 +53,9 @@ jobs:
       - name: Run Real 4H Structure Analysis
         run: python -m Src.Analysis.test_4h_structure_real
 
+      - name: Run Real Market Direction Analysis
+        run: python -m Src.Analysis.test_market_direction_real
+
       - name: Run Real Market Structure History Audit
         run: python Src/Analysis/market_structure_history_test.py
 
