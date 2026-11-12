@@ -46,8 +46,7 @@ def validate_input_data(data):
         )
 
     missing = [
-        column
-        for column in REQUIRED_COLUMNS
+        column for column in REQUIRED_COLUMNS
         if column not in result.columns
     ]
 
@@ -79,9 +78,6 @@ def validate_input_data(data):
             raise ValueError(
                 f"{column.capitalize()} prices must be positive."
             )
-
-    if (result["volume"] < 0).any():
-        raise ValueError("Volume cannot be negative.")
 
     invalid_ohlc = (
         (result["high"] < result["low"])
@@ -175,10 +171,10 @@ def scale_analysis_timestamps(value, factor):
 
         for key, item in value.items():
             if "timestamp" in key.lower():
-                if isinstance(
-                    item,
-                    (int, float, np.integer, np.floating)
-                ) and not isinstance(item, bool):
+                if (
+                    isinstance(item, (int, float, np.integer, np.floating))
+                    and not isinstance(item, bool)
+                ):
                     result[key] = int(item * factor)
                 else:
                     result[key] = item
@@ -222,7 +218,11 @@ def create_analysis(
         ("left_bars", left_bars),
         ("right_bars", right_bars),
     ):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+        ):
             raise ValueError(
                 f"{name} must be a positive integer."
             )
@@ -279,26 +279,42 @@ def create_analysis(
     return validated, analysis
 
 
-def add_swing_columns(result, analysis):
+def _initialize_swing_columns(result):
     count = len(result)
 
-    result["internal_swing_high_confirmed"] = False
-    result["internal_swing_low_confirmed"] = False
+    columns = [
+        "internal_swing_high_confirmed",
+        "internal_swing_low_confirmed",
+        "external_swing_high_confirmed",
+        "external_swing_low_confirmed",
+        "swing_high_confirmed",
+        "swing_low_confirmed",
+    ]
 
-    result["external_swing_high_confirmed"] = False
-    result["external_swing_low_confirmed"] = False
+    for column in columns:
+        result[column] = False
 
-    result["internal_swing_high_price"] = np.nan
-    result["internal_swing_low_price"] = np.nan
+    price_columns = [
+        "internal_swing_high_price",
+        "internal_swing_low_price",
+        "external_swing_high_price",
+        "external_swing_low_price",
+        "swing_high_price",
+        "swing_low_price",
+    ]
 
-    result["external_swing_high_price"] = np.nan
-    result["external_swing_low_price"] = np.nan
+    for column in price_columns:
+        result[column] = np.nan
 
     timestamp_columns = [
         "internal_swing_high_pivot_timestamp",
         "internal_swing_low_pivot_timestamp",
         "external_swing_high_pivot_timestamp",
         "external_swing_low_pivot_timestamp",
+        "swing_high_pivot_timestamp",
+        "swing_low_pivot_timestamp",
+        "swing_high_confirmation_timestamp",
+        "swing_low_confirmation_timestamp",
     ]
 
     for column in timestamp_columns:
@@ -307,6 +323,13 @@ def add_swing_columns(result, analysis):
             index=result.index,
             dtype="Int64"
         )
+
+    return result
+
+
+def add_swing_columns(result, analysis):
+    result = _initialize_swing_columns(result)
+    count = len(result)
 
     structures = {
         "internal": analysis["internal_structure"],
@@ -328,32 +351,22 @@ def add_swing_columns(result, analysis):
             price = float(swing["price"])
             pivot_timestamp = int(swing["timestamp"])
 
-            if swing_type == "HIGH":
-                confirmed_column = (
-                    f"{structure_name}_swing_high_confirmed"
-                )
-                price_column = (
-                    f"{structure_name}_swing_high_price"
-                )
-                timestamp_column = (
-                    f"{structure_name}_swing_high_pivot_timestamp"
-                )
-
-            elif swing_type == "LOW":
-                confirmed_column = (
-                    f"{structure_name}_swing_low_confirmed"
-                )
-                price_column = (
-                    f"{structure_name}_swing_low_price"
-                )
-                timestamp_column = (
-                    f"{structure_name}_swing_low_pivot_timestamp"
-                )
-
-            else:
+            if swing_type not in ("HIGH", "LOW"):
                 raise ValueError(
                     f"Unknown swing type: {swing_type}"
                 )
+
+            confirmed_column = (
+                f"{structure_name}_swing_{swing_type.lower()}_confirmed"
+            )
+
+            price_column = (
+                f"{structure_name}_swing_{swing_type.lower()}_price"
+            )
+
+            timestamp_column = (
+                f"{structure_name}_swing_{swing_type.lower()}_pivot_timestamp"
+            )
 
             result.at[
                 confirmation_index,
@@ -370,123 +383,54 @@ def add_swing_columns(result, analysis):
                 timestamp_column
             ] = pivot_timestamp
 
-    result["swing_high_confirmed"] = (
-        result["internal_swing_high_confirmed"]
-        | result["external_swing_high_confirmed"]
-    )
+            if swing_type == "HIGH":
+                result.at[
+                    confirmation_index,
+                    "swing_high_confirmed"
+                ] = True
 
-    result["swing_low_confirmed"] = (
-        result["internal_swing_low_confirmed"]
-        | result["external_swing_low_confirmed"]
-    )
+                result.at[
+                    confirmation_index,
+                    "swing_high_price"
+                ] = price
 
-    result["swing_high_price"] = (
-        result["external_swing_high_price"].combine_first(
-            result["internal_swing_high_price"]
-        )
-    )
+                result.at[
+                    confirmation_index,
+                    "swing_high_pivot_timestamp"
+                ] = pivot_timestamp
 
-    result["swing_low_price"] = (
-        result["external_swing_low_price"].combine_first(
-            result["internal_swing_low_price"]
-        )
-    )
+                result.at[
+                    confirmation_index,
+                    "swing_high_confirmation_timestamp"
+                ] = int(result.at[confirmation_index, "timestamp"])
 
-    result["swing_high_pivot_timestamp"] = (
-        result["external_swing_high_pivot_timestamp"].combine_first(
-            result["internal_swing_high_pivot_timestamp"]
-        )
-    )
+            else:
+                result.at[
+                    confirmation_index,
+                    "swing_low_confirmed"
+                ] = True
 
-    result["swing_low_pivot_timestamp"] = (
-        result["external_swing_low_pivot_timestamp"].combine_first(
-            result["internal_swing_low_pivot_timestamp"]
-        )
-    )
+                result.at[
+                    confirmation_index,
+                    "swing_low_price"
+                ] = price
 
-    result["swing_high_confirmation_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+                result.at[
+                    confirmation_index,
+                    "swing_low_pivot_timestamp"
+                ] = pivot_timestamp
 
-    result["swing_low_confirmation_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    for index in result.index:
-        if result.at[index, "swing_high_confirmed"]:
-            result.at[
-                index,
-                "swing_high_confirmation_timestamp"
-            ] = int(result.at[index, "timestamp"])
-
-        if result.at[index, "swing_low_confirmed"]:
-            result.at[
-                index,
-                "swing_low_confirmation_timestamp"
-            ] = int(result.at[index, "timestamp"])
+                result.at[
+                    confirmation_index,
+                    "swing_low_confirmation_timestamp"
+                ] = int(result.at[confirmation_index, "timestamp"])
 
     return result
 
 
 def add_direct_swing_columns(result, swings):
+    result = _initialize_swing_columns(result)
     count = len(result)
-
-    result["internal_swing_high_confirmed"] = False
-    result["internal_swing_low_confirmed"] = False
-    result["external_swing_high_confirmed"] = False
-    result["external_swing_low_confirmed"] = False
-
-    result["internal_swing_high_price"] = np.nan
-    result["internal_swing_low_price"] = np.nan
-    result["external_swing_high_price"] = np.nan
-    result["external_swing_low_price"] = np.nan
-
-    timestamp_columns = [
-        "internal_swing_high_pivot_timestamp",
-        "internal_swing_low_pivot_timestamp",
-        "external_swing_high_pivot_timestamp",
-        "external_swing_low_pivot_timestamp",
-    ]
-
-    for column in timestamp_columns:
-        result[column] = pd.Series(
-            pd.NA,
-            index=result.index,
-            dtype="Int64"
-        )
-
-    result["swing_high_confirmed"] = False
-    result["swing_low_confirmed"] = False
-    result["swing_high_price"] = np.nan
-    result["swing_low_price"] = np.nan
-
-    result["swing_high_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["swing_low_pivot_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["swing_high_confirmation_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["swing_low_confirmation_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
 
     for swing in swings:
         confirmation_index = int(
@@ -502,129 +446,178 @@ def add_direct_swing_columns(result, swings):
         price = float(swing["price"])
         pivot_timestamp = int(swing["timestamp"])
 
-        if swing_type == "HIGH":
-            result.at[
-                confirmation_index,
-                "internal_swing_high_confirmed"
-            ] = True
-
-            result.at[
-                confirmation_index,
-                "internal_swing_high_price"
-            ] = price
-
-            result.at[
-                confirmation_index,
-                "internal_swing_high_pivot_timestamp"
-            ] = pivot_timestamp
-
-            result.at[
-                confirmation_index,
-                "swing_high_confirmed"
-            ] = True
-
-            result.at[
-                confirmation_index,
-                "swing_high_price"
-            ] = price
-
-            result.at[
-                confirmation_index,
-                "swing_high_pivot_timestamp"
-            ] = pivot_timestamp
-
-            result.at[
-                confirmation_index,
-                "swing_high_confirmation_timestamp"
-            ] = int(result.at[confirmation_index, "timestamp"])
-
-        elif swing_type == "LOW":
-            result.at[
-                confirmation_index,
-                "internal_swing_low_confirmed"
-            ] = True
-
-            result.at[
-                confirmation_index,
-                "internal_swing_low_price"
-            ] = price
-
-            result.at[
-                confirmation_index,
-                "internal_swing_low_pivot_timestamp"
-            ] = pivot_timestamp
-
-            result.at[
-                confirmation_index,
-                "swing_low_confirmed"
-            ] = True
-
-            result.at[
-                confirmation_index,
-                "swing_low_price"
-            ] = price
-
-            result.at[
-                confirmation_index,
-                "swing_low_pivot_timestamp"
-            ] = pivot_timestamp
-
-            result.at[
-                confirmation_index,
-                "swing_low_confirmation_timestamp"
-            ] = int(result.at[confirmation_index, "timestamp"])
-
-        else:
+        if swing_type not in ("HIGH", "LOW"):
             raise ValueError(
                 f"Unknown swing type: {swing_type}"
             )
 
+        prefix = f"internal_swing_{swing_type.lower()}"
+
+        result.at[
+            confirmation_index,
+            f"{prefix}_confirmed"
+        ] = True
+
+        result.at[
+            confirmation_index,
+            f"{prefix}_price"
+        ] = price
+
+        result.at[
+            confirmation_index,
+            f"{prefix}_pivot_timestamp"
+        ] = pivot_timestamp
+
+        result.at[
+            confirmation_index,
+            f"swing_{swing_type.lower()}_confirmed"
+        ] = True
+
+        result.at[
+            confirmation_index,
+            f"swing_{swing_type.lower()}_price"
+        ] = price
+
+        result.at[
+            confirmation_index,
+            f"swing_{swing_type.lower()}_pivot_timestamp"
+        ] = pivot_timestamp
+
+        result.at[
+            confirmation_index,
+            f"swing_{swing_type.lower()}_confirmation_timestamp"
+        ] = int(result.at[confirmation_index, "timestamp"])
+
     return result
 
 
-def add_event_columns(result, analysis):
-    count = len(result)
-
-    event_columns = [
+def _initialize_event_columns(result):
+    event_names = [
         "internal_structure_event",
         "external_structure_event",
+        "structure_event",
     ]
 
-    for column in event_columns:
+    for column in event_names:
         result[column] = "NONE"
 
-    result["internal_structure_direction"] = 0
-    result["external_structure_direction"] = 0
+    direction_columns = [
+        "internal_structure_direction",
+        "external_structure_direction",
+        "structure_direction",
+        "internal_structure_trend",
+        "external_structure_trend",
+        "structure_trend",
+    ]
 
-    result["internal_broken_level"] = np.nan
-    result["external_broken_level"] = np.nan
+    for column in direction_columns:
+        result[column] = 0
 
-    result["internal_broken_level_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
+    price_columns = [
+        "internal_broken_level",
+        "external_broken_level",
+        "broken_level",
+    ]
+
+    for column in price_columns:
+        result[column] = np.nan
+
+    timestamp_columns = [
+        "internal_broken_level_timestamp",
+        "external_broken_level_timestamp",
+        "internal_event_available_timestamp",
+        "external_event_available_timestamp",
+        "broken_level_timestamp",
+        "structure_event_timestamp",
+    ]
+
+    for column in timestamp_columns:
+        result[column] = pd.Series(
+            pd.NA,
+            index=result.index,
+            dtype="Int64"
+        )
+
+    return result
+
+
+def _safe_timestamp(value):
+    if value is None or value is pd.NA:
+        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        if not np.isfinite(value):
+            return None
+        return int(value)
+
+    return None
+
+
+def _store_structure_events(result, structure_name, structure):
+    count = len(result)
+    event_column = f"{structure_name}_structure_event"
+    direction_column = f"{structure_name}_structure_direction"
+    level_column = f"{structure_name}_broken_level"
+    level_timestamp_column = (
+        f"{structure_name}_broken_level_timestamp"
+    )
+    available_column = (
+        f"{structure_name}_event_available_timestamp"
     )
 
-    result["external_broken_level_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+    for event in structure.get("events", []):
+        event_index = int(event["index"])
 
-    result["internal_event_available_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+        if not 0 <= event_index < count:
+            raise ValueError(
+                "Structure event index is outside candle data."
+            )
 
-    result["external_event_available_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
+        event_name = event.get("event", "NONE")
+        direction = get_event_direction(event_name)
 
-    internal_events = {}
-    external_events = {}
+        result.at[event_index, event_column] = event_name
+        result.at[event_index, direction_column] = direction
+
+        level = event.get("level")
+
+        if level is not None and _safe_timestamp(level) is None:
+            result.at[event_index, level_column] = float(level)
+
+        level_timestamp = _safe_timestamp(
+            event.get("level_timestamp")
+        )
+
+        if level_timestamp is None:
+            level_timestamp = _safe_timestamp(
+                event.get("broken_swing_timestamp")
+            )
+
+        if level_timestamp is not None:
+            result.at[
+                event_index,
+                level_timestamp_column
+            ] = level_timestamp
+
+        available_timestamp = _safe_timestamp(
+            event.get("available_timestamp")
+        )
+
+        if available_timestamp is not None:
+            result.at[
+                event_index,
+                available_column
+            ] = available_timestamp
+
+
+def add_event_columns(result, analysis):
+    result = _initialize_event_columns(result)
 
     structures = {
         "internal": analysis["internal_structure"],
@@ -632,136 +625,16 @@ def add_event_columns(result, analysis):
     }
 
     for structure_name, structure in structures.items():
-        for event in structure.get("events", []):
-            event_index = int(event["index"])
-
-            if not 0 <= event_index < count:
-                raise ValueError(
-                    "Structure event index is outside candle data."
-                )
-
-            if structure_name == "internal":
-                internal_events.setdefault(
-                    event_index,
-                    []
-                ).append(event)
-            else:
-                external_events.setdefault(
-                    event_index,
-                    []
-                ).append(event)
-
-    for index, events in internal_events.items():
-        event_names = [
-            event["event"]
-            for event in events
-        ]
-
-        result.at[
-            index,
-            "internal_structure_event"
-        ] = "|".join(event_names)
-
-        result.at[
-            index,
-            "internal_structure_direction"
-        ] = get_event_direction(event_names[-1])
-
-        selected_event = events[-1]
-
-        result.at[
-            index,
-            "internal_broken_level"
-        ] = selected_event.get("level", np.nan)
-
-        level_timestamp = selected_event.get(
-            "level_timestamp"
+        _store_structure_events(
+            result,
+            structure_name,
+            structure
         )
-
-        if level_timestamp is not None:
-            result.at[
-                index,
-                "internal_broken_level_timestamp"
-            ] = int(level_timestamp)
-
-        available_timestamp = selected_event.get(
-            "available_timestamp"
-        )
-
-        if available_timestamp is not None:
-            result.at[
-                index,
-                "internal_event_available_timestamp"
-            ] = int(available_timestamp)
-
-    for index, events in external_events.items():
-        event_names = [
-            event["event"]
-            for event in events
-        ]
-
-        result.at[
-            index,
-            "external_structure_event"
-        ] = "|".join(event_names)
-
-        result.at[
-            index,
-            "external_structure_direction"
-        ] = get_event_direction(event_names[-1])
-
-        selected_event = events[-1]
-
-        result.at[
-            index,
-            "external_broken_level"
-        ] = selected_event.get("level", np.nan)
-
-        level_timestamp = selected_event.get(
-            "level_timestamp"
-        )
-
-        if level_timestamp is not None:
-            result.at[
-                index,
-                "external_broken_level_timestamp"
-            ] = int(level_timestamp)
-
-        available_timestamp = selected_event.get(
-            "available_timestamp"
-        )
-
-        if available_timestamp is not None:
-            result.at[
-                index,
-                "external_event_available_timestamp"
-            ] = int(available_timestamp)
-
-    result["structure_event"] = "NONE"
-    result["structure_direction"] = 0
-    result["structure_trend"] = 0
-
-    result["broken_level"] = np.nan
-
-    result["broken_level_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
-
-    result["structure_event_timestamp"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Int64"
-    )
 
     internal_trend = 0
     external_trend = 0
 
-    result["internal_structure_trend"] = 0
-    result["external_structure_trend"] = 0
-
-    for index in range(count):
+    for index in result.index:
         internal_event = result.at[
             index,
             "internal_structure_event"
@@ -786,10 +659,10 @@ def add_event_columns(result, analysis):
             ]
         )
 
-        if internal_event != "NONE" and internal_direction != 0:
+        if internal_event != "NONE":
             internal_trend = internal_direction
 
-        if external_event != "NONE" and external_direction != 0:
+        if external_event != "NONE":
             external_trend = external_direction
 
         result.at[
@@ -808,30 +681,22 @@ def add_event_columns(result, analysis):
             )
 
         elif external_event != "NONE":
-            result.at[
-                index,
-                "structure_event"
-            ] = external_event
+            result.at[index, "structure_event"] = external_event
 
         elif internal_event != "NONE":
-            result.at[
-                index,
-                "structure_event"
-            ] = internal_event
+            result.at[index, "structure_event"] = internal_event
 
         if external_event != "NONE":
-            selected_event = "external"
+            selected = "external"
             selected_direction = external_direction
-
         elif internal_event != "NONE":
-            selected_event = "internal"
+            selected = "internal"
             selected_direction = internal_direction
-
         else:
-            selected_event = None
+            selected = None
             selected_direction = 0
 
-        if selected_event is not None:
+        if selected is not None:
             result.at[
                 index,
                 "structure_direction"
@@ -842,16 +707,21 @@ def add_event_columns(result, analysis):
                 "broken_level"
             ] = result.at[
                 index,
-                f"{selected_event}_broken_level"
+                f"{selected}_broken_level"
             ]
 
-            result.at[
-                index,
-                "broken_level_timestamp"
-            ] = result.at[
-                index,
-                f"{selected_event}_broken_level_timestamp"
-            ]
+            level_timestamp = _safe_timestamp(
+                result.at[
+                    index,
+                    f"{selected}_broken_level_timestamp"
+                ]
+            )
+
+            if level_timestamp is not None:
+                result.at[
+                    index,
+                    "broken_level_timestamp"
+                ] = level_timestamp
 
             result.at[
                 index,
@@ -872,14 +742,19 @@ def detect_swings(
     right_bars=DEFAULT_RIGHT_BARS,
     timeframe=None
 ):
-    if not isinstance(left_bars, int) or isinstance(left_bars, bool):
-        raise ValueError("left_bars must be an integer.")
+    if (
+        isinstance(left_bars, bool)
+        or not isinstance(left_bars, int)
+        or left_bars < 1
+    ):
+        raise ValueError("left_bars must be a positive integer.")
 
-    if not isinstance(right_bars, int) or isinstance(right_bars, bool):
-        raise ValueError("right_bars must be an integer.")
-
-    if left_bars < 1 or right_bars < 1:
-        raise ValueError("Swing periods must be positive.")
+    if (
+        isinstance(right_bars, bool)
+        or not isinstance(right_bars, int)
+        or right_bars < 1
+    ):
+        raise ValueError("right_bars must be a positive integer.")
 
     validated = validate_input_data(data)
     candles = prepare_candles(validated)
@@ -902,14 +777,19 @@ def detect_market_structure(
     right_bars=DEFAULT_RIGHT_BARS,
     timeframe=None
 ):
-    if isinstance(left_bars, bool) or not isinstance(left_bars, int):
-        raise ValueError("left_bars must be an integer.")
+    if (
+        isinstance(left_bars, bool)
+        or not isinstance(left_bars, int)
+        or left_bars < 1
+    ):
+        raise ValueError("left_bars must be a positive integer.")
 
-    if isinstance(right_bars, bool) or not isinstance(right_bars, int):
-        raise ValueError("right_bars must be an integer.")
-
-    if left_bars < 1 or right_bars < 1:
-        raise ValueError("Swing periods must be positive.")
+    if (
+        isinstance(right_bars, bool)
+        or not isinstance(right_bars, int)
+        or right_bars < 1
+    ):
+        raise ValueError("right_bars must be a positive integer.")
 
     result, analysis = create_analysis(
         data,
