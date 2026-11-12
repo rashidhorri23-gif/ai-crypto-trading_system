@@ -40,6 +40,8 @@ from Src.Analysis.entry_confirmation import (
 MARKET = "SPOT"
 SYMBOL = "BTC-USDT"
 
+RUN_HISTORICAL_CONFLUENCE_AUDIT = True
+
 TIMEFRAME_CONFIG = {
     "1D": {
         "target": 365,
@@ -431,6 +433,189 @@ def run_market_direction_analysis():
     return decision, four_hour_candles
 
 
+def run_historical_confluence_audit(candles):
+    print("\nHISTORICAL 4H CONFLUENCE AUDIT")
+    print("================================")
+
+    print("Symbol:", SYMBOL)
+    print("Timeframe: 4H")
+    print("Historical Candles:", len(candles))
+    print("Method: Candle-by-Candle Historical Evaluation")
+    print("Lookahead: DISABLED")
+
+    if len(candles) < 100:
+        raise RuntimeError(
+            "Insufficient candles for historical confluence audit."
+        )
+
+    discovered_setups = {}
+    engine_errors = []
+    evaluated_prefixes = 0
+
+    for end_index in range(100, len(candles) + 1):
+        historical_candles = candles[:end_index]
+        current_timestamp = historical_candles[-1]["timestamp"]
+
+        evaluated_prefixes += 1
+
+        for direction in ("LONG", "SHORT"):
+            try:
+                result = generate_four_hour_setup(
+                    candles=historical_candles,
+                    allowed_direction=direction,
+                    setup_expiry_candles=24,
+                    ob_lookback=10,
+                    fvg_lookback=10,
+                    risk_reward=2.0,
+                )
+
+                setup = result.get("setup")
+
+                if not isinstance(setup, dict):
+                    continue
+
+                setup_id = setup.get("setup_id")
+
+                if not setup_id:
+                    continue
+
+                available_timestamp = setup.get(
+                    "available_timestamp"
+                )
+
+                if available_timestamp is None:
+                    continue
+
+                if available_timestamp > current_timestamp:
+                    continue
+
+                if setup_id in discovered_setups:
+                    continue
+
+                status = result.get(
+                    "status",
+                    setup.get("status", "UNKNOWN"),
+                )
+
+                discovered_setups[setup_id] = {
+                    "setup_id": setup_id,
+                    "direction": direction,
+                    "status": status,
+                    "structure_event": setup.get(
+                        "structure_event"
+                    ),
+                    "structure_event_timestamp": setup.get(
+                        "structure_event_timestamp"
+                    ),
+                    "available_timestamp": available_timestamp,
+                    "entry_zone": setup.get("entry_zone"),
+                    "order_block": setup.get("order_block"),
+                    "fvg": setup.get("fvg"),
+                    "zone_overlap": setup.get("zone_overlap"),
+                    "stop_loss": setup.get("stop_loss"),
+                    "take_profit": setup.get("take_profit"),
+                    "reason": result.get("reason"),
+                }
+
+            except Exception as error:
+                engine_errors.append({
+                    "candle_index": end_index - 1,
+                    "direction": direction,
+                    "error": str(error),
+                })
+
+    status_counts = {}
+    direction_counts = {
+        "LONG": 0,
+        "SHORT": 0,
+    }
+
+    for record in discovered_setups.values():
+        status = record["status"]
+        direction = record["direction"]
+
+        status_counts[status] = (
+            status_counts.get(status, 0) + 1
+        )
+
+        direction_counts[direction] += 1
+
+    print("\nHISTORICAL SUMMARY")
+    print("==================")
+    print("Evaluated Candle Prefixes:", evaluated_prefixes)
+    print("Unique Setups Discovered:", len(discovered_setups))
+    print(
+        "Confirmed Confluence:",
+        status_counts.get("CONFIRMED_CONFLUENCE", 0),
+    )
+    print(
+        "Watch Without Zone Overlap:",
+        status_counts.get("WATCH_NO_ZONE_OVERLAP", 0),
+    )
+    print(
+        "Other Statuses:",
+        sum(
+            count
+            for status, count in status_counts.items()
+            if status not in (
+                "CONFIRMED_CONFLUENCE",
+                "WATCH_NO_ZONE_OVERLAP",
+            )
+        ),
+    )
+    print("Engine Errors:", len(engine_errors))
+
+    print("\nDIRECTION DISTRIBUTION")
+    print("======================")
+    print("LONG:", direction_counts["LONG"])
+    print("SHORT:", direction_counts["SHORT"])
+
+    print("\nSTATUS DISTRIBUTION")
+    print("===================")
+
+    for status, count in sorted(status_counts.items()):
+        print(f"{status}: {count}")
+
+    print("\nHISTORICAL SETUP DETAILS")
+    print("=======================")
+
+    for record in discovered_setups.values():
+        print("\n--------------------------------")
+        print("Setup ID:", record["setup_id"])
+        print("Direction:", record["direction"])
+        print("Status:", record["status"])
+        print("Structure Event:", record["structure_event"])
+        print(
+            "Structure Event Timestamp:",
+            record["structure_event_timestamp"],
+        )
+        print(
+            "Available Timestamp:",
+            record["available_timestamp"],
+        )
+        print("Entry Zone:", record["entry_zone"])
+        print("Order Block:", record["order_block"])
+        print("FVG:", record["fvg"])
+        print("Zone Overlap:", record["zone_overlap"])
+        print("Stop Loss:", record["stop_loss"])
+        print("Take Profit:", record["take_profit"])
+        print("Reason:", record["reason"])
+
+    if engine_errors:
+        print("\nENGINE ERRORS")
+        print("=============")
+
+        for error in engine_errors[:20]:
+            print(error)
+
+    print("\nHISTORICAL AUDIT COMPLETED")
+    print("==========================")
+    print("No trades were executed.")
+    print("Live Trading: DISABLED")
+
+    return discovered_setups
+
+
 def print_setup_report(result):
     print("\n4H SETUP ENGINE REPORT")
     print("======================")
@@ -649,6 +834,11 @@ def main():
     market_decision, four_hour_candles = (
         run_market_direction_analysis()
     )
+
+    if RUN_HISTORICAL_CONFLUENCE_AUDIT:
+        run_historical_confluence_audit(
+            four_hour_candles
+        )
 
     if market_decision["allowed_direction"] == "WAIT":
         print("\nSETUP GENERATION BLOCKED")
