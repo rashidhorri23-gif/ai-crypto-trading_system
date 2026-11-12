@@ -19,14 +19,19 @@ SYMBOL = "BTC-USDT"
 TIMEFRAME = "4H"
 
 
-def _empty_result(reason, direction="WAIT"):
-    return {
+def _empty_result(reason, direction="WAIT", diagnostics=None):
+    result = {
         "timeframe": TIMEFRAME,
         "status": "WAIT",
         "allowed_direction": direction,
         "setup": None,
         "reason": reason,
     }
+
+    if diagnostics is not None:
+        result["diagnostics"] = diagnostics
+
+    return result
 
 
 def _is_valid_number(value):
@@ -46,11 +51,7 @@ def _is_valid_index(value, candles_length):
 
 
 def _get_fvg_candidates(candles, event_index, direction, lookback):
-    start_index = max(
-        2,
-        event_index - lookback + 1,
-    )
-
+    start_index = max(2, event_index - lookback + 1)
     candidates = []
 
     for index in range(event_index, start_index - 1, -1):
@@ -100,6 +101,26 @@ def _is_fvg_fully_mitigated(
     return False
 
 
+def _is_order_block_invalidated(
+    candles,
+    order_block,
+    direction,
+    event_index,
+):
+    for index in range(order_block["index"] + 1, event_index + 1):
+        candle = candles[index]
+
+        if direction == "LONG":
+            if candle["close"] < order_block["low"]:
+                return True
+
+        else:
+            if candle["close"] > order_block["high"]:
+                return True
+
+    return False
+
+
 def _get_order_block_before_fvg(
     candles,
     fvg_index,
@@ -107,10 +128,7 @@ def _get_order_block_before_fvg(
     lookback,
     event_index,
 ):
-    start_index = max(
-        0,
-        fvg_index - lookback,
-    )
+    start_index = max(0, fvg_index - lookback)
 
     for index in range(fvg_index - 1, start_index - 1, -1):
         candle = candles[index]
@@ -152,26 +170,6 @@ def _get_order_block_before_fvg(
     return None
 
 
-def _is_order_block_invalidated(
-    candles,
-    order_block,
-    direction,
-    event_index,
-):
-    for index in range(order_block["index"] + 1, event_index + 1):
-        candle = candles[index]
-
-        if direction == "LONG":
-            if candle["close"] < order_block["low"]:
-                return True
-
-        else:
-            if candle["close"] > order_block["high"]:
-                return True
-
-    return False
-
-
 def _find_valid_ob_fvg_pair(
     candles,
     event_index,
@@ -211,86 +209,6 @@ def _find_valid_ob_fvg_pair(
     return None, None
 
 
-def _get_confirmed_stop_swing(
-    candles,
-    swings,
-    event_index,
-    direction,
-):
-    required_type = (
-        "LOW" if direction == "LONG" else "HIGH"
-    )
-
-    eligible = []
-
-    for swing in swings:
-        if swing.get("type") != required_type:
-            continue
-
-        confirmation_index = swing.get("confirmation_index")
-
-        if (
-            not isinstance(confirmation_index, int)
-            or isinstance(confirmation_index, bool)
-        ):
-            continue
-
-        if confirmation_index >= event_index:
-            continue
-
-        if not _is_valid_index(
-            swing.get("index"),
-            len(candles),
-        ):
-            continue
-
-        swing_price = swing.get("price")
-
-        if not _is_valid_number(swing_price):
-            continue
-
-        if (
-            "confirmation_timestamp" not in swing
-            or not _is_valid_number(
-                swing["confirmation_timestamp"]
-            )
-        ):
-            continue
-
-        invalidated = False
-
-        for index in range(
-            confirmation_index + 1,
-            event_index + 1,
-        ):
-            candle = candles[index]
-
-            if direction == "LONG":
-                if candle["low"] < swing_price:
-                    invalidated = True
-                    break
-
-            else:
-                if candle["high"] > swing_price:
-                    invalidated = True
-                    break
-
-        if not invalidated:
-            eligible.append(swing)
-
-    if not eligible:
-        return None
-
-    eligible.sort(
-        key=lambda swing: (
-            swing["confirmation_index"],
-            swing["index"],
-        )
-    )
-
-    return eligible[-1]
-
-
 def _get_zone_overlap(order_block, fvg):
     if order_block is None or fvg is None:
         return None
@@ -311,9 +229,7 @@ def _get_zone_overlap(order_block, fvg):
     return {
         "low": overlap_low,
         "high": overlap_high,
-        "midpoint": (
-            overlap_low + overlap_high
-        ) / 2,
+        "midpoint": (overlap_low + overlap_high) / 2,
     }
 
 
@@ -341,30 +257,164 @@ def _validate_event(event, candles_length):
     ):
         return False
 
-    if event.get("direction") not in (
-        "BULLISH",
-        "BEARISH",
-    ):
+    if event.get("direction") not in ("BULLISH", "BEARISH"):
         return False
 
-    if not _is_valid_index(
-        event.get("index"),
-        candles_length,
-    ):
+    if not _is_valid_index(event.get("index"), candles_length):
         return False
 
     if not _is_valid_number(event.get("timestamp")):
         return False
 
-    if not _is_valid_number(
-        event.get("available_timestamp")
-    ):
+    if not _is_valid_number(event.get("available_timestamp")):
         return False
 
     if not _is_valid_number(event.get("level")):
         return False
 
     return True
+
+
+def _get_confirmed_stop_swing(
+    candles,
+    swings,
+    event_index,
+    direction,
+    entry_zone,
+):
+    """
+    Select the latest confirmed, unbroken opposing swing
+    that is also outside the complete entry zone.
+    """
+
+    required_type = "LOW" if direction == "LONG" else "HIGH"
+
+    eligible = []
+    rejected = []
+
+    for swing in swings:
+        if swing.get("type") != required_type:
+            continue
+
+        confirmation_index = swing.get("confirmation_index")
+        swing_index = swing.get("index")
+        swing_price = swing.get("price")
+        confirmation_timestamp = swing.get("confirmation_timestamp")
+        swing_timestamp = swing.get("timestamp")
+
+        if (
+            not isinstance(confirmation_index, int)
+            or isinstance(confirmation_index, bool)
+            or confirmation_index >= event_index
+        ):
+            continue
+
+        if not _is_valid_index(swing_index, len(candles)):
+            rejected.append({
+                "price": swing_price,
+                "reason": "INVALID_SWING_INDEX",
+            })
+            continue
+
+        if not _is_valid_number(swing_price):
+            rejected.append({
+                "price": swing_price,
+                "reason": "INVALID_SWING_PRICE",
+            })
+            continue
+
+        if not _is_valid_number(confirmation_timestamp):
+            rejected.append({
+                "price": swing_price,
+                "reason": "INVALID_CONFIRMATION_TIMESTAMP",
+            })
+            continue
+
+        if not _is_valid_number(swing_timestamp):
+            rejected.append({
+                "price": swing_price,
+                "reason": "INVALID_SWING_TIMESTAMP",
+            })
+            continue
+
+        invalidated = False
+        invalidation_index = None
+
+        for index in range(confirmation_index + 1, event_index + 1):
+            candle = candles[index]
+
+            if direction == "LONG":
+                if candle["low"] < swing_price:
+                    invalidated = True
+                    invalidation_index = index
+                    break
+            else:
+                if candle["high"] > swing_price:
+                    invalidated = True
+                    invalidation_index = index
+                    break
+
+        if invalidated:
+            rejected.append({
+                "price": swing_price,
+                "reason": "SWING_BROKEN_AFTER_CONFIRMATION",
+                "invalidation_index": invalidation_index,
+            })
+            continue
+
+        if direction == "SHORT":
+            if swing_price <= entry_zone["high"]:
+                rejected.append({
+                    "price": swing_price,
+                    "reason": "STOP_NOT_ABOVE_COMPLETE_ENTRY_ZONE",
+                    "entry_zone_high": entry_zone["high"],
+                })
+                continue
+        else:
+            if swing_price >= entry_zone["low"]:
+                rejected.append({
+                    "price": swing_price,
+                    "reason": "STOP_NOT_BELOW_COMPLETE_ENTRY_ZONE",
+                    "entry_zone_low": entry_zone["low"],
+                })
+                continue
+
+        eligible.append(swing)
+
+    eligible.sort(
+        key=lambda item: (
+            item["confirmation_index"],
+            item["index"],
+        ),
+        reverse=True,
+    )
+
+    diagnostics = {
+        "required_swing_type": required_type,
+        "entry_zone": {
+            "low": entry_zone["low"],
+            "high": entry_zone["high"],
+        },
+        "eligible_swing_count": len(eligible),
+        "rejected_swing_count": len(rejected),
+        "rejected_swings": rejected,
+    }
+
+    if not eligible:
+        return None, diagnostics
+
+    selected = eligible[0]
+
+    diagnostics["selected_swing"] = {
+        "type": selected["type"],
+        "index": selected["index"],
+        "price": selected["price"],
+        "timestamp": selected["timestamp"],
+        "confirmation_index": selected["confirmation_index"],
+        "confirmation_timestamp": selected["confirmation_timestamp"],
+    }
+
+    return selected, diagnostics
 
 
 def generate_four_hour_setup(
@@ -375,12 +425,7 @@ def generate_four_hour_setup(
     fvg_lookback=DEFAULT_FVG_LOOKBACK,
     risk_reward=DEFAULT_RISK_REWARD,
 ):
-    if allowed_direction not in (
-        "LONG",
-        "SHORT",
-        "BOTH",
-        "WAIT",
-    ):
+    if allowed_direction not in ("LONG", "SHORT", "BOTH", "WAIT"):
         raise ValueError("Invalid allowed_direction")
 
     for name, value in (
@@ -393,19 +438,10 @@ def generate_four_hour_setup(
             or not isinstance(value, int)
             or value < 1
         ):
-            raise ValueError(
-                f"{name} must be a positive integer"
-            )
+            raise ValueError(f"{name} must be a positive integer")
 
-    if not _is_valid_number(risk_reward):
-        raise ValueError(
-            "risk_reward must be a finite positive number"
-        )
-
-    if risk_reward <= 0:
-        raise ValueError(
-            "risk_reward must be positive"
-        )
+    if not _is_valid_number(risk_reward) or risk_reward <= 0:
+        raise ValueError("risk_reward must be a finite positive number")
 
     if allowed_direction == "WAIT":
         return _empty_result(
@@ -415,19 +451,12 @@ def generate_four_hour_setup(
     candles = validate_candles(candles)
 
     if not isinstance(candles, list):
-        raise ValueError(
-            "Validated candles must be a list"
-        )
+        raise ValueError("Validated candles must be a list")
 
     candle_duration = infer_candle_duration(candles)
 
-    if (
-        not _is_valid_number(candle_duration)
-        or candle_duration <= 0
-    ):
-        raise ValueError(
-            "Invalid candle duration"
-        )
+    if not _is_valid_number(candle_duration) or candle_duration <= 0:
+        raise ValueError("Invalid candle duration")
 
     swings = detect_swings(
         candles,
@@ -449,8 +478,7 @@ def generate_four_hour_setup(
         )
 
     valid_events = [
-        event
-        for event in events
+        event for event in events
         if _validate_event(event, len(candles))
     ]
 
@@ -490,9 +518,7 @@ def generate_four_hour_setup(
         candles[-1]["timestamp"] + candle_duration
     )
 
-    event_available_timestamp = (
-        latest_event["available_timestamp"]
-    )
+    event_available_timestamp = latest_event["available_timestamp"]
 
     if event_available_timestamp > latest_candle_close:
         return _empty_result(
@@ -519,35 +545,18 @@ def generate_four_hour_setup(
         fvg_lookback=fvg_lookback,
     )
 
-    if order_block is None:
+    if order_block is None or fvg is None:
         return _empty_result(
             "No valid Order Block linked to an unmitigated FVG was found before the structure break.",
             allowed_direction,
+            {
+                "event": latest_event,
+                "order_block": order_block,
+                "fvg": fvg,
+            },
         )
 
-    if fvg is None:
-        return _empty_result(
-            "No valid unmitigated FVG linked to an Order Block was found.",
-            allowed_direction,
-        )
-
-    overlap_zone = _get_zone_overlap(
-        order_block,
-        fvg,
-    )
-
-    stop_swing = _get_confirmed_stop_swing(
-        candles,
-        swings,
-        event_index,
-        event_direction,
-    )
-
-    if stop_swing is None:
-        return _empty_result(
-            "No confirmed and unbroken opposing swing is available for stop placement.",
-            allowed_direction,
-        )
+    overlap_zone = _get_zone_overlap(order_block, fvg)
 
     if overlap_zone is not None:
         entry_zone = {
@@ -555,66 +564,71 @@ def generate_four_hour_setup(
             "high": overlap_zone["high"],
             "source": "ORDER_BLOCK_FVG_OVERLAP",
         }
-
         setup_status = "CONFIRMED_CONFLUENCE"
-
     else:
         entry_zone = {
             "low": order_block["low"],
             "high": order_block["high"],
             "source": "ORDER_BLOCK",
         }
-
         setup_status = "WATCH_NO_ZONE_OVERLAP"
 
     entry_price = (
         entry_zone["low"] + entry_zone["high"]
     ) / 2
 
+    stop_swing, stop_diagnostics = _get_confirmed_stop_swing(
+        candles=candles,
+        swings=swings,
+        event_index=event_index,
+        direction=event_direction,
+        entry_zone=entry_zone,
+    )
+
+    if stop_swing is None:
+        return _empty_result(
+            "No confirmed and unbroken opposing swing exists outside the complete entry zone.",
+            allowed_direction,
+            {
+                "event": latest_event,
+                "order_block": order_block,
+                "fvg": fvg,
+                "zone_overlap": overlap_zone,
+                "stop_diagnostics": stop_diagnostics,
+            },
+        )
+
     stop_loss = stop_swing["price"]
 
     if event_direction == "LONG":
-        if stop_loss >= entry_zone["low"]:
-            return _empty_result(
-                "Invalid LONG setup: stop loss must be below the complete entry zone.",
-                allowed_direction,
-            )
-
         risk_distance = entry_price - stop_loss
-
-        take_profit = (
-            entry_price + risk_distance * risk_reward
-        )
-
+        take_profit = entry_price + risk_distance * risk_reward
     else:
-        if stop_loss <= entry_zone["high"]:
-            return _empty_result(
-                "Invalid SHORT setup: stop loss must be above the complete entry zone.",
-                allowed_direction,
-            )
-
         risk_distance = stop_loss - entry_price
+        take_profit = entry_price - risk_distance * risk_reward
 
-        take_profit = (
-            entry_price - risk_distance * risk_reward
-        )
-
-    if (
-        not _is_valid_number(risk_distance)
-        or risk_distance <= 0
-    ):
+    if not _is_valid_number(risk_distance) or risk_distance <= 0:
         return _empty_result(
             "Invalid risk distance.",
             allowed_direction,
+            {
+                "entry_zone": entry_zone,
+                "entry_price": entry_price,
+                "stop_loss": stop_loss,
+                "stop_diagnostics": stop_diagnostics,
+            },
         )
 
-    if (
-        not _is_valid_number(take_profit)
-        or take_profit <= 0
-    ):
+    if not _is_valid_number(take_profit) or take_profit <= 0:
         return _empty_result(
             "Invalid take profit price.",
             allowed_direction,
+            {
+                "entry_zone": entry_zone,
+                "entry_price": entry_price,
+                "stop_loss": stop_loss,
+                "risk_distance": risk_distance,
+            },
         )
 
     setup = {
@@ -643,9 +657,7 @@ def generate_four_hour_setup(
             "type": stop_swing["type"],
             "price": stop_swing["price"],
             "timestamp": stop_swing["timestamp"],
-            "confirmation_timestamp": (
-                stop_swing["confirmation_timestamp"]
-            ),
+            "confirmation_timestamp": stop_swing["confirmation_timestamp"],
         },
         "setup_expiry_candles": setup_expiry_candles,
         "candle_duration_seconds": candle_duration,
@@ -672,4 +684,7 @@ def generate_four_hour_setup(
         "allowed_direction": allowed_direction,
         "setup": setup,
         "reason": reason,
+        "diagnostics": {
+            "stop_diagnostics": stop_diagnostics,
+        },
     }
