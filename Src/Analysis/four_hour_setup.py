@@ -12,6 +12,7 @@ from Src.Analysis.daily_structure import (
 
 
 VALID_DIRECTIONS = ("LONG", "SHORT")
+
 VALID_EVENTS = {
     "BOS_BULLISH",
     "CHOCH_BULLISH",
@@ -47,6 +48,8 @@ def _empty_result(direction, reason, diagnostics=None):
 
 
 def _reject(diagnostics, event, reason):
+    diagnostics["rejected_candidate_count"] += 1
+
     diagnostics["rejected_candidates"].append({
         "event": event.get("event"),
         "timestamp": event.get("timestamp"),
@@ -135,9 +138,13 @@ def _find_fvg(
     direction,
     lookback,
     order_block,
+    diagnostics=None,
 ):
     if order_block is None:
         return None
+
+    if diagnostics is None:
+        diagnostics = {}
 
     start = max(
         order_block["index"] + 2,
@@ -145,35 +152,92 @@ def _find_fvg(
         2,
     )
 
+    if start > event_index:
+        diagnostics["fvg_search_windows_empty"] = (
+            diagnostics.get("fvg_search_windows_empty", 0) + 1
+        )
+        return None
+
     for index in range(event_index, start - 1, -1):
+        diagnostics["fvg_patterns_checked"] = (
+            diagnostics.get("fvg_patterns_checked", 0) + 1
+        )
+
         first = candles[index - 2]
         middle = candles[index - 1]
         third = candles[index]
 
         if direction == "LONG":
-            if third["low"] <= first["high"]:
+            gap_valid = third["low"] > first["high"]
+
+            if not gap_valid:
+                diagnostics["fvg_no_gap"] = (
+                    diagnostics.get("fvg_no_gap", 0) + 1
+                )
                 continue
 
-            if middle["close"] <= middle["open"]:
+            diagnostics["fvg_gap_condition_passed"] = (
+                diagnostics.get("fvg_gap_condition_passed", 0) + 1
+            )
+
+            middle_direction_valid = (
+                middle["close"] > middle["open"]
+            )
+
+            if not middle_direction_valid:
+                diagnostics["fvg_wrong_middle_direction"] = (
+                    diagnostics.get("fvg_wrong_middle_direction", 0) + 1
+                )
                 continue
+
+            diagnostics["fvg_middle_direction_passed"] = (
+                diagnostics.get("fvg_middle_direction_passed", 0) + 1
+            )
 
             zone_low = first["high"]
             zone_high = third["low"]
             source = "BULLISH_FVG"
 
         else:
-            if third["high"] >= first["low"]:
+            gap_valid = third["high"] < first["low"]
+
+            if not gap_valid:
+                diagnostics["fvg_no_gap"] = (
+                    diagnostics.get("fvg_no_gap", 0) + 1
+                )
                 continue
 
-            if middle["close"] >= middle["open"]:
+            diagnostics["fvg_gap_condition_passed"] = (
+                diagnostics.get("fvg_gap_condition_passed", 0) + 1
+            )
+
+            middle_direction_valid = (
+                middle["close"] < middle["open"]
+            )
+
+            if not middle_direction_valid:
+                diagnostics["fvg_wrong_middle_direction"] = (
+                    diagnostics.get("fvg_wrong_middle_direction", 0) + 1
+                )
                 continue
+
+            diagnostics["fvg_middle_direction_passed"] = (
+                diagnostics.get("fvg_middle_direction_passed", 0) + 1
+            )
 
             zone_low = third["high"]
             zone_high = first["low"]
             source = "BEARISH_FVG"
 
         if zone_high <= zone_low:
+            diagnostics["fvg_invalid_zone"] = (
+                diagnostics.get("fvg_invalid_zone", 0) + 1
+            )
             continue
+
+        diagnostics["fvg_valid_patterns"] = (
+            diagnostics.get("fvg_valid_patterns", 0) + 1
+        )
 
         return {
             "index": index,
@@ -351,9 +415,15 @@ def _build_setup_id(symbol, direction, event, order_block, fvg):
         str(fvg["index"]),
     ])
 
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()[:16]
 
-    return "{}-4H-{}-{}".format(symbol, direction, digest)
+    return "{}-4H-{}-{}".format(
+        symbol,
+        direction,
+        digest,
+    )
 
 
 def generate_four_hour_setup(
@@ -364,14 +434,30 @@ def generate_four_hour_setup(
     fvg_lookback=10,
     risk_reward=2.0,
     symbol="BTC-USDT",
+    target_event=None,
 ):
     diagnostics = {
         "input_candles": 0,
+        "candle_duration": 0,
+        "swing_count": 0,
         "structure_events": 0,
         "matching_events": 0,
+        "order_block_search_attempts": 0,
         "order_blocks_found": 0,
+        "fvg_search_windows_empty": 0,
+        "fvg_patterns_checked": 0,
+        "fvg_no_gap": 0,
+        "fvg_gap_condition_passed": 0,
+        "fvg_wrong_middle_direction": 0,
+        "fvg_middle_direction_passed": 0,
+        "fvg_invalid_zone": 0,
+        "fvg_valid_patterns": 0,
         "fvg_found": 0,
+        "ob_fvg_overlap_confirmed": 0,
+        "ob_fvg_overlap_failed": 0,
         "valid_stop_swings": 0,
+        "evaluated_candidate_count": 0,
+        "rejected_candidate_count": 0,
         "rejected_candidates": [],
         "evaluated_candidates": [],
         "selected_setup_id": None,
@@ -427,6 +513,46 @@ def generate_four_hour_setup(
             diagnostics,
         )
 
+    if target_event is not None:
+        if not isinstance(target_event, dict):
+            return _empty_result(
+                allowed_direction,
+                "target_event must be a dictionary.",
+                diagnostics,
+            )
+
+        target_index = target_event.get("index")
+        target_timestamp = target_event.get("timestamp")
+        target_name = target_event.get("event")
+
+        if (
+            not _is_integer(target_index)
+            or not _is_integer(target_timestamp)
+            or target_name not in VALID_EVENTS
+        ):
+            return _empty_result(
+                allowed_direction,
+                "Invalid target event fields.",
+                diagnostics,
+            )
+
+        expected_target_direction = (
+            "BULLISH" if allowed_direction == "LONG" else "BEARISH"
+        )
+
+        if not target_name.endswith(expected_target_direction):
+            return _empty_result(
+                allowed_direction,
+                "Target event direction does not match allowed direction.",
+                diagnostics,
+            )
+
+        diagnostics["target_event_filter"] = {
+            "event": target_name,
+            "index": int(target_index),
+            "timestamp": int(target_timestamp),
+        }
+
     try:
         candles = validate_candles(list(candles))
         duration = infer_candle_duration(candles)
@@ -463,6 +589,7 @@ def generate_four_hour_setup(
     diagnostics["structure_events"] = len(events)
 
     current_close = candles[-1]["timestamp"] + duration
+
     required_direction = (
         "BULLISH" if allowed_direction == "LONG" else "BEARISH"
     )
@@ -477,6 +604,16 @@ def generate_four_hour_setup(
         )
     ]
 
+    if target_event is not None:
+        matching = [
+            event for event in matching
+            if (
+                event.get("event") == target_event["event"]
+                and event.get("index") == target_event["index"]
+                and event.get("timestamp") == target_event["timestamp"]
+            )
+        ]
+
     matching.sort(
         key=lambda item: (
             item["available_timestamp"],
@@ -490,7 +627,9 @@ def generate_four_hour_setup(
     if not matching:
         return _empty_result(
             allowed_direction,
-            "No confirmed event exists for this direction.",
+            "The requested confirmed structure event was not reproduced."
+            if target_event is not None
+            else "No confirmed event exists for this direction.",
             diagnostics,
         )
 
@@ -502,7 +641,11 @@ def generate_four_hour_setup(
             not _is_integer(event_index)
             or not _is_integer(broken_index)
         ):
-            _reject(diagnostics, event, "Invalid event indices.")
+            _reject(
+                diagnostics,
+                event,
+                "Invalid event indices.",
+            )
             continue
 
         event_index = int(event_index)
@@ -512,17 +655,31 @@ def generate_four_hour_setup(
             event_index <= broken_index
             or event_index >= len(candles)
         ):
-            _reject(diagnostics, event, "Invalid structural origin.")
+            _reject(
+                diagnostics,
+                event,
+                "Invalid structural origin.",
+            )
             continue
 
-        expected_type = "HIGH" if allowed_direction == "LONG" else "LOW"
+        expected_type = (
+            "HIGH" if allowed_direction == "LONG" else "LOW"
+        )
 
         if event.get("broken_swing_type") != expected_type:
-            _reject(diagnostics, event, "Broken swing type mismatch.")
+            _reject(
+                diagnostics,
+                event,
+                "Broken swing type mismatch.",
+            )
             continue
 
         if event.get("timestamp") != candles[event_index]["timestamp"]:
-            _reject(diagnostics, event, "Event timestamp mismatch.")
+            _reject(
+                diagnostics,
+                event,
+                "Event timestamp mismatch.",
+            )
             continue
 
         available = event.get("available_timestamp")
@@ -531,14 +688,24 @@ def generate_four_hour_setup(
             not _is_integer(available)
             or available != event["timestamp"] + duration
         ):
-            _reject(diagnostics, event, "Invalid event availability time.")
+            _reject(
+                diagnostics,
+                event,
+                "Invalid event availability time.",
+            )
             continue
 
         expiry = int(available) + setup_expiry_candles * duration
 
         if current_close >= expiry:
-            _reject(diagnostics, event, "Setup has expired.")
+            _reject(
+                diagnostics,
+                event,
+                "Setup has expired.",
+            )
             continue
+
+        diagnostics["evaluated_candidate_count"] += 1
 
         diagnostics["evaluated_candidates"].append({
             "event": event["event"],
@@ -546,6 +713,8 @@ def generate_four_hour_setup(
             "broken_swing_index": broken_index,
             "timestamp": event["timestamp"],
         })
+
+        diagnostics["order_block_search_attempts"] += 1
 
         ob = _find_order_block(
             candles,
@@ -556,7 +725,11 @@ def generate_four_hour_setup(
         )
 
         if ob is None:
-            _reject(diagnostics, event, "No valid unmitigated Order Block.")
+            _reject(
+                diagnostics,
+                event,
+                "No valid unmitigated Order Block.",
+            )
             continue
 
         diagnostics["order_blocks_found"] += 1
@@ -567,10 +740,15 @@ def generate_four_hour_setup(
             allowed_direction,
             fvg_lookback,
             ob,
+            diagnostics,
         )
 
         if fvg is None:
-            _reject(diagnostics, event, "No valid FVG after the Order Block.")
+            _reject(
+                diagnostics,
+                event,
+                "No valid FVG after the Order Block.",
+            )
             continue
 
         diagnostics["fvg_found"] += 1
@@ -578,14 +756,26 @@ def generate_four_hour_setup(
         sequence = _validate_zone_sequence(ob, fvg)
 
         if not sequence["valid"]:
-            _reject(diagnostics, event, sequence["reason"])
+            _reject(
+                diagnostics,
+                event,
+                sequence["reason"],
+            )
             continue
 
         overlap = _calculate_overlap(ob, fvg)
 
         if not overlap["confirmed"]:
-            _reject(diagnostics, event, overlap["reason"])
+            diagnostics["ob_fvg_overlap_failed"] += 1
+
+            _reject(
+                diagnostics,
+                event,
+                overlap["reason"],
+            )
             continue
+
+        diagnostics["ob_fvg_overlap_confirmed"] += 1
 
         entry_zone = {
             "source": "OB_FVG_OVERLAP",
@@ -606,7 +796,11 @@ def generate_four_hour_setup(
         )
 
         if stop_swing is None:
-            _reject(diagnostics, event, "No valid opposite stop swing.")
+            _reject(
+                diagnostics,
+                event,
+                "No valid opposite stop swing.",
+            )
             continue
 
         diagnostics["valid_stop_swings"] += 1
@@ -615,13 +809,21 @@ def generate_four_hour_setup(
 
         if allowed_direction == "LONG":
             risk_distance = entry_reference - stop_loss
-            take_profit = entry_reference + risk_distance * risk_reward
+            take_profit = (
+                entry_reference + risk_distance * risk_reward
+            )
         else:
             risk_distance = stop_loss - entry_reference
-            take_profit = entry_reference - risk_distance * risk_reward
+            take_profit = (
+                entry_reference - risk_distance * risk_reward
+            )
 
         if risk_distance <= 0 or take_profit <= 0:
-            _reject(diagnostics, event, "Invalid risk or target.")
+            _reject(
+                diagnostics,
+                event,
+                "Invalid risk or target.",
+            )
             continue
 
         setup_id = _build_setup_id(
@@ -675,7 +877,8 @@ def generate_four_hour_setup(
             "allowed_direction": allowed_direction,
             "reason": (
                 "A valid 4H event, unmitigated Order Block, "
-                "subsequent FVG, overlap and opposite stop swing were confirmed."
+                "subsequent FVG, overlap and opposite stop swing "
+                "were confirmed."
             ),
             "setup": setup,
             "diagnostics": diagnostics,
