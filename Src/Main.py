@@ -10,18 +10,27 @@ def run_historical_confluence_audit(candles):
     print("Live Trading: DISABLED")
     print("Archive Modification: NO")
 
-    if not isinstance(candles, list) or len(candles) < 100:
+    if not isinstance(candles, (list, tuple)) or len(candles) < 100:
         print("AUDIT STATUS: INSUFFICIENT_DATA")
         print("Minimum required candles: 100")
+        print("Received candles:", len(candles) if candles else 0)
         return
 
     discovered_setups = {}
     error_counts = {}
+    error_examples = []
+    skipped_results = {
+        "INVALID_RESULT": 0,
+        "MISSING_SETUP": 0,
+        "MISSING_SETUP_ID": 0,
+        "MISSING_AVAILABLE_TIMESTAMP": 0,
+        "DIRECTION_MISMATCH": 0,
+    }
 
     total_evaluations = 0
 
     for end_index in range(100, len(candles) + 1):
-        historical_candles = candles[:end_index]
+        historical_candles = list(candles[:end_index])
 
         for direction in ("LONG", "SHORT"):
             total_evaluations += 1
@@ -37,16 +46,24 @@ def run_historical_confluence_audit(candles):
                 )
 
                 if not isinstance(result, dict):
+                    skipped_results["INVALID_RESULT"] += 1
                     continue
 
-                setup = result.get("setup")
+                # Support both nested and flat result structures.
+                nested_setup = result.get("setup")
 
-                if not isinstance(setup, dict):
+                if isinstance(nested_setup, dict):
+                    setup = dict(nested_setup)
+                elif result.get("setup_id"):
+                    setup = dict(result)
+                else:
+                    skipped_results["MISSING_SETUP"] += 1
                     continue
 
                 setup_id = setup.get("setup_id")
 
                 if not setup_id:
+                    skipped_results["MISSING_SETUP_ID"] += 1
                     continue
 
                 available_timestamp = setup.get(
@@ -54,6 +71,7 @@ def run_historical_confluence_audit(candles):
                 )
 
                 if available_timestamp is None:
+                    skipped_results["MISSING_AVAILABLE_TIMESTAMP"] += 1
                     continue
 
                 available_timestamp = int(available_timestamp)
@@ -64,45 +82,50 @@ def run_historical_confluence_audit(candles):
                 )
 
                 if setup_direction != direction:
+                    skipped_results["DIRECTION_MISMATCH"] += 1
                     continue
 
-                previous = discovered_setups.get(setup_id)
-
-                first_seen_index = (
-                    previous.get("first_seen_index")
-                    if previous
-                    else end_index - 1
-                )
-
-                observations = (
-                    previous.get("observations", 0) + 1
-                    if previous
-                    else 1
-                )
-
-                snapshot = dict(setup)
-
-                snapshot["status"] = result.get(
+                status = result.get(
                     "status",
                     setup.get("status", "UNKNOWN")
                 )
 
-                snapshot["reason"] = result.get(
+                reason = result.get(
                     "reason",
                     setup.get("reason", "")
                 )
 
-                snapshot["first_seen_index"] = first_seen_index
-                snapshot["last_seen_index"] = end_index - 1
-                snapshot["observations"] = observations
+                previous = discovered_setups.get(setup_id)
 
-                discovered_setups[setup_id] = snapshot
+                if previous:
+                    first_seen_index = previous["first_seen_index"]
+                    observations = previous["observations"] + 1
+                else:
+                    first_seen_index = end_index - 1
+                    observations = 1
+
+                setup["status"] = status
+                setup["reason"] = reason
+                setup["first_seen_index"] = first_seen_index
+                setup["last_seen_index"] = end_index - 1
+                setup["observations"] = observations
+
+                discovered_setups[setup_id] = setup
 
             except Exception as error:
                 error_name = type(error).__name__
+
                 error_counts[error_name] = (
                     error_counts.get(error_name, 0) + 1
                 )
+
+                if len(error_examples) < 5:
+                    error_examples.append({
+                        "index": end_index - 1,
+                        "direction": direction,
+                        "type": error_name,
+                        "message": str(error),
+                    })
 
     setups = list(discovered_setups.values())
 
@@ -139,6 +162,12 @@ def run_historical_confluence_audit(candles):
     print("4H Candles:", len(candles))
     print("Total Evaluations:", total_evaluations)
     print("Unique Setup IDs:", len(setups))
+
+    print("\nSKIPPED RESULTS")
+    print("-" * 72)
+
+    for name, count in skipped_results.items():
+        print(f"{name}: {count}")
 
     print("\nSETUPS BY DIRECTION")
     print("-" * 72)
@@ -189,6 +218,17 @@ def run_historical_confluence_audit(candles):
 
         for error_name, count in sorted(error_counts.items()):
             print(f"{error_name}: {count}")
+
+        print("\nERROR EXAMPLES")
+        print("-" * 72)
+
+        for example in error_examples:
+            print(
+                "Index:", example["index"],
+                "| Direction:", example["direction"],
+                "| Type:", example["type"],
+                "| Message:", example["message"],
+            )
 
     print("\nAUDIT COMPLETED")
     print("Live Trading: DISABLED")
