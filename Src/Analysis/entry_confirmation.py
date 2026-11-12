@@ -1,7 +1,12 @@
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from Src.Analysis.daily_structure import analyze_daily_structure
+from Src.Analysis.daily_structure import (
+    validate_candles,
+    infer_candle_duration,
+    detect_swings,
+    analyze_structure_events,
+)
 
 
 TIMEFRAME_PRIORITY = {
@@ -10,173 +15,254 @@ TIMEFRAME_PRIORITY = {
     "5m": 2,
 }
 
-ALLOWED_EVENT_TYPES = {"BOS", "CHOCH"}
+VALID_EVENTS = {
+    "BOS_BULLISH",
+    "CHOCH_BULLISH",
+    "BOS_BEARISH",
+    "CHOCH_BEARISH",
+}
 
 
-def _validate_candles(candles: List[Dict[str, Any]]) -> None:
-    if not isinstance(candles, list) or len(candles) < 20:
-        raise ValueError("At least 20 candles are required.")
-
-    required_fields = ("timestamp", "open", "high", "low", "close")
-    previous_timestamp = None
-
-    for index, candle in enumerate(candles):
-        if not isinstance(candle, dict):
-            raise ValueError("Invalid candle at index {}.".format(index))
-
-        for field in required_fields:
-            if field not in candle:
-                raise ValueError(
-                    "Missing candle field '{}' at index {}.".format(
-                        field, index
-                    )
-                )
-
-        timestamp = int(candle["timestamp"])
-        open_price = float(candle["open"])
-        high_price = float(candle["high"])
-        low_price = float(candle["low"])
-        close_price = float(candle["close"])
-
-        if timestamp <= 0:
-            raise ValueError("Invalid candle timestamp.")
-
-        if min(open_price, high_price, low_price, close_price) <= 0:
-            raise ValueError("Candle prices must be positive.")
-
-        if high_price < max(open_price, close_price, low_price):
-            raise ValueError("Invalid candle high at index {}.".format(index))
-
-        if low_price > min(open_price, close_price, high_price):
-            raise ValueError("Invalid candle low at index {}.".format(index))
-
-        if previous_timestamp is not None and timestamp <= previous_timestamp:
-            raise ValueError("Candle timestamps are not strictly increasing.")
-
-        previous_timestamp = timestamp
-
-
-def _collect_events(
-    value: Any,
-    collected: Optional[List[Dict[str, Any]]] = None
-) -> List[Dict[str, Any]]:
-    if collected is None:
-        collected = []
-
-    if isinstance(value, dict):
-        if (
-            "event" in value
-            and "index" in value
-            and "available_timestamp" in value
-        ):
-            collected.append(value)
-
-        for nested_value in value.values():
-            if isinstance(nested_value, (dict, list)):
-                _collect_events(nested_value, collected)
-
-    elif isinstance(value, list):
-        for item in value:
-            _collect_events(item, collected)
-
-    return collected
-
-
-def _get_event_direction(event: Dict[str, Any]) -> Optional[str]:
-    direction = str(event.get("direction", "")).upper()
-
-    if direction in ("BULLISH", "LONG"):
-        return "LONG"
-
-    if direction in ("BEARISH", "SHORT"):
-        return "SHORT"
-
-    event_name = str(event.get("event", "")).upper()
-
-    if event_name.endswith("BULLISH"):
-        return "LONG"
-
-    if event_name.endswith("BEARISH"):
-        return "SHORT"
-
-    return None
-
-
-def _is_allowed_structure_event(event: Dict[str, Any]) -> bool:
-    event_name = str(event.get("event", "")).upper()
-
-    return any(
-        event_name.startswith(event_type + "_")
-        for event_type in ALLOWED_EVENT_TYPES
-    )
-
-
-def _find_next_candle(
-    candles: List[Dict[str, Any]],
-    event_index: int
-) -> Optional[Dict[str, Any]]:
-    next_index = event_index + 1
-
-    if next_index >= len(candles):
-        return None
-
-    return candles[next_index]
-
-
-def _empty_result(
-    status: str,
-    reason: str
-) -> Dict[str, Any]:
+def _empty_result(status, reason, setup_id=None, direction="WAIT"):
     return {
         "status": status,
         "reason": reason,
         "entry_signal": False,
-        "setup_id": None,
-        "direction": "WAIT",
+        "setup_id": setup_id,
+        "direction": direction,
         "confirmation_timeframe": None,
         "confirmation_event": None,
         "confirmation_timestamp": None,
+        "retest_timestamp": None,
         "entry_timestamp": None,
         "entry_price": None,
         "live_trading": False,
     }
 
 
+def _normalize_setup(setup):
+    if not isinstance(setup, dict):
+        return None
+
+    nested = setup.get("setup")
+
+    if isinstance(nested, dict):
+        return nested
+
+    return setup
+
+
+def _validate_setup(setup):
+    if not isinstance(setup, dict):
+        raise ValueError("Invalid 4H setup.")
+
+    if setup.get("status") != "CONFIRMED_CONFLUENCE":
+        raise ValueError("4H setup is not confirmed.")
+
+    if not setup.get("setup_id"):
+        raise ValueError("Missing setup ID.")
+
+    if setup.get("direction") not in ("LONG", "SHORT"):
+        raise ValueError("Invalid setup direction.")
+
+    zone = setup.get("entry_zone")
+
+    if not isinstance(zone, dict):
+        raise ValueError("Missing 4H entry zone.")
+
+    low = zone.get("low")
+    high = zone.get("high")
+
+    if (
+        not isinstance(low, (int, float))
+        or isinstance(low, bool)
+        or not isinstance(high, (int, float))
+        or isinstance(high, bool)
+        or low <= 0
+        or high <= low
+    ):
+        raise ValueError("Invalid 4H entry zone.")
+
+    available = setup.get("available_timestamp")
+    expiry = setup.get("expiry_timestamp")
+
+    if (
+        not isinstance(available, (int, float))
+        or isinstance(available, bool)
+        or not isinstance(expiry, (int, float))
+        or isinstance(expiry, bool)
+        or available <= 0
+        or expiry <= available
+    ):
+        raise ValueError("Invalid setup timestamps.")
+
+    return {
+        "setup_id": str(setup["setup_id"]),
+        "direction": setup["direction"],
+        "zone_low": float(low),
+        "zone_high": float(high),
+        "available_timestamp": int(available),
+        "expiry_timestamp": int(expiry),
+    }
+
+
+def _direction_for_event(event):
+    name = str(event.get("event", "")).upper()
+    direction = str(event.get("direction", "")).upper()
+
+    if name not in VALID_EVENTS:
+        return None
+
+    if direction == "BULLISH" and name.endswith("BULLISH"):
+        return "LONG"
+
+    if direction == "BEARISH" and name.endswith("BEARISH"):
+        return "SHORT"
+
+    return None
+
+
+def _find_retest(candles, duration, setup_data):
+    zone_low = setup_data["zone_low"]
+    zone_high = setup_data["zone_high"]
+    available = setup_data["available_timestamp"]
+    expiry = setup_data["expiry_timestamp"]
+
+    for index, candle in enumerate(candles):
+        candle_open = candle["timestamp"]
+        candle_close = candle_open + duration
+
+        if candle_close <= available:
+            continue
+
+        if candle_open >= expiry:
+            break
+
+        intersects_zone = (
+            candle["high"] >= zone_low
+            and candle["low"] <= zone_high
+        )
+
+        if not intersects_zone:
+            continue
+
+        return {
+            "index": index,
+            "timestamp": candle_open,
+            "close_timestamp": candle_close,
+        }
+
+    return None
+
+
+def _find_confirmation(
+    candles,
+    events,
+    duration,
+    setup_data,
+    retest,
+):
+    direction = setup_data["direction"]
+    expiry = setup_data["expiry_timestamp"]
+
+    candidates = []
+
+    for event in events:
+        if _direction_for_event(event) != direction:
+            continue
+
+        try:
+            event_index = int(event["index"])
+            available_timestamp = int(event["available_timestamp"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if event_index <= retest["index"]:
+            continue
+
+        if event_index < 0 or event_index >= len(candles):
+            continue
+
+        if available_timestamp < setup_data["available_timestamp"]:
+            continue
+
+        if available_timestamp >= expiry:
+            continue
+
+        if available_timestamp != (
+            candles[event_index]["timestamp"] + duration
+        ):
+            continue
+
+        if available_timestamp <= retest["close_timestamp"]:
+            continue
+
+        next_index = event_index + 1
+
+        if next_index >= len(candles):
+            candidates.append({
+                "event": event,
+                "event_index": event_index,
+                "available_timestamp": available_timestamp,
+                "entry_candle": None,
+            })
+            continue
+
+        entry_candle = candles[next_index]
+
+        if entry_candle["timestamp"] < available_timestamp:
+            continue
+
+        if entry_candle["timestamp"] >= expiry:
+            continue
+
+        candidates.append({
+            "event": event,
+            "event_index": event_index,
+            "available_timestamp": available_timestamp,
+            "entry_candle": entry_candle,
+        })
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda item: (
+            item["available_timestamp"],
+            item["event_index"],
+        )
+    )
+
+    return candidates[0]
+
+
 def confirm_lower_timeframe_entry(
     setup: Dict[str, Any],
-    candles_by_timeframe: Dict[str, List[Dict[str, Any]]]
+    candles_by_timeframe: Dict[str, List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
-    if not isinstance(setup, dict):
-        return _empty_result("WAIT", "Invalid 4H setup input.")
-
-    setup_status = str(setup.get("status", "")).upper()
-
-    if setup_status != "CONFIRMED_CONFLUENCE":
-        return _empty_result(
-            "WAIT",
-            "The 4H setup is not confirmed. Lower-timeframe entry checks are blocked."
-        )
-
-    setup_id = setup.get("setup_id")
-
-    if not setup_id:
-        return _empty_result("WAIT", "The 4H setup has no setup ID.")
-
-    direction = str(setup.get("direction", "")).upper()
-
-    if direction not in ("LONG", "SHORT"):
-        return _empty_result("WAIT", "The 4H setup direction is invalid.")
+    normalized = _normalize_setup(setup)
 
     try:
-        setup_available_timestamp = int(setup["available_timestamp"])
-        expiry_timestamp = int(setup["expiry_timestamp"])
-    except (KeyError, TypeError, ValueError):
+        setup_data = _validate_setup(normalized)
+    except Exception as error:
         return _empty_result(
             "WAIT",
-            "The 4H setup timestamps are missing or invalid."
+            "Invalid 4H setup: {}".format(error),
         )
 
-    candidates: List[Tuple[int, int, str, Dict[str, Any], Dict[str, Any]]] = []
+    setup_id = setup_data["setup_id"]
+    direction = setup_data["direction"]
+
+    if not isinstance(candles_by_timeframe, dict):
+        return _empty_result(
+            "WAIT",
+            "Invalid lower-timeframe candle input.",
+            setup_id,
+            direction,
+        )
+
+    candidates = []
+    pending_entry = []
 
     for timeframe in ("1H", "15m", "5m"):
         candles = candles_by_timeframe.get(timeframe, [])
@@ -185,114 +271,126 @@ def confirm_lower_timeframe_entry(
             continue
 
         try:
-            _validate_candles(candles)
+            candles = validate_candles(candles)
+            duration = infer_candle_duration(candles)
 
-            analysis = analyze_daily_structure(
+            swings = detect_swings(
                 candles,
-                timeframe=timeframe
+                left_bars=2,
+                right_bars=2,
+                candle_duration=duration,
             )
 
-            events = _collect_events(analysis)
+            events = analyze_structure_events(
+                candles,
+                swings,
+                duration,
+            )
 
         except Exception:
             continue
 
-        for event in events:
-            if not _is_allowed_structure_event(event):
-                continue
+        retest = _find_retest(
+            candles,
+            duration,
+            setup_data,
+        )
 
-            event_direction = _get_event_direction(event)
+        if retest is None:
+            continue
 
-            if event_direction != direction:
-                continue
+        confirmation = _find_confirmation(
+            candles,
+            events,
+            duration,
+            setup_data,
+            retest,
+        )
 
-            try:
-                event_index = int(event["index"])
-                available_timestamp = int(event["available_timestamp"])
-            except (TypeError, ValueError, KeyError):
-                continue
+        if confirmation is None:
+            continue
 
-            if available_timestamp < setup_available_timestamp:
-                continue
+        candidate = {
+            "timeframe": timeframe,
+            "priority": TIMEFRAME_PRIORITY[timeframe],
+            "retest": retest,
+            "confirmation": confirmation,
+        }
 
-            if available_timestamp >= expiry_timestamp:
-                continue
+        if confirmation["entry_candle"] is None:
+            pending_entry.append(candidate)
+        else:
+            candidates.append(candidate)
 
-            if event_index < 0 or event_index >= len(candles):
-                continue
-
-            entry_candle = _find_next_candle(candles, event_index)
-
-            if entry_candle is None:
-                continue
-
-            entry_timestamp = int(entry_candle["timestamp"])
-
-            if entry_timestamp < available_timestamp:
-                continue
-
-            if entry_timestamp >= expiry_timestamp:
-                continue
-
-            entry_price = float(entry_candle["open"])
-
-            if entry_price <= 0:
-                continue
-
-            candidates.append(
-                (
-                    available_timestamp,
-                    TIMEFRAME_PRIORITY[timeframe],
-                    timeframe,
-                    event,
-                    entry_candle,
+    if not candidates:
+        if pending_entry:
+            pending_entry.sort(
+                key=lambda item: (
+                    item["confirmation"]["available_timestamp"],
+                    item["priority"],
                 )
             )
 
-    if not candidates:
-        return {
-            "status": "WAITING_FOR_CONFIRMATION",
-            "reason": (
-                "No aligned BOS or CHOCH confirmation was found "
-                "after the 4H setup became available."
+            selected = pending_entry[0]
+            confirmation = selected["confirmation"]
+
+            return {
+                "status": "WAITING_FOR_ENTRY_CANDLE",
+                "reason": (
+                    "The aligned structure event is confirmed. "
+                    "Waiting for the next lower-timeframe candle open."
+                ),
+                "entry_signal": False,
+                "setup_id": setup_id,
+                "direction": direction,
+                "confirmation_timeframe": selected["timeframe"],
+                "confirmation_event": confirmation["event"]["event"],
+                "confirmation_timestamp": confirmation[
+                    "available_timestamp"
+                ],
+                "retest_timestamp": selected["retest"]["timestamp"],
+                "entry_timestamp": None,
+                "entry_price": None,
+                "live_trading": False,
+            }
+
+        return _empty_result(
+            "WAITING_FOR_CONFIRMATION",
+            (
+                "Waiting for price to return to the 4H entry zone "
+                "and then form an aligned BOS or CHOCH."
             ),
-            "entry_signal": False,
-            "setup_id": setup_id,
-            "direction": direction,
-            "confirmation_timeframe": None,
-            "confirmation_event": None,
-            "confirmation_timestamp": None,
-            "entry_timestamp": None,
-            "entry_price": None,
-            "live_trading": False,
-        }
+            setup_id,
+            direction,
+        )
 
-    candidates.sort(key=lambda item: (item[0], item[1]))
+    candidates.sort(
+        key=lambda item: (
+            item["confirmation"]["available_timestamp"],
+            item["priority"],
+        )
+    )
 
-    (
-        confirmation_timestamp,
-        _,
-        confirmation_timeframe,
-        confirmation_event,
-        entry_candle,
-    ) = candidates[0]
-
-    entry_timestamp = int(entry_candle["timestamp"])
-    entry_price = float(entry_candle["open"])
+    selected = candidates[0]
+    confirmation = selected["confirmation"]
+    entry_candle = confirmation["entry_candle"]
 
     return {
         "status": "ENTRY_CONFIRMED",
         "reason": (
-            "The first aligned lower-timeframe BOS or CHOCH "
-            "was confirmed after the 4H setup became available."
+            "Price retested the 4H entry zone and the first aligned "
+            "lower-timeframe BOS or CHOCH was confirmed."
         ),
         "entry_signal": True,
         "setup_id": setup_id,
         "direction": direction,
-        "confirmation_timeframe": confirmation_timeframe,
-        "confirmation_event": confirmation_event.get("event"),
-        "confirmation_timestamp": confirmation_timestamp,
-        "entry_timestamp": entry_timestamp,
-        "entry_price": entry_price,
+        "confirmation_timeframe": selected["timeframe"],
+        "confirmation_event": confirmation["event"]["event"],
+        "confirmation_timestamp": confirmation[
+            "available_timestamp"
+        ],
+        "retest_timestamp": selected["retest"]["timestamp"],
+        "entry_timestamp": int(entry_candle["timestamp"]),
+        "entry_price": float(entry_candle["open"]),
         "live_trading": False,
     }
