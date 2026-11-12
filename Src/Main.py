@@ -17,7 +17,7 @@ TIMEFRAME = "4H"
 ARCHIVE_PATH = (
     PROJECT_ROOT
     / "Data"
-    / "Historical"
+    / "Archive"
     / "BTC_USDT_SPOT_4H.csv"
 )
 
@@ -39,12 +39,31 @@ def load_four_hour_candles():
     ) as file:
         reader = csv.DictReader(file)
 
+        required_columns = {
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        }
+
+        if not reader.fieldnames:
+            raise ValueError("Archive CSV has no header")
+
+        missing_columns = (
+            required_columns - set(reader.fieldnames)
+        )
+
+        if missing_columns:
+            raise ValueError(
+                f"Missing CSV columns: {sorted(missing_columns)}"
+            )
+
         for row in reader:
             try:
                 candle = {
-                    "timestamp": int(
-                        float(row["timestamp"])
-                    ),
+                    "timestamp": int(float(row["timestamp"])),
                     "open": float(row["open"]),
                     "high": float(row["high"]),
                     "low": float(row["low"]),
@@ -80,18 +99,17 @@ def run_historical_confluence_audit(candles):
     print("\n" + "=" * 72, flush=True)
     print("HISTORICAL 4H CONFLUENCE AUDIT", flush=True)
     print("=" * 72, flush=True)
+
     print("Symbol:", SYMBOL, flush=True)
     print("Timeframe:", TIMEFRAME, flush=True)
     print("Method: Historical prefix scan", flush=True)
     print("Directions: LONG and SHORT", flush=True)
-    print("OB/FVG overlap filter: STRICT", flush=True)
     print("Lookahead: DISABLED", flush=True)
     print("Live Trading: DISABLED", flush=True)
     print("Archive Modification: NO", flush=True)
 
     if not isinstance(candles, (list, tuple)):
-        print("AUDIT STATUS: INVALID_DATA", flush=True)
-        return
+        raise TypeError("Candles must be a list or tuple")
 
     if len(candles) < MINIMUM_CANDLES:
         print("AUDIT STATUS: INSUFFICIENT_DATA", flush=True)
