@@ -1,5 +1,11 @@
 
 def was_swing_broken_before_confirmation(candles, swing):
+    if not isinstance(candles, list):
+        raise ValueError("candles must be a list")
+
+    if not isinstance(swing, dict):
+        raise ValueError("swing must be a dictionary")
+
     pivot_index = swing.get("index")
     confirmation_index = swing.get("confirmation_index")
     level = swing.get("price")
@@ -35,7 +41,24 @@ def was_swing_broken_before_confirmation(candles, swing):
         pivot_index + 1,
         confirmation_index + 1,
     ):
-        close_price = candles[index]["close"]
+        candle = candles[index]
+
+        if not isinstance(candle, dict):
+            raise ValueError(
+                f"Invalid candle at index {index}"
+            )
+
+        close_price = candle.get("close")
+
+        if (
+            isinstance(close_price, bool)
+            or not isinstance(close_price, (int, float))
+            or not math.isfinite(close_price)
+            or close_price <= 0
+        ):
+            raise ValueError(
+                f"Invalid close price at index {index}"
+            )
 
         if swing_type == "HIGH" and close_price > level:
             return True
@@ -68,6 +91,11 @@ def detect_swings(
                 f"{name} must be a positive integer"
             )
 
+    if len(candles) < 2:
+        raise ValueError(
+            "At least two candles are required"
+        )
+
     if candle_duration is None:
         candle_duration = infer_candle_duration(candles)
 
@@ -81,6 +109,63 @@ def detect_swings(
         raise ValueError("Invalid candle duration")
 
     candle_duration = int(candle_duration)
+
+    required_fields = (
+        "timestamp",
+        "high",
+        "low",
+        "close",
+    )
+
+    previous_timestamp = None
+
+    for index, candle in enumerate(candles):
+        if not isinstance(candle, dict):
+            raise ValueError(
+                f"Candle at index {index} must be a dictionary"
+            )
+
+        for field in required_fields:
+            value = candle.get(field)
+
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(
+                    f"Invalid {field} at candle index {index}"
+                )
+
+        if (
+            candle["high"] <= 0
+            or candle["low"] <= 0
+            or candle["close"] <= 0
+            or candle["high"] < candle["low"]
+        ):
+            raise ValueError(
+                f"Invalid OHLC values at candle index {index}"
+            )
+
+        timestamp = candle["timestamp"]
+
+        if (
+            timestamp < 0
+            or int(timestamp) != timestamp
+        ):
+            raise ValueError(
+                f"Invalid timestamp at candle index {index}"
+            )
+
+        if (
+            previous_timestamp is not None
+            and timestamp <= previous_timestamp
+        ):
+            raise ValueError(
+                "Candle timestamps must be strictly increasing"
+            )
+
+        previous_timestamp = timestamp
 
     swings = []
 
