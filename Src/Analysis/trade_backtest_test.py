@@ -8,6 +8,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE_DIR = PROJECT_ROOT / "Data" / "Archive"
 
 TIMEFRAMES = ["5m", "15m", "1H", "4H", "1D"]
+ENTRY_TIMEFRAMES = ["1H", "15m", "5m"]
+
+TIMEFRAME_SECONDS = {
+    "5m": 300,
+    "15m": 900,
+    "1H": 3600,
+    "4H": 14400,
+    "1D": 86400,
+}
 
 SIGNAL_TYPES = {
     "BOS_BULLISH": 1,
@@ -41,11 +50,114 @@ PROFIT_LOCK_TRIGGER_R = 0.5
 FEE_RATE = 0.0005
 SLIPPAGE_RATE = 0.0002
 
+SETUP_TIMEFRAME = "4H"
+DIRECTION_TIMEFRAME = "1D"
+
+SETUP_MAX_WAIT_4H_CANDLES = 24
+
+DAILY_TREND_COLUMNS = [
+    "structure_trend",
+    "external_structure_trend",
+    "trend",
+]
+
 
 def load_structure_module():
     sys.path.insert(0, str(PROJECT_ROOT))
     from Src.Analysis.market_structure import detect_market_structure
     return detect_market_structure
+
+
+def normalize_timestamps(data):
+    result = data.copy()
+
+    result["timestamp"] = pd.to_numeric(
+        result["timestamp"],
+        errors="raise",
+    )
+
+    median_timestamp = float(result["timestamp"].median())
+
+    if median_timestamp > 100000000000:
+        result["timestamp_seconds"] = (
+            result["timestamp"] / 1000.0
+        )
+    else:
+        result["timestamp_seconds"] = result["timestamp"]
+
+    result["timestamp_seconds"] = (
+        result["timestamp_seconds"].astype("int64")
+    )
+
+    return result
+
+
+def load_archive(timeframe):
+    filename = f"BTC_USDT_SPOT_{timeframe}.csv"
+    filepath = ARCHIVE_DIR / filename
+
+    if not filepath.exists():
+        raise FileNotFoundError(
+            f"Archive not found: {filepath}"
+        )
+
+    data = pd.read_csv(filepath)
+
+    required_columns = {
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    }
+
+    missing = required_columns - set(data.columns)
+
+    if missing:
+        raise ValueError(
+            f"{timeframe}: Missing columns: {sorted(missing)}"
+        )
+
+    data = normalize_timestamps(data)
+
+    data = data.sort_values(
+        "timestamp_seconds"
+    ).reset_index(drop=True)
+
+    if data["timestamp_seconds"].duplicated().any():
+        raise ValueError(
+            f"{timeframe}: Duplicate timestamps found"
+        )
+
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    ]:
+        data[column] = pd.to_numeric(
+            data[column],
+            errors="raise",
+        )
+
+    if not data.empty:
+        if not (
+            data["high"] >= data[["open", "close"]].max(axis=1)
+        ).all():
+            raise ValueError(
+                f"{timeframe}: Invalid high prices"
+            )
+
+        if not (
+            data["low"] <= data[["open", "close"]].min(axis=1)
+        ).all():
+            raise ValueError(
+                f"{timeframe}: Invalid low prices"
+            )
+
+    return data
 
 
 def calculate_trade_costs(direction, entry_price, exit_price):
@@ -182,8 +294,6 @@ def simulate_trade(
         high_price = float(candle["high"])
         low_price = float(candle["low"])
 
-        # Activate a previously triggered profit lock.
-        # It becomes active only from the next candle.
         if activate_lock_next_candle:
             active_stop_price = profit_lock_price
             profit_lock_activated = True
@@ -255,8 +365,6 @@ def simulate_trade(
             exit_index = current_index
             break
 
-        # Detect +0.5R only after checking existing SL/TP.
-        # The new stop is activated from the next candle.
         if use_profit_lock and not profit_lock_activated:
             if direction == 1 and high_price >= profit_lock_price:
                 activate_lock_next_candle = True
@@ -367,6 +475,605 @@ def calculate_summary(trades):
     }
 
 
+def validate_structure_output(structure, timeframe):
+    required_columns = set()
+
+    for config in STRUCTURE_CONFIG.values():
+        required_columns.add(config["event_column"])
+        required_columns.add(config["swing_high_column"])
+        required_columns.add(config["swing_low_column"])
+
+    missing = required_columns - set(structure.columns)
+
+    if missing:
+        raise ValueError(
+            f"{timeframe}: Missing structure columns: {sorted(missing)}"
+        )
+
+    return structure
+
+
+def build_structure(data, timeframe, detect_market_structure):
+    structure = detect_market_structure(
+        data.drop(columns=["timestamp_seconds"], errors="ignore"),
+        left_bars=LEFT_BARS,
+        right_bars=RIGHT_BARS,
+    )
+
+    if len(structure) != len(data):
+        raise ValueError(
+            f"{timeframe}: Structure output length mismatch"
+        )
+
+    return validate_structure_output(structure, timeframe)
+
+
+def get_daily_bias(
+    daily_data,
+    daily_structure,
+    decision_timestamp,
+):
+    daily_duration = TIMEFRAME_SECONDS["1D"]
+
+    eligible_indices = daily_data.index[
+        (
+            daily_data["timestamp_seconds"] + daily_duration
+        ) <= decision_timestamp
+    ]
+
+    if len(eligible_indices) == 0:
+        return "WAIT"
+
+    last_index = int(eligible_indices[-1])
+
+    trend_column = None
+
+    for column in DAILY_TREND_COLUMNS:
+        if column in daily_structure.columns:
+            trend_column = column
+            break
+
+    if trend_column is None:
+        raise ValueError(
+            "Daily structure has no recognized trend column. "
+            "Expected one of: "
+            + ", ".join(DAILY_TREND_COLUMNS)
+        )
+
+    trend_value = daily_structure.iloc[last_index][trend_column]
+
+    if pd.isna(trend_value):
+        return "WAIT"
+
+    normalized = str(trend_value).strip().upper()
+
+    if normalized in ("BULLISH", "BULL", "UP", "LONG", "1"):
+        return "LONG"
+
+    if normalized in ("BEARISH", "BEAR", "DOWN", "SHORT", "-1"):
+        return "SHORT"
+
+    return "WAIT"
+
+
+def get_latest_confirmed_swings(structure):
+    latest_swings = {}
+
+    for structure_name, config in STRUCTURE_CONFIG.items():
+        latest_swings[structure_name] = {
+            "high": structure[config["swing_high_column"]].ffill(),
+            "low": structure[config["swing_low_column"]].ffill(),
+        }
+
+    return latest_swings
+
+
+def get_event_available_timestamp(
+    structure,
+    index,
+    structure_name,
+    candle_timestamp,
+    timeframe,
+):
+    candidates = [
+        f"{structure_name.lower()}_structure_event_available_timestamp",
+        f"{structure_name.lower()}_available_timestamp",
+        "available_timestamp",
+    ]
+
+    for column in candidates:
+        if column not in structure.columns:
+            continue
+
+        value = structure.iloc[index][column]
+
+        if pd.isna(value):
+            continue
+
+        value = float(value)
+
+        if value > 100000000000:
+            value /= 1000.0
+
+        return int(value)
+
+    return int(
+        candle_timestamp + TIMEFRAME_SECONDS[timeframe]
+    )
+
+
+def collect_lower_timeframe_events(
+    entry_data,
+    entry_structure,
+    timeframe,
+):
+    events = []
+
+    for index in range(len(entry_data)):
+        for structure_name, config in STRUCTURE_CONFIG.items():
+            event_value = entry_structure.iloc[index][
+                config["event_column"]
+            ]
+
+            for event_name in parse_signal_events(event_value):
+                events.append({
+                    "timeframe": timeframe,
+                    "index": index,
+                    "structure_type": structure_name,
+                    "signal_type": event_name,
+                    "direction": SIGNAL_TYPES[event_name],
+                    "available_timestamp": (
+                        get_event_available_timestamp(
+                            entry_structure,
+                            index,
+                            structure_name,
+                            int(
+                                entry_data.iloc[index][
+                                    "timestamp_seconds"
+                                ]
+                            ),
+                            timeframe,
+                        )
+                    ),
+                })
+
+    return events
+
+
+def get_holding_candles(entry_timeframe, four_hour_horizon):
+    entry_seconds = TIMEFRAME_SECONDS[entry_timeframe]
+    base_seconds = TIMEFRAME_SECONDS["4H"]
+
+    holding_seconds = four_hour_horizon * base_seconds
+
+    return int(holding_seconds // entry_seconds)
+
+
+def find_entry_confirmation(
+    setup,
+    lower_events,
+    setup_expiry_timestamp,
+):
+    candidates = []
+
+    timeframe_priority = {
+        "1H": 0,
+        "15m": 1,
+        "5m": 2,
+    }
+
+    for event in lower_events:
+        if event["direction"] != setup["direction"]:
+            continue
+
+        if event["available_timestamp"] <= setup["available_timestamp"]:
+            continue
+
+        if event["available_timestamp"] > setup_expiry_timestamp:
+            continue
+
+        candidates.append(event)
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda event: (
+            event["available_timestamp"],
+            timeframe_priority[event["timeframe"]],
+        )
+    )
+
+    return candidates[0]
+
+
+def create_4h_setups(
+    four_hour_data,
+    four_hour_structure,
+    daily_data,
+    daily_structure,
+):
+    setups = []
+    rejected = {}
+
+    latest_swings = get_latest_confirmed_swings(
+        four_hour_structure
+    )
+
+    for index in range(len(four_hour_data)):
+        candle_timestamp = int(
+            four_hour_data.iloc[index]["timestamp_seconds"]
+        )
+
+        setup_available_timestamp = (
+            candle_timestamp + TIMEFRAME_SECONDS["4H"]
+        )
+
+        daily_bias = get_daily_bias(
+            daily_data,
+            daily_structure,
+            setup_available_timestamp,
+        )
+
+        if daily_bias == "WAIT":
+            rejected["DAILY_BIAS_UNAVAILABLE_OR_NEUTRAL"] = (
+                rejected.get(
+                    "DAILY_BIAS_UNAVAILABLE_OR_NEUTRAL",
+                    0,
+                ) + 1
+            )
+            continue
+
+        allowed_direction = (
+            1 if daily_bias == "LONG" else -1
+        )
+
+        for structure_name, config in STRUCTURE_CONFIG.items():
+            event_value = four_hour_structure.iloc[index][
+                config["event_column"]
+            ]
+
+            for event_name in parse_signal_events(event_value):
+                direction = SIGNAL_TYPES[event_name]
+
+                if direction != allowed_direction:
+                    rejected["DAILY_DIRECTION_CONFLICT"] = (
+                        rejected.get(
+                            "DAILY_DIRECTION_CONFLICT",
+                            0,
+                        ) + 1
+                    )
+                    continue
+
+                if direction == 1:
+                    stop_price = latest_swings[
+                        structure_name
+                    ]["low"].iloc[index]
+                else:
+                    stop_price = latest_swings[
+                        structure_name
+                    ]["high"].iloc[index]
+
+                if pd.isna(stop_price):
+                    rejected["NO_CONFIRMED_4H_OPPOSITE_SWING"] = (
+                        rejected.get(
+                            "NO_CONFIRMED_4H_OPPOSITE_SWING",
+                            0,
+                        ) + 1
+                    )
+                    continue
+
+                event_available_timestamp = (
+                    get_event_available_timestamp(
+                        four_hour_structure,
+                        index,
+                        structure_name,
+                        candle_timestamp,
+                        "4H",
+                    )
+                )
+
+                setup_id = (
+                    f"4H_{candle_timestamp}_"
+                    f"{structure_name}_{event_name}"
+                )
+
+                setups.append({
+                    "setup_id": setup_id,
+                    "setup_index": index,
+                    "setup_timestamp": candle_timestamp,
+                    "available_timestamp": (
+                        event_available_timestamp
+                    ),
+                    "direction": direction,
+                    "daily_bias": daily_bias,
+                    "structure_type": structure_name,
+                    "signal_type": event_name,
+                    "stop_price": float(stop_price),
+                })
+
+    setups.sort(
+        key=lambda setup: (
+            setup["available_timestamp"],
+            setup["setup_id"],
+        )
+    )
+
+    return setups, rejected
+
+
+def analyze_hierarchical_strategy(detect_market_structure):
+    print("\n" + "=" * 70)
+    print("HIERARCHICAL MULTI-TIMEFRAME BACKTEST")
+    print("=" * 70)
+
+    print("Direction filter: 1D")
+    print("Setup timeframe: 4H")
+    print("Entry refinement: 1H, 15m, 5m")
+    print("Entry confirmation: First aligned BOS/CHOCH")
+    print("Stop source: Confirmed 4H opposite swing")
+    print("Base holding period: 24 equivalent 4H candles")
+    print("Setup expiry: 24 4H candles")
+    print("Trading execution: DISABLED")
+    print("Archive modification: NO")
+
+    archives = {}
+    structures = {}
+
+    for timeframe in TIMEFRAMES:
+        archives[timeframe] = load_archive(timeframe)
+        structures[timeframe] = build_structure(
+            archives[timeframe],
+            timeframe,
+            detect_market_structure,
+        )
+
+        print(
+            f"{timeframe}: loaded "
+            f"{len(archives[timeframe])} candles"
+        )
+
+    setups, rejected_setups = create_4h_setups(
+        archives["4H"],
+        structures["4H"],
+        archives["1D"],
+        structures["1D"],
+    )
+
+    print(f"\nDaily-filtered 4H setups: {len(setups)}")
+    print(f"Rejected setup events: {sum(rejected_setups.values())}")
+
+    for reason, count in sorted(rejected_setups.items()):
+        print(f"  {reason}: {count}")
+
+    lower_events = []
+
+    for timeframe in ENTRY_TIMEFRAMES:
+        events = collect_lower_timeframe_events(
+            archives[timeframe],
+            structures[timeframe],
+            timeframe,
+        )
+
+        lower_events.extend(events)
+
+        print(
+            f"{timeframe} aligned-entry event pool: "
+            f"{len(events)}"
+        )
+
+    baseline_trades = []
+    managed_trades = []
+    extensions = []
+
+    statistics = {
+        "valid_4h_setups": len(setups),
+        "entry_confirmed": 0,
+        "pending_or_expired": 0,
+        "insufficient_future_data": 0,
+        "invalid_trades": 0,
+        "used_setup_ids": set(),
+        "entry_timeframes": {},
+    }
+
+    for setup in setups:
+        expiry_timestamp = (
+            setup["available_timestamp"]
+            + SETUP_MAX_WAIT_4H_CANDLES
+            * TIMEFRAME_SECONDS["4H"]
+        )
+
+        entry_event = find_entry_confirmation(
+            setup,
+            lower_events,
+            expiry_timestamp,
+        )
+
+        if entry_event is None:
+            statistics["pending_or_expired"] += 1
+            continue
+
+        if setup["setup_id"] in statistics["used_setup_ids"]:
+            continue
+
+        timeframe = entry_event["timeframe"]
+        entry_data = archives[timeframe]
+        entry_index = entry_event["index"]
+
+        holding_candles = get_holding_candles(
+            timeframe,
+            BASE_HOLDING_CANDLES,
+        )
+
+        base_trade, reason = simulate_trade(
+            entry_data,
+            entry_index,
+            setup["direction"],
+            setup["stop_price"],
+            holding_candles,
+            use_profit_lock=False,
+        )
+
+        if reason:
+            if reason == "INSUFFICIENT_FUTURE_DATA":
+                statistics["insufficient_future_data"] += 1
+            else:
+                statistics["invalid_trades"] += 1
+            continue
+
+        managed_trade, managed_reason = simulate_trade(
+            entry_data,
+            entry_index,
+            setup["direction"],
+            setup["stop_price"],
+            holding_candles,
+            use_profit_lock=True,
+        )
+
+        if managed_reason:
+            statistics["invalid_trades"] += 1
+            continue
+
+        metadata = {
+            "setup_id": setup["setup_id"],
+            "setup_timeframe": "4H",
+            "setup_timestamp": setup["setup_timestamp"],
+            "setup_type": setup["structure_type"],
+            "setup_signal_type": setup["signal_type"],
+            "daily_bias": setup["daily_bias"],
+            "entry_timeframe": timeframe,
+            "entry_structure_type": entry_event["structure_type"],
+            "entry_signal_type": entry_event["signal_type"],
+            "setup_expiry_timestamp": expiry_timestamp,
+            "holding_period_4h_equivalent": BASE_HOLDING_CANDLES,
+        }
+
+        for trade in [base_trade, managed_trade]:
+            trade.update(metadata)
+            trade["timeframe"] = timeframe
+            trade["structure_type"] = setup["structure_type"]
+            trade["signal_type"] = setup["signal_type"]
+
+        baseline_trades.append(base_trade)
+        managed_trades.append(managed_trade)
+
+        statistics["used_setup_ids"].add(setup["setup_id"])
+        statistics["entry_confirmed"] += 1
+
+        statistics["entry_timeframes"][timeframe] = (
+            statistics["entry_timeframes"].get(timeframe, 0) + 1
+        )
+
+        if base_trade["exit_reason"] == "TIME_EXIT":
+            for horizon in EXTENDED_HORIZONS:
+                extended_holding = get_holding_candles(
+                    timeframe,
+                    horizon,
+                )
+
+                extended_trade, extension_reason = simulate_trade(
+                    entry_data,
+                    entry_index,
+                    setup["direction"],
+                    setup["stop_price"],
+                    extended_holding,
+                    use_profit_lock=False,
+                )
+
+                if extension_reason:
+                    extensions.append({
+                        **metadata,
+                        "timeframe": timeframe,
+                        "horizon_4h_equivalent": horizon,
+                        "status": extension_reason,
+                    })
+                    continue
+
+                extended_trade.update(metadata)
+                extended_trade["timeframe"] = timeframe
+                extended_trade["structure_type"] = setup["structure_type"]
+                extended_trade["signal_type"] = setup["signal_type"]
+                extended_trade["horizon"] = horizon
+                extended_trade["status"] = "AVAILABLE"
+
+                extensions.append(extended_trade)
+
+    statistics.pop("used_setup_ids")
+
+    print("\n" + "=" * 70)
+    print("HIERARCHICAL BACKTEST RESULTS")
+    print("=" * 70)
+
+    print(f"Valid 4H setups: {statistics['valid_4h_setups']}")
+    print(f"Entry-confirmed setups: {statistics['entry_confirmed']}")
+    print(f"Pending or expired setups: {statistics['pending_or_expired']}")
+    print(
+        "Insufficient future data: "
+        f"{statistics['insufficient_future_data']}"
+    )
+    print(f"Invalid trades: {statistics['invalid_trades']}")
+
+    print("\nEntries by timeframe:")
+    print(statistics["entry_timeframes"])
+
+    print("\nBaseline summary:")
+    print(calculate_summary(baseline_trades))
+
+    print("\nProfit Lock summary:")
+    print(calculate_summary(managed_trades))
+
+    if baseline_trades:
+        baseline_frame = pd.DataFrame(baseline_trades)
+        managed_frame = pd.DataFrame(managed_trades)
+
+        print_grouped_summary(
+            baseline_frame,
+            ["entry_timeframe"],
+            "BASELINE BY ENTRY TIMEFRAME",
+        )
+
+        print_grouped_summary(
+            managed_frame,
+            ["entry_timeframe"],
+            "PROFIT LOCK BY ENTRY TIMEFRAME",
+        )
+
+        print_grouped_summary(
+            managed_frame,
+            ["daily_bias", "setup_signal_type"],
+            "PROFIT LOCK BY DAILY BIAS AND 4H SETUP",
+        )
+
+        print("\nProfit Lock exit reasons:")
+        print(
+            managed_frame["exit_reason"].value_counts().to_dict()
+        )
+
+    print_extension_report(extensions)
+
+    print("\nIMPORTANT LIMITATIONS")
+    print("- Daily direction is evaluated using closed daily candles only.")
+    print("- Only 4H structure events can create trade setups.")
+    print("- Lower timeframes are used only for entry confirmation.")
+    print("- One setup ID can produce no more than one trade.")
+    print("- Stop prices come from confirmed 4H opposite swings.")
+    print("- Holding periods are measured in equivalent 4H candles.")
+    print("- OHLC data cannot determine exact intrabar price ordering.")
+    print("- Same-candle stop and target conflicts remain conservative.")
+    print("- Fees and slippage are applied to every simulated trade.")
+    print("- No position sizing or capital compounding is applied.")
+
+    print("\nHIERARCHICAL BACKTEST COMPLETED")
+
+    return {
+        "setups": setups,
+        "baseline_trades": baseline_trades,
+        "managed_trades": managed_trades,
+        "extensions": extensions,
+        "statistics": statistics,
+    }
+
+
 def analyze_timeframe(timeframe, detect_market_structure):
     filename = f"BTC_USDT_SPOT_{timeframe}.csv"
     filepath = ARCHIVE_DIR / filename
@@ -420,33 +1127,9 @@ def analyze_timeframe(timeframe, detect_market_structure):
         right_bars=RIGHT_BARS,
     )
 
-    if len(structure) != len(data):
-        raise ValueError(
-            f"{timeframe}: Structure output length mismatch"
-        )
+    validate_structure_output(structure, timeframe)
 
-    required_structure_columns = set()
-
-    for config in STRUCTURE_CONFIG.values():
-        required_structure_columns.add(config["event_column"])
-        required_structure_columns.add(config["swing_high_column"])
-        required_structure_columns.add(config["swing_low_column"])
-
-    missing_structure = required_structure_columns - set(structure.columns)
-
-    if missing_structure:
-        raise ValueError(
-            f"{timeframe}: Missing structure columns: "
-            f"{sorted(missing_structure)}"
-        )
-
-    latest_swings = {}
-
-    for structure_name, config in STRUCTURE_CONFIG.items():
-        latest_swings[structure_name] = {
-            "high": structure[config["swing_high_column"]].ffill(),
-            "low": structure[config["swing_low_column"]].ffill(),
-        }
+    latest_swings = get_latest_confirmed_swings(structure)
 
     baseline_trades = []
     managed_trades = []
@@ -572,6 +1255,9 @@ def print_extension_report(extensions):
     extension_frame = pd.DataFrame(extensions)
 
     for horizon in EXTENDED_HORIZONS:
+        if "horizon" not in extension_frame.columns:
+            continue
+
         subset = extension_frame[
             (extension_frame["horizon"] == horizon)
             & (extension_frame["status"] == "AVAILABLE")
@@ -612,7 +1298,7 @@ def print_extension_report(extensions):
     print("\nEXTENSION COMPARISON")
     print(
         "Only baseline trades that reached TIME_EXIT at the base "
-        "24-candle horizon are included."
+        "holding horizon are included."
     )
     print(
         "Extended simulations restart from the original entry "
@@ -620,249 +1306,32 @@ def print_extension_report(extensions):
     )
 
 
-def print_strategy_comparison(baseline_trades, managed_trades):
-    baseline = pd.DataFrame(baseline_trades)
-    managed = pd.DataFrame(managed_trades)
-
-    print("\n" + "=" * 70)
-    print("BASELINE VS PROFIT LOCK COMPARISON")
-    print("=" * 70)
-
-    baseline_summary = calculate_summary(baseline_trades)
-    managed_summary = calculate_summary(managed_trades)
-
-    print("\nBASELINE:")
-    print(baseline_summary)
-
-    print("\nPROFIT LOCK:")
-    print(managed_summary)
-
-    baseline_time_exits = baseline_summary["time_exits"]
-    managed_time_exits = managed_summary["time_exits"]
-
-    baseline_count = baseline_summary["trades"]
-    managed_count = managed_summary["trades"]
-
-    baseline_pct = (
-        baseline_time_exits / baseline_count * 100
-        if baseline_count else 0
-    )
-    managed_pct = (
-        managed_time_exits / managed_count * 100
-        if managed_count else 0
-    )
-
-    reduction_count = baseline_time_exits - managed_time_exits
-    reduction_pct = (
-        reduction_count / baseline_time_exits * 100
-        if baseline_time_exits else 0
-    )
-
-    print("\nTIME EXIT COMPARISON:")
-    print(f"Baseline TIME_EXIT count: {baseline_time_exits}")
-    print(f"Profit Lock TIME_EXIT count: {managed_time_exits}")
-    print(f"Baseline TIME_EXIT rate: {baseline_pct:.2f}%")
-    print(f"Profit Lock TIME_EXIT rate: {managed_pct:.2f}%")
-    print(f"TIME_EXIT count reduction: {reduction_count}")
-    print(f"TIME_EXIT count reduction percentage: {reduction_pct:.2f}%")
-
-    print("\nNET PERFORMANCE CHANGE:")
-    print(
-        "Average Net R change: "
-        f"{managed_summary['avg_net_R'] - baseline_summary['avg_net_R']:.4f}"
-    )
-
-    print(
-        "Profit Factor change: "
-        f"{baseline_summary['profit_factor']} -> "
-        f"{managed_summary['profit_factor']}"
-    )
-
-    print("\nPROFIT LOCK ACTIVATION:")
-    activated = int(managed["profit_lock_activated"].sum())
-    lock_exits = managed_summary["profit_lock_exits"]
-
-    print(f"Trades where +0.5R was reached: {activated}")
-    print(f"Trades closed by profit lock: {lock_exits}")
-    print(
-        "Trades reaching +0.5R but not closed by profit lock: "
-        f"{activated - lock_exits}"
-    )
-
-    print("\nPROFIT LOCK RESULTS BY TIMEFRAME:")
-    print_grouped_summary(
-        managed,
-        ["timeframe"],
-        "PROFIT LOCK BY TIMEFRAME",
-    )
-
-    print("\nBASELINE RESULTS BY TIMEFRAME:")
-    print_grouped_summary(
-        baseline,
-        ["timeframe"],
-        "BASELINE BY TIMEFRAME",
-    )
-
-    print("\nPROFIT LOCK EXIT REASONS:")
-    print(managed["exit_reason"].value_counts().to_dict())
-
-
 def main():
     print("=" * 70)
-    print("BTC MARKET STRUCTURE TRADE BACKTEST")
-    print("BASELINE VS PROFIT LOCK")
+    print("BTC HIERARCHICAL MARKET STRUCTURE BACKTEST")
     print("=" * 70)
 
-    print(f"Timeframes: {', '.join(TIMEFRAMES)}")
+    print(f"Setup timeframe: {SETUP_TIMEFRAME}")
+    print(f"Direction timeframe: {DIRECTION_TIMEFRAME}")
+    print(f"Entry timeframes: {', '.join(ENTRY_TIMEFRAMES)}")
     print(f"Risk/Reward: 1:{RISK_REWARD}")
-    print(f"Base holding candles: {BASE_HOLDING_CANDLES}")
+    print(f"Base holding period: {BASE_HOLDING_CANDLES} 4H candles")
+    print(f"Setup expiry: {SETUP_MAX_WAIT_4H_CANDLES} 4H candles")
     print(f"Profit lock trigger: +{PROFIT_LOCK_TRIGGER_R}R")
     print(f"Extended horizons: {EXTENDED_HORIZONS}")
     print(f"Fee per side: {FEE_RATE * 100:.3f}%")
     print(f"Slippage per side: {SLIPPAGE_RATE * 100:.3f}%")
-    print("Entry: Next candle Open")
+    print("Entry: Next lower-timeframe candle Open")
     print("Same-candle SL/TP: Stop Loss First")
     print("Profit lock activation: Next candle after +0.5R trigger")
-    print("Signal sources: INTERNAL and EXTERNAL")
-    print("Stops: Structure-specific confirmed opposite swings")
     print("Trading execution: DISABLED")
     print("Archive modification: NO")
-    print("-" * 70)
 
     detect_market_structure = load_structure_module()
 
-    all_baseline_trades = []
-    all_managed_trades = []
-    all_extensions = []
-    successful_timeframes = 0
-
-    for timeframe in TIMEFRAMES:
-        try:
-            baseline, managed, extensions, skipped = analyze_timeframe(
-                timeframe,
-                detect_market_structure,
-            )
-
-            all_baseline_trades.extend(baseline)
-            all_managed_trades.extend(managed)
-            all_extensions.extend(extensions)
-            successful_timeframes += 1
-
-            print(
-                f"{timeframe}: PASS | "
-                f"Baseline trades: {len(baseline)} | "
-                f"Profit Lock trades: {len(managed)} | "
-                f"Skipped: {sum(skipped.values())}"
-            )
-
-            for reason, count in sorted(skipped.items()):
-                print(f"  {reason}: {count}")
-
-            baseline_time_exits = sum(
-                trade["exit_reason"] == "TIME_EXIT"
-                for trade in baseline
-            )
-
-            managed_time_exits = sum(
-                trade["exit_reason"] == "TIME_EXIT"
-                for trade in managed
-            )
-
-            print(f"  Baseline TIME_EXIT: {baseline_time_exits}")
-            print(f"  Profit Lock TIME_EXIT: {managed_time_exits}")
-
-        except Exception as error:
-            print(f"{timeframe}: FAIL | {error}")
-
-    print("-" * 70)
-    print(f"Successful timeframes: {successful_timeframes}")
-    print(
-        f"Failed timeframes: {len(TIMEFRAMES) - successful_timeframes}"
+    analyze_hierarchical_strategy(
+        detect_market_structure
     )
-    print(f"Total baseline trades: {len(all_baseline_trades)}")
-    print(f"Total profit lock trades: {len(all_managed_trades)}")
-
-    if not all_baseline_trades:
-        print("No trades available for summary.")
-        print("\nBACKTEST COMPLETED")
-        return
-
-    baseline_frame = pd.DataFrame(all_baseline_trades)
-    managed_frame = pd.DataFrame(all_managed_trades)
-
-    print("\nBASELINE OVERALL SUMMARY")
-    print(calculate_summary(all_baseline_trades))
-
-    print("\nPROFIT LOCK OVERALL SUMMARY")
-    print(calculate_summary(all_managed_trades))
-
-    print_strategy_comparison(
-        all_baseline_trades,
-        all_managed_trades,
-    )
-
-    print_grouped_summary(
-        baseline_frame,
-        ["timeframe", "structure_type", "signal_type"],
-        "BASELINE BY TIMEFRAME, STRUCTURE AND SIGNAL",
-    )
-
-    print_grouped_summary(
-        managed_frame,
-        ["timeframe", "structure_type", "signal_type"],
-        "PROFIT LOCK BY TIMEFRAME, STRUCTURE AND SIGNAL",
-    )
-
-    baseline_time_exit_frame = baseline_frame[
-        baseline_frame["exit_reason"] == "TIME_EXIT"
-    ]
-
-    managed_time_exit_frame = managed_frame[
-        managed_frame["exit_reason"] == "TIME_EXIT"
-    ]
-
-    print("\nBASELINE TIME EXIT DIAGNOSTICS")
-    print(f"Total: {len(baseline_time_exit_frame)}")
-
-    if not baseline_time_exit_frame.empty:
-        print(
-            calculate_summary(
-                baseline_time_exit_frame.to_dict("records")
-            )
-        )
-
-    print("\nPROFIT LOCK TIME EXIT DIAGNOSTICS")
-    print(f"Total: {len(managed_time_exit_frame)}")
-
-    if not managed_time_exit_frame.empty:
-        print(
-            calculate_summary(
-                managed_time_exit_frame.to_dict("records")
-            )
-        )
-
-        print("\nPROFIT LOCK TIME EXIT BY TIMEFRAME")
-        print_grouped_summary(
-            managed_time_exit_frame,
-            ["timeframe"],
-            "PROFIT LOCK TIME EXIT BY TIMEFRAME",
-        )
-
-    print_extension_report(all_extensions)
-
-    print("\nIMPORTANT LIMITATIONS")
-    print("- Baseline and Profit Lock use identical signals and initial stops.")
-    print("- Each signal is simulated independently in both strategies.")
-    print("- Profit lock activates from the candle after the +0.5R trigger.")
-    print("- If +0.5R is first reached on the final holding candle, the trade remains a TIME_EXIT.")
-    print("- OHLC data cannot determine exact intrabar price movement order.")
-    print("- Same-candle stop and target conflicts are resolved conservatively.")
-    print("- Fees and slippage are applied to every simulated trade.")
-    print("- Extended holding analysis uses baseline TIME_EXIT trades only.")
-    print("- No position sizing, portfolio simulation, or capital compounding is applied.")
-    print("- Historical results do not guarantee future profitability.")
-
-    print("\nBACKTEST COMPLETED")
 
 
 if __name__ == "__main__":
