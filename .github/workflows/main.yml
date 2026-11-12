@@ -1,99 +1,100 @@
+
 name: Manual Test
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-test:
-runs-on: ubuntu-latest
-timeout-minutes: 10
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-steps:  
-  - name: Checkout repository  
-    uses: actions/checkout@v4  
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Set up Python  
-    uses: actions/setup-python@v5  
-    with:  
-      python-version: "3.12"  
-      cache: pip  
-      cache-dependency-path: requirements.txt  
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-  - name: Install dependencies  
-    run: python -m pip install -r requirements.txt  
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
 
-  - name: Run Python application  
-    run: python Src/Main.py  
+      - name: Run Python application
+        run: python Src/Main.py
 
-  - name: Run historical recovery test  
-    run: python Src/Data/recovery_test.py  
+      - name: Run historical recovery test
+        run: python Src/Data/recovery_test.py
 
-  - name: Run data quality validation  
-    run: python Src/Data/data_quality_validation.py  
+      - name: Run data quality validation
+        run: python Src/Data/data_quality_validation.py
 
-  - name: Run technical indicators test  
-    run: python Src/Analysis/indicator_test.py  
+      - name: Run technical indicators test
+        run: python Src/Analysis/indicator_test.py
 
-  - name: Run independent indicator unit test  
-    run: python Src/Analysis/indicator_unit_test.py  
+      - name: Run independent indicator unit test
+        run: python Src/Analysis/indicator_unit_test.py
 
-  - name: Run Market Structure Unit Test  
-    run: python Src/Analysis/market_structure_test.py  
+      - name: Run Market Structure Unit Test
+        run: python Src/Analysis/market_structure_test.py
 
-  - name: Run BOS and CHOCH Unit Test  
-    run: python Src/Analysis/market_structure_bos_test.py  
+      - name: Run BOS and CHOCH Unit Test
+        run: python Src/Analysis/market_structure_bos_test.py
 
-  - name: Run Real Daily Structure Analysis  
-    run: python -m Src.Analysis.test_daily_structure_real  
+      - name: Run Real Daily Structure Analysis
+        run: python -m Src.Analysis.test_daily_structure_real
 
-  - name: Run Real 4H Structure Analysis  
-    run: python -m Src.Analysis.test_4h_structure_real 
-    
-  - name: Run 4H Confluence History Audit
-    run: python -m Src.Analysis.confluence_history_audit
+      - name: Run Real 4H Structure Analysis
+        run: python -m Src.Analysis.test_4h_structure_real
 
-  - name: Run Real Market Direction Analysis  
-    run: python -m Src.Analysis.test_market_direction_real  
+      - name: Run 4H Confluence History Audit
+        run: python -m Src.Analysis.confluence_history_audit
 
-  - name: Run Real Market Structure History Audit  
-    run: python Src/Analysis/market_structure_history_test.py  
+      - name: Run Real Market Direction Analysis
+        run: python -m Src.Analysis.test_market_direction_real
 
-  - name: Run Signal Outcome Analysis  
-    run: python Src/Analysis/signal_outcome_test.py  
+      - name: Run Real Market Structure History Audit
+        run: python Src/Analysis/market_structure_history_test.py
 
-  - name: Run Trade Backtest  
-    run: python Src/Analysis/trade_backtest_test.py  
+      - name: Run Signal Outcome Analysis
+        run: python Src/Analysis/signal_outcome_test.py
 
-  - name: Generate BTC Structure Charts  
-    run: python -m Src.Analysis.generate_structure_charts  
+      - name: Run Trade Backtest
+        run: python Src/Analysis/trade_backtest_test.py
 
-  - name: Run BTC Structure Audit Report  
-    run: python -m Src.Analysis.structure_audit_report  
+      - name: Generate BTC Structure Charts
+        run: python -m Src.Analysis.generate_structure_charts
 
-  - name: Upload BTC Structure Reports  
-    uses: actions/upload-artifact@v4  
-    with:  
-      name: btc-structure-reports  
-      path: |  
-        Reports/BTC_1D_Structure.png  
-        Reports/BTC_4H_Structure.png  
-        Reports/BTC_Structure_Audit_Report.txt  
-      if-no-files-found: error  
-      retention-days: 7  
+      - name: Run BTC Structure Audit Report
+        run: python -m Src.Analysis.structure_audit_report
 
-  - name: Save historical archive to GitHub  
-    run: |  
-      git config user.name "github-actions[bot]"  
-      git config user.email "41898282+github-actions[bot]@users.noreply.github.com"  
+      - name: Upload BTC Structure Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-structure-reports
+          path: |
+            Reports/BTC_1D_Structure.png
+            Reports/BTC_4H_Structure.png
+            Reports/BTC_Structure_Audit_Report.txt
+          if-no-files-found: error
+          retention-days: 7
 
-      git add Data/Archive/  
+      - name: Save historical archive to GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      if git diff --cached --quiet; then  
-        echo "No archive changes to commit."  
-      else  
-        git commit -m "Update BTC historical archive"  
-        git push origin "HEAD:${GITHUB_REF_NAME}"  
-      fi
+          git add Data/Archive/
+
+          if git diff --cached --quiet; then
+            echo "No archive changes to commit."
+          else
+            git commit -m "Update BTC historical archive"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
