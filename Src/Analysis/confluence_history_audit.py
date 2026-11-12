@@ -14,6 +14,7 @@ from Src.Analysis.four_hour_setup import generate_four_hour_setup
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 ARCHIVE_PATH = (
     PROJECT_ROOT
     / "Data"
@@ -44,6 +45,21 @@ def parse_timestamp(value):
         parsed = parsed.replace(tzinfo=timezone.utc)
 
     return parsed.timestamp() * 1000
+
+
+def format_timestamp(value):
+    if value is None:
+        return "N/A"
+
+    timestamp = int(float(value))
+
+    if timestamp > 100000000000:
+        timestamp //= 1000
+
+    return datetime.fromtimestamp(
+        timestamp,
+        tz=timezone.utc
+    ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def load_candles(filepath):
@@ -133,6 +149,27 @@ def print_section(title):
     print("=" * 72)
 
 
+def collect_diagnostics(diagnostics, diagnostic_counts, rejection_counts):
+    if not isinstance(diagnostics, dict):
+        return
+
+    for key, value in diagnostics.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            diagnostic_counts[key] += value
+
+        elif isinstance(value, list):
+            diagnostic_counts[f"{key}_items"] += len(value)
+
+            if key == "rejected_candidates":
+                for item in value:
+                    if isinstance(item, dict):
+                        reason = item.get(
+                            "reason",
+                            "UNKNOWN_REJECTION_REASON"
+                        )
+                        rejection_counts[str(reason)] += 1
+
+
 def run_historical_confluence_audit():
     print_section("HISTORICAL 4H CONFLUENCE AUDIT")
 
@@ -142,12 +179,12 @@ def run_historical_confluence_audit():
 
     print(f"Total Candles: {len(candles)}")
     print(
-        "First Candle Timestamp:",
-        candles[0]["timestamp"],
+        "First Candle:",
+        format_timestamp(candles[0]["timestamp"]),
     )
     print(
-        "Last Candle Timestamp:",
-        candles[-1]["timestamp"],
+        "Last Candle:",
+        format_timestamp(candles[-1]["timestamp"]),
     )
 
     candle_duration = infer_candle_duration(candles)
@@ -177,6 +214,7 @@ def run_historical_confluence_audit():
             and isinstance(event.get("index"), int)
             and 0 <= event["index"] < len(candles)
             and event.get("direction") in ("BULLISH", "BEARISH")
+            and isinstance(event.get("available_timestamp"), (int, float))
         )
     ]
 
@@ -193,6 +231,8 @@ def run_historical_confluence_audit():
     reason_counts = Counter()
     direction_counts = Counter()
     event_type_counts = Counter()
+    diagnostic_counts = Counter()
+    rejection_counts = Counter()
 
     confirmed_setups = []
     watch_setups = []
@@ -215,6 +255,11 @@ def run_historical_confluence_audit():
             result = generate_four_hour_setup(
                 candles=historical_candles,
                 allowed_direction=direction,
+                setup_expiry_candles=24,
+                ob_lookback=10,
+                fvg_lookback=10,
+                risk_reward=2.0,
+                symbol="BTC-USDT",
             )
 
         except Exception as error:
@@ -225,6 +270,14 @@ def run_historical_confluence_audit():
                 "reason": f"ENGINE_ERROR: {error}",
             })
             continue
+
+        diagnostics = result.get("diagnostics", {})
+
+        collect_diagnostics(
+            diagnostics,
+            diagnostic_counts,
+            rejection_counts,
+        )
 
         returned_setup = result.get("setup")
 
@@ -265,11 +318,10 @@ def run_historical_confluence_audit():
             "event": event["event"],
             "direction": direction,
             "timestamp": event["timestamp"],
-            "available_timestamp": event[
-                "available_timestamp"
-            ],
+            "available_timestamp": event["available_timestamp"],
             "status": status,
             "reason": reason,
+            "diagnostics": diagnostics,
         }
 
         if returned_setup is not None:
@@ -293,6 +345,7 @@ def run_historical_confluence_audit():
     print(f"Confirmed Confluence: {status_counts['CONFIRMED_CONFLUENCE']}")
     print(f"Watch Without Overlap: {status_counts['WATCH_NO_ZONE_OVERLAP']}")
     print(f"Wait / Rejected by Rules: {status_counts['WAIT']}")
+    print(f"Other Statuses: {sum(status_counts.values()) - status_counts['CONFIRMED_CONFLUENCE'] - status_counts['WATCH_NO_ZONE_OVERLAP'] - status_counts['WAIT']}")
     print(f"Engine Errors / Mismatches: {len(rejected_events)}")
 
     print_section("DIRECTION DISTRIBUTION")
@@ -305,7 +358,23 @@ def run_historical_confluence_audit():
     for event_type, count in sorted(event_type_counts.items()):
         print(f"{event_type}: {count}")
 
-    print_section("REJECTION REASONS")
+    print_section("ENGINE DIAGNOSTIC TOTALS")
+
+    if not diagnostic_counts:
+        print("No numeric or list diagnostics were returned.")
+    else:
+        for key, count in sorted(diagnostic_counts.items()):
+            print(f"{key}: {count}")
+
+    print_section("CANDIDATE REJECTION REASONS")
+
+    if not rejection_counts:
+        print("No rejected candidate details were returned.")
+    else:
+        for reason, count in rejection_counts.most_common():
+            print(f"{count} | {reason}")
+
+    print_section("GENERAL ENGINE REASONS")
 
     for reason, count in reason_counts.most_common():
         print(f"{count} | {reason}")
@@ -319,7 +388,7 @@ def run_historical_confluence_audit():
         print()
         print(f"Event Number: {record['event_number']}")
         print(f"Event: {record['event']}")
-        print(f"Timestamp: {record['timestamp']}")
+        print(f"Timestamp: {format_timestamp(record['timestamp'])}")
         print(f"Setup ID: {record.get('setup_id')}")
         print(f"Entry Zone: {record.get('entry_zone')}")
         print(f"Stop Loss: {record.get('stop_loss')}")
@@ -338,7 +407,7 @@ def run_historical_confluence_audit():
         print(f"Event Number: {record['event_number']}")
         print(f"Event: {record['event']}")
         print(f"Direction: {record['direction']}")
-        print(f"Timestamp: {record['timestamp']}")
+        print(f"Timestamp: {format_timestamp(record['timestamp'])}")
         print(f"Setup ID: {record.get('setup_id')}")
         print(f"Entry Zone: {record.get('entry_zone')}")
         print(f"Order Block: {record.get('order_block')}")
