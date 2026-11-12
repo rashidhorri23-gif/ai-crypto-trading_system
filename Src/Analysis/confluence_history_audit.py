@@ -29,6 +29,25 @@ VALID_EVENTS = {
     "CHOCH_BEARISH",
 }
 
+DIAGNOSTIC_SUM_KEYS = (
+    "order_block_search_attempts",
+    "order_blocks_found",
+    "fvg_search_windows_empty",
+    "fvg_patterns_checked",
+    "fvg_no_gap",
+    "fvg_gap_condition_passed",
+    "fvg_wrong_middle_direction",
+    "fvg_middle_direction_passed",
+    "fvg_invalid_zone",
+    "fvg_valid_patterns",
+    "fvg_found",
+    "ob_fvg_overlap_confirmed",
+    "ob_fvg_overlap_failed",
+    "valid_stop_swings",
+    "evaluated_candidate_count",
+    "rejected_candidate_count",
+)
+
 
 def parse_timestamp(value):
     value = str(value).strip()
@@ -58,7 +77,7 @@ def format_timestamp(value):
 
     return datetime.fromtimestamp(
         timestamp,
-        tz=timezone.utc
+        tz=timezone.utc,
     ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
@@ -149,25 +168,36 @@ def print_section(title):
     print("=" * 72)
 
 
-def collect_diagnostics(diagnostics, diagnostic_counts, rejection_counts):
+def collect_diagnostics(
+    diagnostics,
+    diagnostic_counts,
+    rejection_counts,
+):
     if not isinstance(diagnostics, dict):
         return
 
-    for key, value in diagnostics.items():
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+    for key in DIAGNOSTIC_SUM_KEYS:
+        value = diagnostics.get(key, 0)
+
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        ):
             diagnostic_counts[key] += value
 
-        elif isinstance(value, list):
-            diagnostic_counts[f"{key}_items"] += len(value)
+    rejected_candidates = diagnostics.get(
+        "rejected_candidates",
+        [],
+    )
 
-            if key == "rejected_candidates":
-                for item in value:
-                    if isinstance(item, dict):
-                        reason = item.get(
-                            "reason",
-                            "UNKNOWN_REJECTION_REASON"
-                        )
-                        rejection_counts[str(reason)] += 1
+    if isinstance(rejected_candidates, list):
+        for item in rejected_candidates:
+            if isinstance(item, dict):
+                reason = item.get(
+                    "reason",
+                    "UNKNOWN_REJECTION_REASON",
+                )
+                rejection_counts[str(reason)] += 1
 
 
 def run_historical_confluence_audit():
@@ -206,15 +236,22 @@ def run_historical_confluence_audit():
     )
 
     events = [
-        event
-        for event in events
+        event for event in events
         if (
             isinstance(event, dict)
             and event.get("event") in VALID_EVENTS
             and isinstance(event.get("index"), int)
+            and not isinstance(event.get("index"), bool)
             and 0 <= event["index"] < len(candles)
             and event.get("direction") in ("BULLISH", "BEARISH")
-            and isinstance(event.get("available_timestamp"), (int, float))
+            and isinstance(
+                event.get("available_timestamp"),
+                (int, float),
+            )
+            and not isinstance(
+                event.get("available_timestamp"),
+                bool,
+            )
         )
     ]
 
@@ -231,12 +268,17 @@ def run_historical_confluence_audit():
     reason_counts = Counter()
     direction_counts = Counter()
     event_type_counts = Counter()
+
     diagnostic_counts = Counter()
     rejection_counts = Counter()
 
     confirmed_setups = []
     watch_setups = []
     rejected_events = []
+    event_diagnostic_records = []
+
+    processed_event_count = 0
+    reproduced_event_count = 0
 
     for event_number, event in enumerate(events, start=1):
         event_index = event["index"]
@@ -249,6 +291,10 @@ def run_historical_confluence_audit():
             })
             continue
 
+        direction_counts[direction] += 1
+        event_type_counts[event["event"]] += 1
+        processed_event_count += 1
+
         historical_candles = candles[:event_index + 1]
 
         try:
@@ -260,6 +306,7 @@ def run_historical_confluence_audit():
                 fvg_lookback=10,
                 risk_reward=2.0,
                 symbol="BTC-USDT",
+                target_event=event,
             )
 
         except Exception as error:
@@ -267,7 +314,10 @@ def run_historical_confluence_audit():
                 "event_number": event_number,
                 "event": event["event"],
                 "timestamp": event["timestamp"],
-                "reason": f"ENGINE_ERROR: {error}",
+                "reason": "ENGINE_ERROR: {}: {}".format(
+                    type(error).__name__,
+                    error,
+                ),
             })
             continue
 
@@ -278,6 +328,27 @@ def run_historical_confluence_audit():
             diagnostic_counts,
             rejection_counts,
         )
+
+        matching_events = diagnostics.get(
+            "matching_events",
+            0,
+        )
+
+        if matching_events != 1:
+            diagnostic_counts["events_not_reproduced"] += 1
+
+            rejected_events.append({
+                "event_number": event_number,
+                "event": event["event"],
+                "timestamp": event["timestamp"],
+                "reason": "ENGINE_EVENT_NOT_REPRODUCED",
+                "matching_events": matching_events,
+                "engine_reason": result.get("reason"),
+            })
+            continue
+
+        reproduced_event_count += 1
+        diagnostic_counts["events_reproduced"] += 1
 
         returned_setup = result.get("setup")
 
@@ -306,12 +377,13 @@ def run_historical_confluence_audit():
                 continue
 
         status = result.get("status", "UNKNOWN")
-        reason = result.get("reason", "No reason returned.")
+        reason = result.get(
+            "reason",
+            "No reason returned.",
+        )
 
         status_counts[status] += 1
         reason_counts[reason] += 1
-        direction_counts[direction] += 1
-        event_type_counts[event["event"]] += 1
 
         record = {
             "event_number": event_number,
@@ -331,7 +403,9 @@ def run_historical_confluence_audit():
             record["take_profit"] = returned_setup.get("take_profit")
             record["order_block"] = returned_setup.get("order_block")
             record["fvg"] = returned_setup.get("fvg")
-            record["zone_overlap"] = returned_setup.get("zone_overlap")
+            record["zone_overlap"] = returned_setup.get(
+                "zone_overlap"
+            )
 
         if status == "CONFIRMED_CONFLUENCE":
             confirmed_setups.append(record)
@@ -339,13 +413,69 @@ def run_historical_confluence_audit():
         elif status == "WATCH_NO_ZONE_OVERLAP":
             watch_setups.append(record)
 
+        event_diagnostic_records.append({
+            "event_number": event_number,
+            "event": event["event"],
+            "direction": direction,
+            "timestamp": event["timestamp"],
+            "status": status,
+            "order_blocks_found": diagnostics.get(
+                "order_blocks_found",
+                0,
+            ),
+            "fvg_patterns_checked": diagnostics.get(
+                "fvg_patterns_checked",
+                0,
+            ),
+            "fvg_gap_condition_passed": diagnostics.get(
+                "fvg_gap_condition_passed",
+                0,
+            ),
+            "fvg_middle_direction_passed": diagnostics.get(
+                "fvg_middle_direction_passed",
+                0,
+            ),
+            "fvg_found": diagnostics.get(
+                "fvg_found",
+                0,
+            ),
+            "overlap_confirmed": diagnostics.get(
+                "ob_fvg_overlap_confirmed",
+                0,
+            ),
+            "rejection_reason": (
+                diagnostics["rejected_candidates"][0].get("reason")
+                if diagnostics.get("rejected_candidates")
+                else "NONE"
+            ),
+        })
+
     print_section("HISTORICAL SUMMARY")
 
-    print(f"Processed Events: {sum(status_counts.values())}")
-    print(f"Confirmed Confluence: {status_counts['CONFIRMED_CONFLUENCE']}")
-    print(f"Watch Without Overlap: {status_counts['WATCH_NO_ZONE_OVERLAP']}")
-    print(f"Wait / Rejected by Rules: {status_counts['WAIT']}")
-    print(f"Other Statuses: {sum(status_counts.values()) - status_counts['CONFIRMED_CONFLUENCE'] - status_counts['WATCH_NO_ZONE_OVERLAP'] - status_counts['WAIT']}")
+    print(f"Total Structure Events: {len(events)}")
+    print(f"Processed Events: {processed_event_count}")
+    print(f"Reproduced Events: {reproduced_event_count}")
+    print(
+        "Confirmed Confluence:",
+        status_counts["CONFIRMED_CONFLUENCE"],
+    )
+    print(
+        "Watch Without Overlap:",
+        status_counts["WATCH_NO_ZONE_OVERLAP"],
+    )
+    print(
+        "No Setup:",
+        status_counts["NO_SETUP"],
+    )
+
+    other_statuses = (
+        sum(status_counts.values())
+        - status_counts["CONFIRMED_CONFLUENCE"]
+        - status_counts["WATCH_NO_ZONE_OVERLAP"]
+        - status_counts["NO_SETUP"]
+    )
+
+    print(f"Other Statuses: {other_statuses}")
     print(f"Engine Errors / Mismatches: {len(rejected_events)}")
 
     print_section("DIRECTION DISTRIBUTION")
@@ -360,11 +490,52 @@ def run_historical_confluence_audit():
 
     print_section("ENGINE DIAGNOSTIC TOTALS")
 
-    if not diagnostic_counts:
-        print("No numeric or list diagnostics were returned.")
-    else:
-        for key, count in sorted(diagnostic_counts.items()):
-            print(f"{key}: {count}")
+    for key in DIAGNOSTIC_SUM_KEYS:
+        print(
+            "{}: {}".format(
+                key,
+                diagnostic_counts.get(key, 0),
+            )
+        )
+
+    print(
+        "events_reproduced: {}".format(
+            diagnostic_counts.get("events_reproduced", 0)
+        )
+    )
+
+    print(
+        "events_not_reproduced: {}".format(
+            diagnostic_counts.get("events_not_reproduced", 0)
+        )
+    )
+
+    print_section("FVG DIAGNOSTIC INTERPRETATION")
+
+    patterns_checked = diagnostic_counts.get(
+        "fvg_patterns_checked",
+        0,
+    )
+
+    gap_passed = diagnostic_counts.get(
+        "fvg_gap_condition_passed",
+        0,
+    )
+
+    middle_passed = diagnostic_counts.get(
+        "fvg_middle_direction_passed",
+        0,
+    )
+
+    fvg_found = diagnostic_counts.get(
+        "fvg_found",
+        0,
+    )
+
+    print(f"Three-candle patterns checked: {patterns_checked}")
+    print(f"Price gap condition passed: {gap_passed}")
+    print(f"Middle candle direction passed: {middle_passed}")
+    print(f"Valid FVG selected: {fvg_found}")
 
     print_section("CANDIDATE REJECTION REASONS")
 
@@ -376,8 +547,63 @@ def run_historical_confluence_audit():
 
     print_section("GENERAL ENGINE REASONS")
 
-    for reason, count in reason_counts.most_common():
-        print(f"{count} | {reason}")
+    if not reason_counts:
+        print("No engine result reasons were recorded.")
+    else:
+        for reason, count in reason_counts.most_common():
+            print(f"{count} | {reason}")
+
+    print_section("PER EVENT FVG DIAGNOSTICS")
+
+    if not event_diagnostic_records:
+        print("No events were successfully reproduced.")
+    else:
+        for record in event_diagnostic_records:
+            print()
+            print(
+                "Event #{number} | {event} | {direction} | {time}".format(
+                    number=record["event_number"],
+                    event=record["event"],
+                    direction=record["direction"],
+                    time=format_timestamp(record["timestamp"]),
+                )
+            )
+            print(f"Status: {record['status']}")
+            print(
+                "OB found: {}".format(
+                    record["order_blocks_found"]
+                )
+            )
+            print(
+                "FVG patterns checked: {}".format(
+                    record["fvg_patterns_checked"]
+                )
+            )
+            print(
+                "Gap condition passed: {}".format(
+                    record["fvg_gap_condition_passed"]
+                )
+            )
+            print(
+                "Middle direction passed: {}".format(
+                    record["fvg_middle_direction_passed"]
+                )
+            )
+            print(
+                "FVG found: {}".format(
+                    record["fvg_found"]
+                )
+            )
+            print(
+                "Overlap confirmed: {}".format(
+                    record["overlap_confirmed"]
+                )
+            )
+            print(
+                "Rejection: {}".format(
+                    record["rejection_reason"]
+                )
+            )
 
     print_section("CONFIRMED CONFLUENCE SETUPS")
 
@@ -388,7 +614,10 @@ def run_historical_confluence_audit():
         print()
         print(f"Event Number: {record['event_number']}")
         print(f"Event: {record['event']}")
-        print(f"Timestamp: {format_timestamp(record['timestamp'])}")
+        print(
+            "Timestamp:",
+            format_timestamp(record["timestamp"]),
+        )
         print(f"Setup ID: {record.get('setup_id')}")
         print(f"Entry Zone: {record.get('entry_zone')}")
         print(f"Stop Loss: {record.get('stop_loss')}")
@@ -407,7 +636,10 @@ def run_historical_confluence_audit():
         print(f"Event Number: {record['event_number']}")
         print(f"Event: {record['event']}")
         print(f"Direction: {record['direction']}")
-        print(f"Timestamp: {format_timestamp(record['timestamp'])}")
+        print(
+            "Timestamp:",
+            format_timestamp(record["timestamp"]),
+        )
         print(f"Setup ID: {record.get('setup_id')}")
         print(f"Entry Zone: {record.get('entry_zone')}")
         print(f"Order Block: {record.get('order_block')}")
