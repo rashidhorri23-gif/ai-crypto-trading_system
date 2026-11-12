@@ -88,7 +88,10 @@ def validate_candles(candles):
             normalized[field] = float(candle[field])
 
         if "volume" in normalized and normalized["volume"] is not None:
-            if not _is_number(normalized["volume"]):
+            if (
+                not _is_number(normalized["volume"])
+                or normalized["volume"] < 0
+            ):
                 raise ValueError(
                     f"Invalid volume at candle index {index}"
                 )
@@ -185,7 +188,14 @@ def was_swing_broken_before_confirmation(candles, swing):
         pivot_index + 1,
         confirmation_index + 1,
     ):
-        close_price = candles[index].get("close")
+        candle = candles[index]
+
+        if not isinstance(candle, dict):
+            raise ValueError(
+                f"Invalid candle at index {index}"
+            )
+
+        close_price = candle.get("close")
 
         if not _is_number(close_price) or close_price <= 0:
             raise ValueError(
@@ -273,15 +283,13 @@ def detect_swings(
         ]
 
         is_swing_high = (
-            current["high"] > max(
-                previous_highs + next_highs
-            )
+            current["high"] >= max(next_highs)
+            and current["high"] > max(previous_highs)
         )
 
         is_swing_low = (
-            current["low"] < min(
-                previous_lows + next_lows
-            )
+            current["low"] <= min(next_lows)
+            and current["low"] < min(previous_lows)
         )
 
         if not is_swing_high and not is_swing_low:
@@ -349,22 +357,63 @@ def classify_market_structure(candles, swings):
     if not isinstance(swings, list):
         raise ValueError("swings must be a list")
 
+    valid_swings = []
+
+    for swing in swings:
+        if not isinstance(swing, dict):
+            continue
+
+        if swing.get("ambiguous_same_candle"):
+            continue
+
+        swing_type = swing.get("type")
+        index = swing.get("index")
+        confirmation_index = swing.get("confirmation_index")
+        price = swing.get("price")
+
+        if swing_type not in ("HIGH", "LOW"):
+            continue
+
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or isinstance(confirmation_index, bool)
+            or not isinstance(confirmation_index, int)
+        ):
+            continue
+
+        if (
+            index < 0
+            or confirmation_index <= index
+            or confirmation_index >= len(candles)
+        ):
+            continue
+
+        if not _is_number(price) or price <= 0:
+            continue
+
+        valid_swings.append(swing)
+
     highs = sorted(
         [
-            swing for swing in swings
-            if isinstance(swing, dict)
-            and swing.get("type") == "HIGH"
+            swing for swing in valid_swings
+            if swing["type"] == "HIGH"
         ],
-        key=lambda swing: swing.get("confirmation_index", -1),
+        key=lambda swing: (
+            swing["confirmation_index"],
+            swing["index"],
+        ),
     )
 
     lows = sorted(
         [
-            swing for swing in swings
-            if isinstance(swing, dict)
-            and swing.get("type") == "LOW"
+            swing for swing in valid_swings
+            if swing["type"] == "LOW"
         ],
-        key=lambda swing: swing.get("confirmation_index", -1),
+        key=lambda swing: (
+            swing["confirmation_index"],
+            swing["index"],
+        ),
     )
 
     high_comparison = None
@@ -394,8 +443,10 @@ def classify_market_structure(candles, swings):
 
     if high_comparison == "HH" and low_comparison == "HL":
         trend = "BULLISH"
+
     elif high_comparison == "LH" and low_comparison == "LL":
         trend = "BEARISH"
+
     else:
         trend = "SIDEWAYS"
 
@@ -444,6 +495,9 @@ def analyze_structure_events(candles, swings, candle_duration):
         if swing_type not in ("HIGH", "LOW"):
             continue
 
+        if swing.get("ambiguous_same_candle"):
+            continue
+
         if (
             isinstance(index, bool)
             or not isinstance(index, int)
@@ -468,6 +522,7 @@ def analyze_structure_events(candles, swings, candle_duration):
         key=lambda swing: (
             swing["confirmation_index"],
             swing["index"],
+            swing["type"],
         )
     )
 
@@ -487,9 +542,6 @@ def analyze_structure_events(candles, swings, candle_duration):
         candidates = []
 
         for swing in available_swings:
-            if swing.get("ambiguous_same_candle"):
-                continue
-
             if (
                 swing["type"] == "HIGH"
                 and candle["close"] > swing["price"]
@@ -510,6 +562,14 @@ def analyze_structure_events(candles, swings, candle_duration):
         if not candidates:
             continue
 
+        # Every crossed level is consumed and recorded.
+        for swing, direction in candidates:
+            broken_swings.add(id(swing))
+
+        crossed_directions = {
+            direction for swing, direction in candidates
+        }
+
         candidates.sort(
             key=lambda item: (
                 item[0]["confirmation_index"],
@@ -518,17 +578,62 @@ def analyze_structure_events(candles, swings, candle_duration):
             reverse=True,
         )
 
+        crossed_levels = [
+            {
+                "swing_type": swing["type"],
+                "direction": direction,
+                "level": swing["price"],
+                "swing_index": swing["index"],
+                "swing_timestamp": swing["timestamp"],
+                "swing_confirmation_index": swing[
+                    "confirmation_index"
+                ],
+            }
+            for swing, direction in candidates
+        ]
+
+        event_timestamp = candle["timestamp"]
+        available_timestamp = (
+            event_timestamp + candle_duration
+        )
+
+        # Opposite-direction breaks in the same candle have
+        # no reliable intrabar sequence using OHLC data alone.
+        if len(crossed_directions) > 1:
+            events.append({
+                "event_type": "AMBIGUOUS",
+                "type": "AMBIGUOUS",
+                "direction": "UNKNOWN",
+                "event": "AMBIGUOUS_BREAK",
+                "structure_event": "AMBIGUOUS_BREAK",
+                "level": None,
+                "price": None,
+                "level_timestamp": None,
+                "index": candle_index,
+                "timestamp": event_timestamp,
+                "available_timestamp": available_timestamp,
+                "confirmation_index": candle_index,
+                "confirmation_timestamp": available_timestamp,
+                "broken_swing_type": "MULTIPLE",
+                "broken_swing_index": None,
+                "broken_swing_timestamp": None,
+                "swing_confirmation_index": None,
+                "swing_confirmation_timestamp": None,
+                "previous_bias": market_bias or "NEUTRAL",
+                "new_bias": market_bias or "NEUTRAL",
+                "crossed_levels": crossed_levels,
+                "crossed_level_count": len(crossed_levels),
+                "ambiguous_break": True,
+            })
+
+            continue
+
         selected_swing, direction = candidates[0]
 
         if market_bias is None or direction == market_bias:
             event_type = "BOS"
         else:
             event_type = "CHOCH"
-
-        event_timestamp = candle["timestamp"]
-        available_timestamp = (
-            event_timestamp + candle_duration
-        )
 
         events.append({
             "event_type": event_type,
@@ -555,12 +660,10 @@ def analyze_structure_events(candles, swings, candle_duration):
             ),
             "previous_bias": market_bias or "NEUTRAL",
             "new_bias": direction,
+            "crossed_levels": crossed_levels,
+            "crossed_level_count": len(crossed_levels),
+            "ambiguous_break": False,
         })
-
-        # All levels crossed in this candle are consumed.
-        # Only the most recently confirmed eligible level creates an event.
-        for swing, candidate_direction in candidates:
-            broken_swings.add(id(swing))
 
         market_bias = direction
 
@@ -659,41 +762,56 @@ def analyze_daily_structure(
     else:
         combined_trend = "SIDEWAYS"
 
+    if combined_trend == "BULLISH":
+        allowed_direction = "LONG"
+        trade_directions = ["LONG"]
+
+    elif combined_trend == "BEARISH":
+        allowed_direction = "SHORT"
+        trade_directions = ["SHORT"]
+
+    else:
+        allowed_direction = "NONE"
+        trade_directions = []
+
     return {
         "timeframe": timeframe,
         "candle_duration": candle_duration,
         "candle_count": len(candles),
         "last_timestamp": candles[-1]["timestamp"],
         "last_close": candles[-1]["close"],
+
         "internal": {
             "swings": internal_swings,
             "structure": internal_structure,
             "events": internal_events,
         },
+
         "external": {
             "swings": external_swings,
             "structure": external_structure,
             "events": external_events,
         },
+
         "internal_structure": {
             **internal_structure,
             "swings": internal_swings,
             "events": internal_events,
         },
+
         "external_structure": {
             **external_structure,
             "swings": external_swings,
             "events": external_events,
         },
+
         "context": {
             "internal_trend": internal_trend,
             "external_trend": external_trend,
         },
+
         "trend": combined_trend,
-        "allowed_direction": "BOTH",
-        "trade_directions_to_evaluate": [
-            "LONG",
-            "SHORT",
-        ],
+        "allowed_direction": allowed_direction,
+        "trade_directions_to_evaluate": trade_directions,
         "status": "ANALYZED",
     }
