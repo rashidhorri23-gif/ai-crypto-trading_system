@@ -1,6 +1,7 @@
 
 import sys
 import csv
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -31,8 +32,13 @@ from Src.Analysis.four_hour_setup import (
     generate_four_hour_setup,
 )
 
+from Src.Analysis.entry_confirmation import (
+    confirm_lower_timeframe_entry,
+)
+
 
 MARKET = "SPOT"
+SYMBOL = "BTC-USDT"
 
 TIMEFRAME_CONFIG = {
     "1D": {
@@ -438,7 +444,7 @@ def print_setup_report(result):
     if setup is None:
         print("Setup: NONE")
         print("Entry Confirmation: NOT AVAILABLE")
-        return
+        return None
 
     print("\nSETUP DETAILS")
     print("-------------")
@@ -471,18 +477,72 @@ def print_setup_report(result):
     print("Zone Overlap:", setup["zone_overlap"])
     print("Stop Swing:", setup["stop_swing"])
 
-    if setup["status"] == "CONFIRMED_CONFLUENCE":
-        print("\nENTRY CONFIRMATION")
-        print("------------------")
-        print("Status: WAITING FOR LOWER-TIMEFRAME CONFIRMATION")
-        print("Entry Signal: NOT GENERATED")
-    else:
-        print("\nENTRY CONFIRMATION")
-        print("------------------")
-        print("Status: WATCH ONLY")
-        print("Entry Signal: NOT GENERATED")
-
     print("Live Trading: DISABLED")
+
+    return setup
+
+
+def print_entry_confirmation_report(result):
+    print("\nLOWER-TIMEFRAME ENTRY CONFIRMATION")
+    print("==================================")
+
+    if result is None:
+        print("Confirmation Result: NONE")
+        print("Entry Signal: NOT GENERATED")
+        return
+
+    print(
+        json.dumps(
+            result,
+            indent=2,
+            ensure_ascii=True,
+            default=str,
+        )
+    )
+
+    print("\nLIVE TRADING: DISABLED")
+
+
+def run_lower_timeframe_confirmation(setup):
+    print("\nCHECKING LOWER-TIMEFRAME CONFIRMATION")
+    print("=====================================")
+
+    if setup is None:
+        print("Confirmation blocked: No valid 4H setup.")
+        return None
+
+    if setup.get("status") != "CONFIRMED_CONFLUENCE":
+        print("Confirmation blocked: Setup is not confirmed.")
+        print("Required status: CONFIRMED_CONFLUENCE")
+        print("Current status:", setup.get("status"))
+        print("Entry Signal: NOT GENERATED")
+        return None
+
+    candles_by_timeframe = {}
+
+    for timeframe in ("1H", "15m", "5m"):
+        config = TIMEFRAME_CONFIG[timeframe]
+
+        candles = load_structure_candles(
+            config["filename"],
+            config["target"],
+        )
+
+        candles_by_timeframe[timeframe] = candles
+
+        print(
+            f"{timeframe}: "
+            f"{len(candles)} candles loaded."
+        )
+
+    result = confirm_lower_timeframe_entry(
+        setup=setup,
+        candles_by_timeframe=candles_by_timeframe,
+    )
+
+    print_entry_confirmation_report(result)
+
+    return result
 
 
 def run_four_hour_setup_engine(
@@ -508,7 +568,23 @@ def run_four_hour_setup_engine(
         risk_reward=2.0,
     )
 
-    print_setup_report(result)
+    setup = print_setup_report(result)
+
+    if setup is None:
+        print("\nLOWER-TIMEFRAME CONFIRMATION SKIPPED")
+        print("===================================")
+        print("No 4H setup was generated.")
+        return result
+
+    if setup.get("status") != "CONFIRMED_CONFLUENCE":
+        print("\nLOWER-TIMEFRAME CONFIRMATION SKIPPED")
+        print("===================================")
+        print("Setup is watch-only.")
+        print("OB and FVG confluence is not confirmed.")
+        print("No entry signal will be generated.")
+        return result
+
+    run_lower_timeframe_confirmation(setup)
 
     return result
 
@@ -517,10 +593,10 @@ def main():
     print("AI CRYPTO TRADING SYSTEM")
     print("========================")
     print(f"Provider: {settings.DATA_PROVIDER}")
-    print("Market: SPOT")
-    print("Symbol: BTC-USDT")
+    print(f"Market: {MARKET}")
+    print(f"Symbol: {SYMBOL}")
     print("Timeframes: 1D, 4H, 1H, 15m, 5m")
-    print("Mode: MULTI-TIMEFRAME ARCHIVE + AUDIT + 4H SETUP")
+    print("Mode: MULTI-TIMEFRAME STRUCTURE + ENTRY CONFIRMATION")
     print("Live Trading: DISABLED")
 
     if settings.TRADING_ENABLED or settings.ALLOW_LIVE_ORDERS:
@@ -593,7 +669,9 @@ def main():
             four_hour_candles,
         )
 
-    print("\nLIVE TRADING: DISABLED")
+    print("\nSYSTEM EXECUTION COMPLETED")
+    print("==========================")
+    print("Live Trading: DISABLED")
 
 
 if __name__ == "__main__":
