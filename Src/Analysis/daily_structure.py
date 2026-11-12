@@ -50,11 +50,9 @@ def validate_candles(candles):
                 f"Invalid timestamp at candle index {index}"
             )
 
-        if (
-            candle["open"] <= 0
-            or candle["high"] <= 0
-            or candle["low"] <= 0
-            or candle["close"] <= 0
+        if any(
+            candle[field] <= 0
+            for field in ("open", "high", "low", "close")
         ):
             raise ValueError(
                 f"Prices must be positive at candle index {index}"
@@ -108,7 +106,6 @@ def infer_candle_duration(candles):
         )
 
     differences = []
-
     previous_timestamp = None
 
     for index, candle in enumerate(candles):
@@ -188,18 +185,11 @@ def was_swing_broken_before_confirmation(candles, swing):
         pivot_index + 1,
         confirmation_index + 1,
     ):
-        candle = candles[index]
-
-        if not isinstance(candle, dict):
-            raise ValueError(
-                f"Invalid candle at index {index}"
-            )
-
-        close_price = candle.get("close")
+        close_price = candles[index].get("close")
 
         if not _is_number(close_price) or close_price <= 0:
             raise ValueError(
-                f"Invalid close price at index {index}"
+                f"Invalid close price at candle index {index}"
             )
 
         if swing_type == "HIGH" and close_price > level:
@@ -483,13 +473,15 @@ def analyze_structure_events(candles, swings, candle_duration):
 
     events = []
     broken_swings = set()
-    market_bias = "NEUTRAL"
+    market_bias = None
 
     for candle_index, candle in enumerate(candles):
         available_swings = [
             swing for swing in valid_swings
-            if swing["confirmation_index"] < candle_index
-            and id(swing) not in broken_swings
+            if (
+                swing["confirmation_index"] < candle_index
+                and id(swing) not in broken_swings
+            )
         ]
 
         candidates = []
@@ -515,6 +507,9 @@ def analyze_structure_events(candles, swings, candle_duration):
 
             candidates.append((swing, direction))
 
+        if not candidates:
+            continue
+
         candidates.sort(
             key=lambda item: (
                 item[0]["confirmation_index"],
@@ -523,49 +518,51 @@ def analyze_structure_events(candles, swings, candle_duration):
             reverse=True,
         )
 
-        for swing, direction in candidates:
-            swing_key = id(swing)
+        selected_swing, direction = candidates[0]
 
-            if swing_key in broken_swings:
-                continue
+        if market_bias is None or direction == market_bias:
+            event_type = "BOS"
+        else:
+            event_type = "CHOCH"
 
-            if direction == market_bias:
-                event_type = "BOS"
-            else:
-                event_type = "CHOCH"
+        event_timestamp = candle["timestamp"]
+        available_timestamp = (
+            event_timestamp + candle_duration
+        )
 
-            event_timestamp = candle["timestamp"]
-            available_timestamp = (
-                event_timestamp + candle_duration
-            )
+        events.append({
+            "event_type": event_type,
+            "type": event_type,
+            "direction": direction,
+            "event": f"{event_type}_{direction}",
+            "structure_event": f"{event_type}_{direction}",
+            "level": selected_swing["price"],
+            "price": selected_swing["price"],
+            "level_timestamp": selected_swing["timestamp"],
+            "index": candle_index,
+            "timestamp": event_timestamp,
+            "available_timestamp": available_timestamp,
+            "confirmation_index": candle_index,
+            "confirmation_timestamp": available_timestamp,
+            "broken_swing_type": selected_swing["type"],
+            "broken_swing_index": selected_swing["index"],
+            "broken_swing_timestamp": selected_swing["timestamp"],
+            "swing_confirmation_index": selected_swing[
+                "confirmation_index"
+            ],
+            "swing_confirmation_timestamp": selected_swing.get(
+                "confirmation_timestamp"
+            ),
+            "previous_bias": market_bias or "NEUTRAL",
+            "new_bias": direction,
+        })
 
-            event = {
-                "event_type": event_type,
-                "type": event_type,
-                "direction": direction,
-                "event": f"{event_type}_{direction}",
-                "structure_event": f"{event_type}_{direction}",
-                "level": swing["price"],
-                "price": swing["price"],
-                "index": candle_index,
-                "timestamp": event_timestamp,
-                "available_timestamp": available_timestamp,
-                "confirmation_index": candle_index,
-                "confirmation_timestamp": available_timestamp,
-                "broken_swing_type": swing["type"],
-                "broken_swing_index": swing["index"],
-                "broken_swing_timestamp": swing["timestamp"],
-                "swing_confirmation_index": swing["confirmation_index"],
-                "swing_confirmation_timestamp": swing.get(
-                    "confirmation_timestamp"
-                ),
-                "previous_bias": market_bias,
-                "new_bias": direction,
-            }
+        # All levels crossed in this candle are consumed.
+        # Only the most recently confirmed eligible level creates an event.
+        for swing, candidate_direction in candidates:
+            broken_swings.add(id(swing))
 
-            events.append(event)
-            broken_swings.add(swing_key)
-            market_bias = direction
+        market_bias = direction
 
     events.sort(
         key=lambda event: (
@@ -678,8 +675,16 @@ def analyze_daily_structure(
             "structure": external_structure,
             "events": external_events,
         },
-        "internal_structure": internal_structure,
-        "external_structure": external_structure,
+        "internal_structure": {
+            **internal_structure,
+            "swings": internal_swings,
+            "events": internal_events,
+        },
+        "external_structure": {
+            **external_structure,
+            "swings": external_swings,
+            "events": external_events,
+        },
         "context": {
             "internal_trend": internal_trend,
             "external_trend": external_trend,
