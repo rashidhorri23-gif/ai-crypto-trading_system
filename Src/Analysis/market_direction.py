@@ -1,15 +1,40 @@
 
-VALID_DIRECTIONS = {"BULLISH", "BEARISH"}
+VALID_TRENDS = {"BULLISH", "BEARISH"}
+VALID_EVENT_NAMES = {
+    "BOS_BULLISH",
+    "CHOCH_BULLISH",
+    "BOS_BEARISH",
+    "CHOCH_BEARISH",
+}
 
 
-def normalize_direction(value):
-    if value is None:
+def _normalize_trend(value):
+    value = str(value or "").upper().strip()
+
+    if value in ("BULLISH", "LONG"):
+        return "BULLISH"
+
+    if value in ("BEARISH", "SHORT"):
+        return "BEARISH"
+
+    return None
+
+
+def _event_direction(event):
+    if not isinstance(event, dict):
         return None
 
-    direction = str(value).strip().upper()
+    event_name = str(event.get("event", "")).upper()
+    direction = str(event.get("direction", "")).upper()
 
-    if direction in VALID_DIRECTIONS:
-        return direction
+    if event_name not in VALID_EVENT_NAMES:
+        return None
+
+    if direction == "BULLISH" or event_name.endswith("BULLISH"):
+        return "BULLISH"
+
+    if direction == "BEARISH" or event_name.endswith("BEARISH"):
+        return "BEARISH"
 
     return None
 
@@ -19,10 +44,11 @@ def extract_external_state(result):
         return {
             "trend": None,
             "event_bias": None,
-            "reason": "Invalid analysis result."
+            "reason": "Invalid structure analysis result.",
+            "last_event": None,
         }
 
-    external = result.get("external_structure", {})
+    external = result.get("external_structure") or result.get("external") or {}
 
     if not isinstance(external, dict):
         external = {}
@@ -32,89 +58,124 @@ def extract_external_state(result):
     if not isinstance(structure, dict):
         structure = {}
 
-    trend_value = (
+    trend = _normalize_trend(
         external.get("trend")
         or structure.get("trend")
         or result.get("trend")
     )
 
-    event_value = (
-        external.get("event_bias")
-        or result.get("event_bias")
-    )
+    events = external.get("events", [])
+
+    if not isinstance(events, list):
+        events = []
+
+    duration = result.get("candle_duration")
+    last_timestamp = result.get("last_timestamp")
+
+    last_available = None
+
+    if (
+        isinstance(duration, (int, float))
+        and isinstance(last_timestamp, (int, float))
+    ):
+        last_available = int(last_timestamp + duration)
+
+    valid_events = []
+
+    for event in events:
+        direction = _event_direction(event)
+
+        if direction is None:
+            continue
+
+        try:
+            available = int(event["available_timestamp"])
+            event_index = int(event["index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if last_available is not None and available > last_available:
+            continue
+
+        valid_events.append((available, event_index, direction, event))
+
+    if valid_events:
+        valid_events.sort(key=lambda item: (item[0], item[1]))
+        latest = valid_events[-1]
+        event_bias = latest[2]
+        last_event = latest[3]
+    else:
+        event_bias = _normalize_trend(external.get("event_bias"))
+        last_event = None
 
     reason = (
-        structure.get("reason")
-        or external.get("reason")
-        or "No structure reason available."
+        external.get("reason")
+        or structure.get("reason")
+        or "No external structure reason available."
     )
 
     return {
-        "trend": normalize_direction(trend_value),
-        "event_bias": normalize_direction(event_value),
-        "reason": str(reason)
+        "trend": trend,
+        "event_bias": event_bias,
+        "reason": reason,
+        "last_event": last_event,
     }
 
 
 def determine_market_direction(daily_result, four_hour_result):
-    daily_state = extract_external_state(daily_result)
-    four_hour_state = extract_external_state(four_hour_result)
+    daily = extract_external_state(daily_result)
+    four_hour = extract_external_state(four_hour_result)
 
-    daily_trend = daily_state["trend"]
-    daily_event_bias = daily_state["event_bias"]
+    daily_bias = daily["trend"]
+    four_hour_bias = four_hour["trend"]
 
-    four_hour_trend = four_hour_state["trend"]
-    four_hour_event_bias = four_hour_state["event_bias"]
+    daily_event_bias = daily["event_bias"]
+    four_hour_event_bias = four_hour["event_bias"]
 
-    decision = "WAIT"
-    reason = ""
-
-    if daily_trend is None:
-        reason = "Daily trend is unclear or sideways."
-
-    elif four_hour_trend is None:
-        reason = "4H external trend is unclear or sideways."
-
-    elif (
-        daily_event_bias is not None
-        and daily_event_bias != daily_trend
-    ):
-        reason = "Daily trend and latest event bias disagree."
-
-    elif (
-        four_hour_event_bias is not None
-        and four_hour_event_bias != four_hour_trend
-    ):
-        reason = "4H trend and latest event bias disagree."
-
-    elif daily_trend != four_hour_trend:
-        reason = "Daily and 4H directions are not aligned."
-
-    elif daily_trend == "BULLISH":
-        decision = "LONG"
-        reason = "Daily and 4H structures are bullish and aligned."
-
-    elif daily_trend == "BEARISH":
-        decision = "SHORT"
-        reason = "Daily and 4H structures are bearish and aligned."
-
-    directions = []
-
-    if decision == "LONG":
-        directions = ["LONG"]
-    elif decision == "SHORT":
-        directions = ["SHORT"]
-
-    return {
-        "timeframe": "1D+4H",
-        "daily_bias": daily_trend or "UNKNOWN",
+    result = {
+        "status": "WAIT",
+        "allowed_direction": "WAIT",
+        "trade_directions": [],
+        "daily_bias": daily_bias or "UNKNOWN",
+        "four_hour_bias": four_hour_bias or "UNKNOWN",
         "daily_event_bias": daily_event_bias or "UNKNOWN",
-        "four_hour_bias": four_hour_trend or "UNKNOWN",
         "four_hour_event_bias": four_hour_event_bias or "UNKNOWN",
-        "allowed_direction": decision,
-        "trade_directions_to_evaluate": directions,
-        "status": "ALIGNED" if decision != "WAIT" else "WAIT",
-        "reason": reason,
-        "daily_structure_reason": daily_state["reason"],
-        "four_hour_structure_reason": four_hour_state["reason"]
+        "event_bias": four_hour_event_bias or "UNKNOWN",
+        "daily_reason": daily["reason"],
+        "four_hour_reason": four_hour["reason"],
+        "reason": "",
     }
+
+    if daily_bias not in VALID_TRENDS:
+        result["reason"] = "Daily external trend is unclear. WAIT."
+        return result
+
+    if four_hour_bias not in VALID_TRENDS:
+        result["reason"] = "4H external trend is unclear. WAIT."
+        return result
+
+    if daily_bias != four_hour_bias:
+        result["reason"] = "Daily and 4H trends disagree. WAIT."
+        return result
+
+    if daily_event_bias is not None and daily_event_bias != daily_bias:
+        result["reason"] = "Daily event bias conflicts with daily trend. WAIT."
+        return result
+
+    if four_hour_event_bias is not None and four_hour_event_bias != four_hour_bias:
+        result["reason"] = "4H event bias conflicts with 4H trend. WAIT."
+        return result
+
+    if daily_bias == "BULLISH":
+        result["status"] = "ALIGNED"
+        result["allowed_direction"] = "LONG"
+        result["trade_directions"] = ["LONG"]
+        result["reason"] = "Daily and 4H trends are aligned bullish."
+
+    else:
+        result["status"] = "ALIGNED"
+        result["allowed_direction"] = "SHORT"
+        result["trade_directions"] = ["SHORT"]
+        result["reason"] = "Daily and 4H trends are aligned bearish."
+
+    return result
