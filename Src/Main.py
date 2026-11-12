@@ -17,6 +17,9 @@ from Src.Data.archive import (
     get_latest_timestamp
 )
 
+from Src.Analysis.daily_structure import analyze_daily_structure
+from Src.Analysis.market_direction import determine_market_direction
+
 
 MARKET = "SPOT"
 
@@ -300,6 +303,109 @@ def audit_archive(filename, interval_ms):
     return passed
 
 
+# ============================================================
+# MARKET DIRECTION
+# ============================================================
+
+def load_structure_candles(filename, limit):
+    archive_path = get_archive_path(filename)
+
+    if not archive_path.exists():
+        raise RuntimeError(
+            f"Structure archive not found: {filename}"
+        )
+
+    candles = []
+
+    with archive_path.open(
+        "r",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            try:
+                candle = {
+                    "timestamp": int(row["timestamp"]),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"])
+                }
+
+                candles.append(candle)
+
+            except (ValueError, KeyError, TypeError) as error:
+                raise RuntimeError(
+                    f"Invalid candle in {filename}: {error}"
+                )
+
+    candles.sort(key=lambda candle: candle["timestamp"])
+
+    if len(candles) < limit:
+        raise RuntimeError(
+            f"{filename}: Insufficient candles. "
+            f"Required {limit}, found {len(candles)}."
+        )
+
+    return candles[-limit:]
+
+
+def run_market_direction_analysis():
+    print("\nREAL MARKET DIRECTION ANALYSIS")
+    print("==============================")
+
+    daily_candles = load_structure_candles(
+        TIMEFRAME_CONFIG["1D"]["filename"],
+        90
+    )
+
+    four_hour_candles = load_structure_candles(
+        TIMEFRAME_CONFIG["4H"]["filename"],
+        540
+    )
+
+    print(f"Daily Candles: {len(daily_candles)}")
+    print(f"4H Candles: {len(four_hour_candles)}")
+
+    daily_result = analyze_daily_structure(daily_candles)
+
+    four_hour_result = analyze_daily_structure(
+        four_hour_candles
+    )
+
+    decision = determine_market_direction(
+        daily_result,
+        four_hour_result
+    )
+
+    print("\nDAILY MARKET STRUCTURE")
+    print("======================")
+    print("Trend:", decision["daily_bias"])
+    print("Event Bias:", decision["daily_event_bias"])
+    print("Reason:", decision["daily_structure_reason"])
+
+    print("\n4H MARKET STRUCTURE")
+    print("==================")
+    print("Trend:", decision["four_hour_bias"])
+    print("Event Bias:", decision["four_hour_event_bias"])
+    print("Reason:", decision["four_hour_structure_reason"])
+
+    print("\nFINAL MARKET DIRECTION")
+    print("======================")
+    print("Allowed Direction:", decision["allowed_direction"])
+    print("Status:", decision["status"])
+    print("Reason:", decision["reason"])
+    print(
+        "Trade Directions:",
+        decision["trade_directions_to_evaluate"]
+    )
+
+    return decision
+
+
 def main():
     print("AI CRYPTO TRADING SYSTEM")
     print("========================")
@@ -307,7 +413,7 @@ def main():
     print("Market: SPOT")
     print("Symbol: BTC-USDT")
     print("Timeframes: 1D, 4H, 1H, 15m, 5m")
-    print("Mode: MULTI-TIMEFRAME ARCHIVE + AUDIT")
+    print("Mode: MULTI-TIMEFRAME ARCHIVE + AUDIT + DIRECTION")
     print("Live Trading: DISABLED")
 
     if settings.TRADING_ENABLED or settings.ALLOW_LIVE_ORDERS:
@@ -354,6 +460,28 @@ def main():
         raise RuntimeError(
             "One or more timeframe archives failed validation."
         )
+
+    # Run market direction only after all archives pass validation.
+    market_decision = run_market_direction_analysis()
+
+    if market_decision["allowed_direction"] == "WAIT":
+        print("\nSETUP GENERATION BLOCKED")
+        print("========================")
+        print("Market direction is not aligned.")
+        print("No trade direction is currently allowed.")
+
+    else:
+        print("\nSETUP DIRECTION AUTHORIZED")
+        print("==========================")
+        print(
+            "Authorized Direction:",
+            market_decision["allowed_direction"]
+        )
+        print(
+            "The 4H setup engine can now evaluate this direction."
+        )
+
+    print("\nLIVE TRADING: DISABLED")
 
 
 if __name__ == "__main__":
