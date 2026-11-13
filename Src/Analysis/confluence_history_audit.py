@@ -31,6 +31,11 @@ VALID_EVENTS = {
 
 DIAGNOSTIC_SUM_KEYS = (
     "order_block_search_attempts",
+    "ob_candidates_examined",
+    "ob_wrong_candle_direction",
+    "ob_invalid_zone",
+    "ob_mitigated",
+    "ob_valid_candidates",
     "order_blocks_found",
     "fvg_search_windows_empty",
     "fvg_patterns_checked",
@@ -132,9 +137,10 @@ def load_candles(filepath):
                 }
 
                 if "volume" in column_map:
-                    candle["volume"] = float(
-                        row[column_map["volume"]]
-                    )
+                    volume_value = row[column_map["volume"]]
+
+                    if volume_value is not None and volume_value.strip():
+                        candle["volume"] = float(volume_value)
 
                 candles.append(candle)
 
@@ -198,6 +204,26 @@ def collect_diagnostics(
                     "UNKNOWN_REJECTION_REASON",
                 )
                 rejection_counts[str(reason)] += 1
+
+
+def get_event_rejection_reason(diagnostics, fallback):
+    rejected = diagnostics.get("rejected_candidates", [])
+
+    if not isinstance(rejected, list) or not rejected:
+        return fallback
+
+    reasons = []
+
+    for item in rejected:
+        if not isinstance(item, dict):
+            continue
+
+        reason = str(item.get("reason", "UNKNOWN"))
+
+        if reason not in reasons:
+            reasons.append(reason)
+
+    return " | ".join(reasons) if reasons else fallback
 
 
 def run_historical_confluence_audit():
@@ -354,8 +380,7 @@ def run_historical_confluence_audit():
 
         if returned_setup is not None:
             same_event = (
-                returned_setup.get("structure_event")
-                == event["event"]
+                returned_setup.get("structure_event") == event["event"]
                 and returned_setup.get(
                     "structure_event_timestamp"
                 ) == event["timestamp"]
@@ -384,6 +409,11 @@ def run_historical_confluence_audit():
 
         status_counts[status] += 1
         reason_counts[reason] += 1
+
+        rejection_reason = get_event_rejection_reason(
+            diagnostics,
+            reason,
+        )
 
         record = {
             "event_number": event_number,
@@ -419,8 +449,20 @@ def run_historical_confluence_audit():
             "direction": direction,
             "timestamp": event["timestamp"],
             "status": status,
+            "ob_candidates_examined": diagnostics.get(
+                "ob_candidates_examined",
+                0,
+            ),
+            "ob_mitigated": diagnostics.get(
+                "ob_mitigated",
+                0,
+            ),
             "order_blocks_found": diagnostics.get(
                 "order_blocks_found",
+                0,
+            ),
+            "fvg_search_windows_empty": diagnostics.get(
+                "fvg_search_windows_empty",
                 0,
             ),
             "fvg_patterns_checked": diagnostics.get(
@@ -443,11 +485,15 @@ def run_historical_confluence_audit():
                 "ob_fvg_overlap_confirmed",
                 0,
             ),
-            "rejection_reason": (
-                diagnostics["rejected_candidates"][0].get("reason")
-                if diagnostics.get("rejected_candidates")
-                else "NONE"
+            "overlap_failed": diagnostics.get(
+                "ob_fvg_overlap_failed",
+                0,
             ),
+            "valid_stop_swings": diagnostics.get(
+                "valid_stop_swings",
+                0,
+            ),
+            "rejection_reason": rejection_reason,
         })
 
     print_section("HISTORICAL SUMMARY")
@@ -510,32 +556,63 @@ def run_historical_confluence_audit():
         )
     )
 
+    print_section("ORDER BLOCK DIAGNOSTICS")
+
+    print(
+        "OB candidates examined:",
+        diagnostic_counts.get("ob_candidates_examined", 0),
+    )
+    print(
+        "Rejected as mitigated:",
+        diagnostic_counts.get("ob_mitigated", 0),
+    )
+    print(
+        "Rejected due to candle direction:",
+        diagnostic_counts.get("ob_wrong_candle_direction", 0),
+    )
+    print(
+        "Rejected due to invalid zone:",
+        diagnostic_counts.get("ob_invalid_zone", 0),
+    )
+    print(
+        "Valid OB candidates:",
+        diagnostic_counts.get("ob_valid_candidates", 0),
+    )
+
     print_section("FVG DIAGNOSTIC INTERPRETATION")
 
-    patterns_checked = diagnostic_counts.get(
-        "fvg_patterns_checked",
-        0,
+    print(
+        "FVG search windows empty:",
+        diagnostic_counts.get("fvg_search_windows_empty", 0),
     )
-
-    gap_passed = diagnostic_counts.get(
-        "fvg_gap_condition_passed",
-        0,
+    print(
+        "Three-candle patterns checked:",
+        diagnostic_counts.get("fvg_patterns_checked", 0),
     )
-
-    middle_passed = diagnostic_counts.get(
-        "fvg_middle_direction_passed",
-        0,
+    print(
+        "Price gap condition passed:",
+        diagnostic_counts.get("fvg_gap_condition_passed", 0),
     )
-
-    fvg_found = diagnostic_counts.get(
-        "fvg_found",
-        0,
+    print(
+        "Middle candle direction passed:",
+        diagnostic_counts.get("fvg_middle_direction_passed", 0),
     )
-
-    print(f"Three-candle patterns checked: {patterns_checked}")
-    print(f"Price gap condition passed: {gap_passed}")
-    print(f"Middle candle direction passed: {middle_passed}")
-    print(f"Valid FVG selected: {fvg_found}")
+    print(
+        "Valid FVG candidates found:",
+        diagnostic_counts.get("fvg_found", 0),
+    )
+    print(
+        "OB/FVG overlaps confirmed:",
+        diagnostic_counts.get("ob_fvg_overlap_confirmed", 0),
+    )
+    print(
+        "OB/FVG overlaps failed:",
+        diagnostic_counts.get("ob_fvg_overlap_failed", 0),
+    )
+    print(
+        "Valid opposite stop swings:",
+        diagnostic_counts.get("valid_stop_swings", 0),
+    )
 
     print_section("CANDIDATE REJECTION REASONS")
 
@@ -568,10 +645,26 @@ def run_historical_confluence_audit():
                     time=format_timestamp(record["timestamp"]),
                 )
             )
+
             print(f"Status: {record['status']}")
             print(
-                "OB found: {}".format(
+                "OB candidates examined: {}".format(
+                    record["ob_candidates_examined"]
+                )
+            )
+            print(
+                "OB rejected as mitigated: {}".format(
+                    record["ob_mitigated"]
+                )
+            )
+            print(
+                "Valid OB candidates: {}".format(
                     record["order_blocks_found"]
+                )
+            )
+            print(
+                "Empty FVG windows: {}".format(
+                    record["fvg_search_windows_empty"]
                 )
             )
             print(
@@ -590,13 +683,23 @@ def run_historical_confluence_audit():
                 )
             )
             print(
-                "FVG found: {}".format(
+                "FVG candidates found: {}".format(
                     record["fvg_found"]
                 )
             )
             print(
                 "Overlap confirmed: {}".format(
                     record["overlap_confirmed"]
+                )
+            )
+            print(
+                "Overlap failed: {}".format(
+                    record["overlap_failed"]
+                )
+            )
+            print(
+                "Valid stop swings: {}".format(
+                    record["valid_stop_swings"]
                 )
             )
             print(
