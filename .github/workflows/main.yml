@@ -55,8 +55,11 @@ jobs:
 
       - name: Run 4H Confluence History Audit
         run: python -m Src.Analysis.confluence_history_audit
-
-      - name: Run Real Market Direction Analysis
+        
+      - name: Run Independent 4H Setup Deduplication Audit
+        run: python -m Src.Analysis.setup_deduplication_audit
+        
+      - name: Run Real Market Direction Analysis 
         run: python -m Src.Analysis.test_market_direction_real
 
       - name: Run Real Market Structure History Audit
