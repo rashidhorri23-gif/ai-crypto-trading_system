@@ -29,6 +29,12 @@ jobs:
       - name: Run Trend Momentum Indicator Test
         run: python -m Src.Engines.Trendmomentum.test_indicators
 
+      - name: Run Multi-Timeframe Alignment Test
+        run: python -m Src.Engines.Trendmomentum.test_timeframe_alignment
+        
+      - name: Run Trend Momentum Indicator Test
+        run: python -m Src.Engines.Trendmomentum.test_indicators
+
 
       - name: Run Python application
         run: python Src/Main.py
