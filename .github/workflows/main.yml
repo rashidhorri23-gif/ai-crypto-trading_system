@@ -32,13 +32,28 @@ jobs:
       - name: Run 4H Mitigation Mode Comparison Audit
         run: |
           python - <<'PY'
-          from Src.Main import load_structure_candles
-          from Src.Main import run_four_hour_mode_comparison_audit
+          from Src.Main import (
+              SYMBOL,
+              TIMEFRAME_CONFIG,
+              load_structure_candles,
+              run_four_hour_mode_comparison_audit,
+          )
 
-          candles = load_structure_candles("4H", 540)
+          config = TIMEFRAME_CONFIG["4H"]
+
+          candles = load_structure_candles(
+              config["filename"],
+              config["target"],
+          )
 
           if not candles:
-              raise RuntimeError("No 4H candles available for mode comparison.")
+              raise RuntimeError(
+                  "No 4H candles available for mode comparison."
+              )
+
+          print("Symbol:", SYMBOL)
+          print("Archive:", config["filename"])
+          print("Candles loaded:", len(candles))
 
           run_four_hour_mode_comparison_audit(candles)
           PY
