@@ -15,20 +15,12 @@ TIMEFRAME_MS = {
 }
 
 
-def prepare_timeframe(data):
-    if not isinstance(data, pd.DataFrame):
-        raise TypeError("Timeframe data must be a pandas DataFrame.")
-
-    result = calculate_indicators(data)
-    result = classify_market_regime(result)
-    result = analyze_trend(result)
-
-    return result
-
-
 def validate_timeframe_data(data, timeframe):
     if timeframe not in TIMEFRAME_MS:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Timeframe data must be a pandas DataFrame.")
 
     required = [
         "timestamp",
@@ -49,28 +41,50 @@ def validate_timeframe_data(data, timeframe):
             f"{timeframe} data is missing columns: {missing}"
         )
 
-    result = data.copy()
+    result = data[required].copy()
 
-    result["timestamp"] = pd.to_numeric(
-        result["timestamp"],
-        errors="coerce"
-    )
+    for column in required:
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce"
+        )
 
-    if result["timestamp"].isna().any():
-        raise ValueError(f"{timeframe} has invalid timestamps.")
+    values = result[required].to_numpy(dtype=float)
+
+    if not np.isfinite(values).all():
+        raise ValueError(f"{timeframe} contains invalid OHLCV values.")
+
+    result["timestamp"] = result["timestamp"].astype("int64")
 
     if result["timestamp"].duplicated().any():
-        raise ValueError(f"{timeframe} has duplicate timestamps.")
+        raise ValueError(f"{timeframe} contains duplicate timestamps.")
 
     result = result.sort_values("timestamp").reset_index(drop=True)
-
-    if not result["timestamp"].is_monotonic_increasing:
-        raise ValueError(f"{timeframe} timestamps are not ordered.")
 
     interval_ms = TIMEFRAME_MS[timeframe]
 
     if (result["timestamp"] % interval_ms != 0).any():
         raise ValueError(f"{timeframe} timestamps are misaligned.")
+
+    if (result[["open", "high", "low", "close"]] <= 0).any().any():
+        raise ValueError(f"{timeframe} contains non-positive prices.")
+
+    if (result["volume"] < 0).any():
+        raise ValueError(f"{timeframe} contains negative volume.")
+
+    if (result["high"] < result[["open", "low", "close"]].max(axis=1)).any():
+        raise ValueError(f"{timeframe} contains invalid high values.")
+
+    if (result["low"] > result[["open", "high", "close"]].min(axis=1)).any():
+        raise ValueError(f"{timeframe} contains invalid low values.")
+
+    return result
+
+
+def prepare_timeframe(data):
+    result = calculate_indicators(data)
+    result = classify_market_regime(result)
+    result = analyze_trend(result)
 
     return result
 
@@ -78,15 +92,16 @@ def validate_timeframe_data(data, timeframe):
 def build_multi_timeframe_dataset(datasets):
     required_timeframes = ["1D", "4H", "1H"]
 
+    if not isinstance(datasets, dict):
+        raise TypeError("Datasets must be a dictionary.")
+
     missing = [
         timeframe for timeframe in required_timeframes
         if timeframe not in datasets
     ]
 
     if missing:
-        raise ValueError(
-            f"Missing timeframe datasets: {missing}"
-        )
+        raise ValueError(f"Missing timeframe datasets: {missing}")
 
     prepared = {}
 
@@ -177,18 +192,12 @@ def build_multi_timeframe_dataset(datasets):
     ).reset_index(drop=True)
 
     if result.empty:
-        raise ValueError(
-            "No valid multi-timeframe rows could be aligned."
-        )
+        raise ValueError("No valid multi-timeframe rows could be aligned.")
 
-    if (
-        result["4h_close_time"] > result["signal_time"]
-    ).any():
+    if (result["4h_close_time"] > result["signal_time"]).any():
         raise RuntimeError("Future 4H data detected.")
 
-    if (
-        result["1d_close_time"] > result["signal_time"]
-    ).any():
+    if (result["1d_close_time"] > result["signal_time"]).any():
         raise RuntimeError("Future 1D data detected.")
 
     return result
@@ -199,9 +208,34 @@ def generate_multi_timeframe_signals(
     breakout_lookback=20,
     pullback_atr_tolerance=0.25,
 ):
-    aligned = build_multi_timeframe_dataset(datasets)
+    if not isinstance(breakout_lookback, int) or isinstance(breakout_lookback, bool):
+        raise TypeError("Breakout lookback must be an integer.")
 
-    hourly = prepared_hourly_signals(aligned)
+    if breakout_lookback < 2:
+        raise ValueError("Breakout lookback must be at least 2.")
+
+    if not isinstance(pullback_atr_tolerance, (int, float)):
+        raise TypeError("Pullback tolerance must be numeric.")
+
+    if not np.isfinite(pullback_atr_tolerance) or pullback_atr_tolerance < 0:
+        raise ValueError("Pullback tolerance must be finite and non-negative.")
+
+    prepared = {}
+
+    for timeframe in ["1D", "4H", "1H"]:
+        validated = validate_timeframe_data(
+            datasets[timeframe],
+            timeframe
+        )
+        prepared[timeframe] = prepare_timeframe(validated)
+
+    hourly_signals = generate_signals(
+        prepared["1H"],
+        breakout_lookback=breakout_lookback,
+        pullback_atr_tolerance=pullback_atr_tolerance,
+    )
+
+    aligned = build_multi_timeframe_dataset(prepared)
 
     daily_bullish = (
         aligned["1d_market_regime"].eq("BULLISH_TREND")
@@ -225,29 +259,47 @@ def generate_multi_timeframe_signals(
         & aligned["4h_trend_strength"].isin(["STRONG", "MODERATE"])
     )
 
-    long_allowed = daily_bullish & four_hour_bullish
+    hourly_columns = [
+        "timestamp",
+        "signal",
+        "signal_type",
+        "signal_reason",
+        "breakout_high",
+        "breakout_low",
+    ]
 
+    hourly_signals = hourly_signals[hourly_columns].rename(
+        columns={
+            "timestamp": "1h_timestamp",
+            "signal": "1h_signal",
+            "signal_type": "1h_signal_type",
+            "signal_reason": "1h_signal_reason",
+            "breakout_high": "1h_breakout_high",
+            "breakout_low": "1h_breakout_low",
+        }
+    )
+
+    result = aligned.merge(
+        hourly_signals,
+        left_on="timestamp",
+        right_on="1h_timestamp",
+        how="left",
+        validate="one_to_one",
+    )
+
+    long_allowed = daily_bullish & four_hour_bullish
     short_allowed = daily_bearish & four_hour_bearish
 
-    result = aligned.copy()
+    long_signal = long_allowed & result["1h_signal"].eq("LONG")
+    short_signal = short_allowed & result["1h_signal"].eq("SHORT")
 
     result["signal"] = "WAIT"
     result["signal_type"] = "NONE"
     result["signal_reason"] = "Higher timeframe confirmation missing"
 
-    long_signal = (
-        long_allowed
-        & hourly["signal"].eq("LONG")
-    )
-
-    short_signal = (
-        short_allowed
-        & hourly["signal"].eq("SHORT")
-    )
-
     result.loc[long_signal, "signal"] = "LONG"
     result.loc[long_signal, "signal_type"] = (
-        hourly.loc[long_signal, "signal_type"]
+        result.loc[long_signal, "1h_signal_type"]
     )
     result.loc[long_signal, "signal_reason"] = (
         "1D and 4H bullish confirmation with 1H entry trigger"
@@ -255,7 +307,7 @@ def generate_multi_timeframe_signals(
 
     result.loc[short_signal, "signal"] = "SHORT"
     result.loc[short_signal, "signal_type"] = (
-        hourly.loc[short_signal, "signal_type"]
+        result.loc[short_signal, "1h_signal_type"]
     )
     result.loc[short_signal, "signal_reason"] = (
         "1D and 4H bearish confirmation with 1H entry trigger"
@@ -273,12 +325,24 @@ def generate_multi_timeframe_signals(
         default="UNCONFIRMED",
     )
 
+    result["1h_signal_time"] = (
+        result["timestamp"] + TIMEFRAME_MS["1H"]
+    )
+
+    result["signal_time"] = result["1h_signal_time"]
+
+    result["4h_data_age_hours"] = (
+        result["signal_time"] - result["4h_close_time"]
+    ) / 3_600_000
+
+    result["1d_data_age_hours"] = (
+        result["signal_time"] - result["1d_close_time"]
+    ) / 3_600_000
+
+    if (
+        (result["4h_data_age_hours"] < 0).any()
+        or (result["1d_data_age_hours"] < 0).any()
+    ):
+        raise RuntimeError("Future timeframe data detected.")
+
     return result
-
-
-def prepared_hourly_signals(aligned):
-    hourly = aligned.copy()
-
-    hourly = generate_signals(hourly)
-
-    return hourly
