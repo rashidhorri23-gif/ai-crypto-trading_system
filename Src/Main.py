@@ -46,6 +46,7 @@ MARKET = "SPOT"
 SYMBOL = "BTC-USDT"
 
 RUN_HISTORICAL_CONFLUENCE_AUDIT = True
+RUN_4H_MODE_COMPARISON_AUDIT = True
 
 TIMEFRAME_CONFIG = {
     "1D": {
@@ -438,6 +439,135 @@ def run_market_direction_analysis():
     return decision, four_hour_candles
 
 
+def run_four_hour_mode_comparison_audit(candles):
+    print("\n4H MITIGATION MODE COMPARISON")
+    print("=============================")
+
+    print("Symbol:", SYMBOL)
+    print("Timeframe: 4H")
+    print("Historical Candles:", len(candles))
+    print("Modes: A, B, C")
+    print("Directions: LONG, SHORT")
+    print("Same Candle Dataset: YES")
+    print("Live Trading: DISABLED")
+    print("Entry Execution: DISABLED")
+
+    modes = ("A", "B", "C")
+    directions = ("LONG", "SHORT")
+
+    comparison_results = {}
+
+    for mode in modes:
+        print("\n")
+        print("#" * 60)
+        print(f"MITIGATION MODE: {mode}")
+        print("#" * 60)
+
+        for direction in directions:
+            key = f"{mode}_{direction}"
+
+            print("\n----------------------------------------")
+            print(f"MODE: {mode} | DIRECTION: {direction}")
+            print("----------------------------------------")
+
+            try:
+                result = generate_four_hour_setup(
+                    candles=candles,
+                    allowed_direction=direction,
+                    setup_expiry_candles=24,
+                    ob_lookback=10,
+                    fvg_lookback=10,
+                    risk_reward=2.0,
+                    symbol=SYMBOL,
+                    mitigation_mode=mode,
+                )
+
+                setup = result.get("setup")
+                diagnostics = result.get("diagnostics", {})
+
+                comparison_results[key] = {
+                    "mode": mode,
+                    "direction": direction,
+                    "status": result.get("status"),
+                    "reason": result.get("reason"),
+                    "setup": setup,
+                    "diagnostics": diagnostics,
+                }
+
+                print("Status:", result.get("status"))
+                print("Reason:", result.get("reason"))
+                print(
+                    "Setup Generated:",
+                    isinstance(setup, dict),
+                )
+
+                if isinstance(setup, dict):
+                    print("Setup ID:", setup.get("setup_id"))
+                    print(
+                        "Structure Event:",
+                        setup.get("structure_event"),
+                    )
+                    print(
+                        "Structure Event Timestamp:",
+                        setup.get("structure_event_timestamp"),
+                    )
+                    print("Entry Zone:", setup.get("entry_zone"))
+                    print("Order Block:", setup.get("order_block"))
+                    print("FVG:", setup.get("fvg"))
+                    print("Zone Overlap:", setup.get("zone_overlap"))
+                    print("Stop Loss:", setup.get("stop_loss"))
+                    print("Take Profit:", setup.get("take_profit"))
+
+                print("\nDIAGNOSTICS")
+                print("-----------")
+                print(
+                    json.dumps(
+                        diagnostics,
+                        indent=2,
+                        ensure_ascii=True,
+                        default=str,
+                    )
+                )
+
+            except Exception as error:
+                comparison_results[key] = {
+                    "mode": mode,
+                    "direction": direction,
+                    "error": str(error),
+                }
+
+                print("ENGINE ERROR:", str(error))
+
+    print("\n4H MODE COMPARISON SUMMARY")
+    print("==========================")
+
+    for mode in modes:
+        for direction in directions:
+            key = f"{mode}_{direction}"
+            record = comparison_results.get(key, {})
+
+            if "error" in record:
+                print(
+                    f"{key}: ERROR - {record['error']}"
+                )
+                continue
+
+            setup = record.get("setup")
+
+            print(
+                f"{key}: "
+                f"Status={record.get('status')} | "
+                f"Setup={'YES' if isinstance(setup, dict) else 'NO'}"
+            )
+
+    print("\n4H MODE COMPARISON COMPLETED")
+    print("============================")
+    print("No trades were executed.")
+    print("Live Trading: DISABLED")
+
+    return comparison_results
+
+
 def run_historical_confluence_audit(candles):
     print("\nHISTORICAL 4H CONFLUENCE AUDIT")
     print("================================")
@@ -472,6 +602,8 @@ def run_historical_confluence_audit(candles):
                     ob_lookback=10,
                     fvg_lookback=10,
                     risk_reward=2.0,
+                    symbol=SYMBOL,
+                    mitigation_mode="A",
                 )
 
                 setup = result.get("setup")
@@ -771,7 +903,6 @@ def run_lower_timeframe_confirmation(setup):
     return result
 
 
-
 def run_four_hour_setup_engine(
     market_decision,
     four_hour_candles,
@@ -794,6 +925,8 @@ def run_four_hour_setup_engine(
         ob_lookback=10,
         fvg_lookback=10,
         risk_reward=2.0,
+        symbol=SYMBOL,
+        mitigation_mode="A",
     )
 
     setup = result.get("setup")
@@ -1110,6 +1243,11 @@ def main():
     market_decision, four_hour_candles = (
         run_market_direction_analysis()
     )
+
+    if RUN_4H_MODE_COMPARISON_AUDIT:
+        run_four_hour_mode_comparison_audit(
+            four_hour_candles
+        )
 
     historical_deduplication = None
 
