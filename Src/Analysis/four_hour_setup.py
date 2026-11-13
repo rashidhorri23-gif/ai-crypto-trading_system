@@ -394,10 +394,10 @@ def _order_block_is_valid_after_fvg(
     if touched_index is not None:
         diagnostics["ob_mitigated"] += 1
 
-        if mitigation_mode == "B":
-            diagnostics["ob_mitigated_after_fvg"] += 1
-        else:
+        if touched_index <= fvg["index"]:
             diagnostics["ob_mitigated_before_or_during_fvg"] += 1
+        else:
+            diagnostics["ob_mitigated_after_fvg"] += 1
 
         return False, touched_index, start_index, end_index
 
@@ -1101,7 +1101,7 @@ def generate_four_hour_setup(
                     _record_pair(
                         diagnostics,
                         ob,
-                        fvg",
+                        fvg,
                         "REJECTED_INVALID_RISK",
                         final_rejection,
                         overlap=overlap,
