@@ -1,4 +1,5 @@
 
+import numpy as np
 import pandas as pd
 
 
@@ -26,9 +27,24 @@ def classify_market_regime(data):
 
     result = data.copy()
 
+    for column in required:
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce"
+        )
+
     result["market_regime"] = "UNDEFINED"
 
-    valid = result[required].notna().all(axis=1)
+    valid = (
+        result[required].notna().all(axis=1)
+        & np.isfinite(result[required]).all(axis=1)
+        & (result["close"] > 0)
+        & (result["ema_50"] > 0)
+        & (result["ema_200"] > 0)
+        & result["adx_14"].between(0, 100)
+        & result["plus_di_14"].between(0, 100)
+        & result["minus_di_14"].between(0, 100)
+    )
 
     strong_trend = result["adx_14"] >= 20
 
@@ -52,7 +68,12 @@ def classify_market_regime(data):
 
     ranging = valid & ~strong_trend
 
-    mixed = valid & strong_trend & ~bullish & ~bearish
+    mixed = (
+        valid
+        & strong_trend
+        & ~bullish
+        & ~bearish
+    )
 
     result.loc[ranging, "market_regime"] = "RANGE"
     result.loc[mixed, "market_regime"] = "MIXED"
