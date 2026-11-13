@@ -771,6 +771,7 @@ def run_lower_timeframe_confirmation(setup):
     return result
 
 
+
 def run_four_hour_setup_engine(
     market_decision,
     four_hour_candles,
@@ -799,9 +800,25 @@ def run_four_hour_setup_engine(
 
     if not isinstance(setup, dict):
         print_setup_report(result)
+
+        diagnostics = result.get("diagnostics")
+
+        if isinstance(diagnostics, dict):
+            print("\n4H SETUP DIAGNOSTICS")
+            print("====================")
+            print(
+                json.dumps(
+                    diagnostics,
+                    indent=2,
+                    ensure_ascii=True,
+                    default=str,
+                )
+            )
+
         print("\nLOWER-TIMEFRAME CONFIRMATION SKIPPED")
         print("===================================")
         print("No 4H setup was generated.")
+
         return result
 
     setup["symbol"] = setup.get("symbol", SYMBOL)
@@ -812,6 +829,7 @@ def run_four_hour_setup_engine(
     )
 
     if setup["status"] == "CONFIRMED_CONFLUENCE":
+
         if historical_deduplication is None:
             print("\nSETUP DEDUPLICATION CHECK")
             print("=========================")
@@ -837,7 +855,17 @@ def run_four_hour_setup_engine(
             [],
         )
 
-        if not current_retained:
+        current_retained_by_key = (
+            current_deduplication.get(
+                "retained_by_key",
+                {},
+            )
+        )
+
+        if (
+            not current_retained
+            or len(current_retained_by_key) != 1
+        ):
             print("\nSETUP DEDUPLICATION CHECK")
             print("=========================")
             print("Current setup failed structural validation.")
@@ -850,70 +878,154 @@ def run_four_hour_setup_engine(
             )
             result["setup"] = None
 
+            print_deduplication_report(
+                current_deduplication,
+                title="CURRENT SETUP VALIDATION",
+            )
+
             return result
 
         current_key = next(
-            (
-                key
-                for key, record
-                in current_deduplication["retained_by_key"].items()
-            ),
-            None,
+            iter(current_retained_by_key)
         )
 
-        historical_retained = (
+        historical_retained_by_key = (
             historical_deduplication.get(
                 "retained_by_key",
                 {},
             )
         )
 
-        historical_record = historical_retained.get(
+        historical_setup = historical_retained_by_key.get(
             current_key
         )
 
-        historical_setup = None
+        if not isinstance(historical_setup, dict):
+            print("\nSETUP DEDUPLICATION CHECK")
+            print("=========================")
+            print("No matching historical structural setup found.")
+            print("Current structural key:", current_key)
+            print("Entry confirmation blocked.")
 
-        if isinstance(historical_record, dict):
-            historical_setup = historical_record.get(
-                "setup",
-                historical_record,
+            result["status"] = "HISTORICAL_SETUP_NOT_FOUND"
+            result["reason"] = (
+                "The current structural setup was not found "
+                "in the historical deduplication registry."
             )
+            result["setup"] = None
+
+            return result
+
+        current_available = setup.get(
+            "available_timestamp"
+        )
+
+        historical_available = historical_setup.get(
+            "available_timestamp"
+        )
+
+        current_event_timestamp = setup.get(
+            "structure_event_timestamp"
+        )
+
+        historical_event_timestamp = historical_setup.get(
+            "structure_event_timestamp"
+        )
+
+        def normalize_timestamp(value):
+            if isinstance(value, bool) or value is None:
+                return None
+
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+
+            if number <= 0:
+                return None
+
+            return int(round(number))
+
+        current_available = normalize_timestamp(
+            current_available
+        )
+
+        historical_available = normalize_timestamp(
+            historical_available
+        )
+
+        current_event_timestamp = normalize_timestamp(
+            current_event_timestamp
+        )
+
+        historical_event_timestamp = normalize_timestamp(
+            historical_event_timestamp
+        )
 
         if (
-            historical_setup is None
-            or historical_setup.get("setup_id")
-            != setup.get("setup_id")
+            current_available is None
+            or historical_available is None
+            or current_event_timestamp is None
+            or historical_event_timestamp is None
         ):
             print("\nSETUP DEDUPLICATION CHECK")
             print("=========================")
-            print("Current setup was not retained as the first setup.")
-            print("Current Setup ID:", setup.get("setup_id"))
+            print("Setup chronology validation failed.")
+            print("Entry confirmation blocked.")
 
-            if historical_setup is not None:
-                print(
-                    "First Retained Setup ID:",
-                    historical_setup.get("setup_id"),
-                )
-            else:
-                print(
-                    "No matching historical structural setup found."
-                )
+            result["status"] = "INVALID_SETUP_CHRONOLOGY"
+            result["reason"] = (
+                "Current or historical setup timestamps "
+                "are missing or invalid."
+            )
+            result["setup"] = None
 
+            return result
+
+        is_first_structural_setup = (
+            current_available == historical_available
+            and current_event_timestamp == historical_event_timestamp
+        )
+
+        print("\nSETUP DEDUPLICATION CHECK")
+        print("=========================")
+        print("Structural identity:", "VALID")
+        print("Current Setup ID:", setup.get("setup_id"))
+        print(
+            "Historical First Setup ID:",
+            historical_setup.get("setup_id"),
+        )
+        print(
+            "Current Available Timestamp:",
+            current_available,
+        )
+        print(
+            "First Available Timestamp:",
+            historical_available,
+        )
+        print(
+            "Current Structure Event Timestamp:",
+            current_event_timestamp,
+        )
+        print(
+            "First Structure Event Timestamp:",
+            historical_event_timestamp,
+        )
+
+        if not is_first_structural_setup:
+            print("First retained setup: NO")
+            print("Duplicate rejection: PASSED")
             print("Entry confirmation blocked.")
 
             result["status"] = "DUPLICATE_SETUP_REJECTED"
             result["reason"] = (
-                "The current setup is not the first retained "
+                "The current setup is not the first valid "
                 "setup for its structural OB/FVG pair."
             )
             result["setup"] = None
 
             return result
 
-        print("\nSETUP DEDUPLICATION CHECK")
-        print("=========================")
-        print("Structural identity: VALID")
         print("First retained setup: YES")
         print("Duplicate rejection: PASSED")
 
