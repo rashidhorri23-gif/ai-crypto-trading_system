@@ -1,4 +1,5 @@
 
+import numpy as np
 import pandas as pd
 
 
@@ -29,12 +30,41 @@ def analyze_trend(data):
 
     result = data.copy()
 
+    numeric_columns = [
+        "close",
+        "ema_20",
+        "ema_50",
+        "ema_200",
+        "ema_200_slope",
+        "rsi_14",
+        "adx_14",
+        "plus_di_14",
+        "minus_di_14"
+    ]
+
+    for column in numeric_columns:
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce"
+        )
+
     result["trend_direction"] = "NEUTRAL"
     result["trend_strength"] = "UNDEFINED"
     result["momentum_direction"] = "NEUTRAL"
     result["trend_alignment"] = "UNCONFIRMED"
 
-    valid = result[required].notna().all(axis=1)
+    valid = (
+        result[numeric_columns].notna().all(axis=1)
+        & np.isfinite(result[numeric_columns]).all(axis=1)
+        & (result["close"] > 0)
+        & (result["ema_20"] > 0)
+        & (result["ema_50"] > 0)
+        & (result["ema_200"] > 0)
+        & result["rsi_14"].between(0, 100)
+        & result["adx_14"].between(0, 100)
+        & result["plus_di_14"].between(0, 100)
+        & result["minus_di_14"].between(0, 100)
+    )
 
     bullish = (
         valid
@@ -54,7 +84,13 @@ def analyze_trend(data):
     result.loc[bearish, "trend_direction"] = "BEARISH"
 
     strong = valid & (result["adx_14"] >= 25)
-    moderate = valid & (result["adx_14"] >= 20) & (result["adx_14"] < 25)
+
+    moderate = (
+        valid
+        & (result["adx_14"] >= 20)
+        & (result["adx_14"] < 25)
+    )
+
     weak = valid & (result["adx_14"] < 20)
 
     result.loc[strong, "trend_strength"] = "STRONG"
@@ -88,8 +124,14 @@ def analyze_trend(data):
         & result["market_regime"].eq("BEARISH_TREND")
     )
 
-    result.loc[bullish_alignment, "trend_alignment"] = "BULLISH_CONFIRMED"
-    result.loc[bearish_alignment, "trend_alignment"] = "BEARISH_CONFIRMED"
+    result.loc[
+        bullish_alignment,
+        "trend_alignment"
+    ] = "BULLISH_CONFIRMED"
+
+    result.loc[
+        bearish_alignment,
+        "trend_alignment"
+    ] = "BEARISH_CONFIRMED"
 
     return result
-
