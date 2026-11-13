@@ -3,6 +3,14 @@ import numpy as np
 import pandas as pd
 
 
+def validate_period(period):
+    if not isinstance(period, int) or isinstance(period, bool):
+        raise TypeError("Period must be an integer.")
+
+    if period <= 0:
+        raise ValueError("Period must be positive.")
+
+
 def validate_ohlcv(data):
     required = ["open", "high", "low", "close", "volume"]
 
@@ -10,6 +18,7 @@ def validate_ohlcv(data):
         raise TypeError("Input must be a pandas DataFrame.")
 
     missing = [column for column in required if column not in data.columns]
+
     if missing:
         raise ValueError(f"Missing columns: {missing}")
 
@@ -19,23 +28,47 @@ def validate_ohlcv(data):
     result = data.copy()
 
     for column in required:
-        result[column] = pd.to_numeric(result[column], errors="coerce")
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce"
+        )
 
-    if result[required].isnull().any().any():
-        raise ValueError("OHLCV data contains missing or invalid values.")
+    values = result[required].to_numpy(dtype=float)
+
+    if not np.isfinite(values).all():
+        raise ValueError("OHLCV contains missing or non-finite values.")
+
+    price_columns = ["open", "high", "low", "close"]
+
+    if (result[price_columns] <= 0).any().any():
+        raise ValueError("OHLC prices must be positive.")
+
+    if (result["volume"] < 0).any():
+        raise ValueError("Volume cannot be negative.")
 
     if (result["high"] < result["low"]).any():
         raise ValueError("Invalid candle: high is below low.")
 
-    if (result["volume"] < 0).any():
-        raise ValueError("Volume cannot be negative.")
+    if (
+        (result["open"] > result["high"])
+        | (result["open"] < result["low"])
+    ).any():
+        raise ValueError("Candle open is outside high-low range.")
+
+    if (
+        (result["close"] > result["high"])
+        | (result["close"] < result["low"])
+    ).any():
+        raise ValueError("Candle close is outside high-low range.")
 
     return result
 
 
 def calculate_ema(data, period, column="close"):
-    if period <= 0:
-        raise ValueError("EMA period must be positive.")
+    validate_period(period)
+
+    if column not in data.columns:
+        raise ValueError(f"Missing column: {column}")
 
     return data[column].ewm(
         span=period,
@@ -45,6 +78,8 @@ def calculate_ema(data, period, column="close"):
 
 
 def calculate_rsi(data, period=14):
+    validate_period(period)
+
     delta = data["close"].diff()
 
     gain = delta.clip(lower=0)
@@ -65,14 +100,27 @@ def calculate_rsi(data, period=14):
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
 
-    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100)
-    rsi = rsi.mask((avg_gain == 0) & (avg_loss > 0), 0)
-    rsi = rsi.mask((avg_gain == 0) & (avg_loss == 0), 50)
+    rsi = rsi.mask(
+        (avg_loss == 0) & (avg_gain > 0),
+        100
+    )
+
+    rsi = rsi.mask(
+        (avg_gain == 0) & (avg_loss > 0),
+        0
+    )
+
+    rsi = rsi.mask(
+        (avg_gain == 0) & (avg_loss == 0),
+        50
+    )
 
     return rsi
 
 
 def calculate_atr(data, period=14):
+    validate_period(period)
+
     previous_close = data["close"].shift(1)
 
     true_range = pd.concat(
@@ -92,6 +140,8 @@ def calculate_atr(data, period=14):
 
 
 def calculate_adx(data, period=14):
+    validate_period(period)
+
     high_diff = data["high"].diff()
     low_diff = -data["low"].diff()
 
@@ -130,20 +180,32 @@ def calculate_adx(data, period=14):
         min_periods=period
     ).mean()
 
-    positive_di = 100 * positive_dm.ewm(
+    smoothed_positive_dm = positive_dm.ewm(
         alpha=1 / period,
         adjust=False,
         min_periods=period
-    ).mean() / atr
+    ).mean()
 
-    negative_di = 100 * negative_dm.ewm(
+    smoothed_negative_dm = negative_dm.ewm(
         alpha=1 / period,
         adjust=False,
         min_periods=period
-    ).mean() / atr
+    ).mean()
+
+    positive_di = (
+        100 * smoothed_positive_dm / atr.replace(0, np.nan)
+    )
+
+    negative_di = (
+        100 * smoothed_negative_dm / atr.replace(0, np.nan)
+    )
 
     di_sum = positive_di + negative_di
-    dx = 100 * (positive_di - negative_di).abs() / di_sum.replace(0, np.nan)
+
+    dx = (
+        100 * (positive_di - negative_di).abs()
+        / di_sum.replace(0, np.nan)
+    )
 
     adx = dx.ewm(
         alpha=1 / period,
@@ -182,4 +244,3 @@ def calculate_indicators(data):
     )
 
     return result
-
