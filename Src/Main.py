@@ -36,6 +36,11 @@ from Src.Analysis.entry_confirmation import (
     confirm_lower_timeframe_entry,
 )
 
+from Src.Analysis.setup_deduplication import (
+    deduplicate_setups,
+    print_deduplication_report,
+)
+
 
 MARKET = "SPOT"
 SYMBOL = "BTC-USDT"
@@ -497,25 +502,21 @@ def run_historical_confluence_audit(candles):
                     setup.get("status", "UNKNOWN"),
                 )
 
-                discovered_setups[setup_id] = {
-                    "setup_id": setup_id,
-                    "direction": direction,
-                    "status": status,
-                    "structure_event": setup.get(
-                        "structure_event"
-                    ),
-                    "structure_event_timestamp": setup.get(
-                        "structure_event_timestamp"
-                    ),
-                    "available_timestamp": available_timestamp,
-                    "entry_zone": setup.get("entry_zone"),
-                    "order_block": setup.get("order_block"),
-                    "fvg": setup.get("fvg"),
-                    "zone_overlap": setup.get("zone_overlap"),
-                    "stop_loss": setup.get("stop_loss"),
-                    "take_profit": setup.get("take_profit"),
-                    "reason": result.get("reason"),
-                }
+                setup_record = dict(setup)
+                setup_record["setup_id"] = setup_id
+                setup_record["symbol"] = setup_record.get(
+                    "symbol",
+                    SYMBOL,
+                )
+                setup_record["timeframe"] = setup_record.get(
+                    "timeframe",
+                    "4H",
+                )
+                setup_record["direction"] = direction
+                setup_record["status"] = status
+                setup_record["reason"] = result.get("reason")
+
+                discovered_setups[setup_id] = setup_record
 
             except Exception as error:
                 engine_errors.append({
@@ -584,22 +585,62 @@ def run_historical_confluence_audit(candles):
         print("Setup ID:", record["setup_id"])
         print("Direction:", record["direction"])
         print("Status:", record["status"])
-        print("Structure Event:", record["structure_event"])
+        print("Structure Event:", record.get("structure_event"))
         print(
             "Structure Event Timestamp:",
-            record["structure_event_timestamp"],
+            record.get("structure_event_timestamp"),
         )
         print(
             "Available Timestamp:",
-            record["available_timestamp"],
+            record.get("available_timestamp"),
         )
-        print("Entry Zone:", record["entry_zone"])
-        print("Order Block:", record["order_block"])
-        print("FVG:", record["fvg"])
-        print("Zone Overlap:", record["zone_overlap"])
-        print("Stop Loss:", record["stop_loss"])
-        print("Take Profit:", record["take_profit"])
-        print("Reason:", record["reason"])
+        print("Entry Zone:", record.get("entry_zone"))
+        print("Order Block:", record.get("order_block"))
+        print("FVG:", record.get("fvg"))
+        print("Zone Overlap:", record.get("zone_overlap"))
+        print("Stop Loss:", record.get("stop_loss"))
+        print("Take Profit:", record.get("take_profit"))
+        print("Reason:", record.get("reason"))
+
+    confirmed_setups = [
+        record
+        for record in discovered_setups.values()
+        if record.get("status") == "CONFIRMED_CONFLUENCE"
+    ]
+
+    print("\nSTRUCTURAL DEDUPLICATION")
+    print("=======================")
+    print(
+        "Deduplication Input: Confirmed Confluence Setups Only"
+    )
+
+    deduplication_result = deduplicate_setups(
+        confirmed_setups,
+        default_symbol=SYMBOL,
+    )
+
+    print_deduplication_report(deduplication_result)
+
+    print("\nRETAINED STRUCTURAL SETUPS")
+    print("==========================")
+
+    for record in deduplication_result["retained_setups"]:
+        setup = record.get("setup", record)
+
+        print("\n--------------------------------")
+        print("Setup ID:", setup.get("setup_id"))
+        print("Symbol:", setup.get("symbol"))
+        print("Direction:", setup.get("direction"))
+        print("Structure Event:", setup.get("structure_event"))
+        print(
+            "Structure Event Timestamp:",
+            setup.get("structure_event_timestamp"),
+        )
+        print("Order Block:", setup.get("order_block"))
+        print("FVG:", setup.get("fvg"))
+        print("Entry Zone:", setup.get("entry_zone"))
+        print("Stop Loss:", setup.get("stop_loss"))
+        print("Take Profit:", setup.get("take_profit"))
 
     if engine_errors:
         print("\nENGINE ERRORS")
@@ -613,7 +654,7 @@ def run_historical_confluence_audit(candles):
     print("No trades were executed.")
     print("Live Trading: DISABLED")
 
-    return discovered_setups
+    return deduplication_result
 
 
 def print_setup_report(result):
@@ -733,6 +774,7 @@ def run_lower_timeframe_confirmation(setup):
 def run_four_hour_setup_engine(
     market_decision,
     four_hour_candles,
+    historical_deduplication=None,
 ):
     print("\nRUNNING 4H SETUP ENGINE")
     print("=======================")
@@ -753,12 +795,134 @@ def run_four_hour_setup_engine(
         risk_reward=2.0,
     )
 
+    setup = result.get("setup")
+
+    if not isinstance(setup, dict):
+        print_setup_report(result)
+        print("\nLOWER-TIMEFRAME CONFIRMATION SKIPPED")
+        print("===================================")
+        print("No 4H setup was generated.")
+        return result
+
+    setup["symbol"] = setup.get("symbol", SYMBOL)
+    setup["timeframe"] = setup.get("timeframe", "4H")
+    setup["status"] = result.get(
+        "status",
+        setup.get("status", "UNKNOWN"),
+    )
+
+    if setup["status"] == "CONFIRMED_CONFLUENCE":
+        if historical_deduplication is None:
+            print("\nSETUP DEDUPLICATION CHECK")
+            print("=========================")
+            print("Historical deduplication result is unavailable.")
+            print("Entry confirmation blocked for safety.")
+
+            result["status"] = "DEDUPLICATION_NOT_AVAILABLE"
+            result["reason"] = (
+                "Historical structural deduplication "
+                "was not completed."
+            )
+            result["setup"] = None
+
+            return result
+
+        current_deduplication = deduplicate_setups(
+            [setup],
+            default_symbol=SYMBOL,
+        )
+
+        current_retained = current_deduplication.get(
+            "retained_setups",
+            [],
+        )
+
+        if not current_retained:
+            print("\nSETUP DEDUPLICATION CHECK")
+            print("=========================")
+            print("Current setup failed structural validation.")
+            print("Entry confirmation blocked.")
+
+            result["status"] = "INVALID_STRUCTURAL_SETUP"
+            result["reason"] = (
+                "Current setup does not have a valid "
+                "OB/FVG structural identity."
+            )
+            result["setup"] = None
+
+            return result
+
+        current_key = next(
+            (
+                key
+                for key, record
+                in current_deduplication["retained_by_key"].items()
+            ),
+            None,
+        )
+
+        historical_retained = (
+            historical_deduplication.get(
+                "retained_by_key",
+                {},
+            )
+        )
+
+        historical_record = historical_retained.get(
+            current_key
+        )
+
+        historical_setup = None
+
+        if isinstance(historical_record, dict):
+            historical_setup = historical_record.get(
+                "setup",
+                historical_record,
+            )
+
+        if (
+            historical_setup is None
+            or historical_setup.get("setup_id")
+            != setup.get("setup_id")
+        ):
+            print("\nSETUP DEDUPLICATION CHECK")
+            print("=========================")
+            print("Current setup was not retained as the first setup.")
+            print("Current Setup ID:", setup.get("setup_id"))
+
+            if historical_setup is not None:
+                print(
+                    "First Retained Setup ID:",
+                    historical_setup.get("setup_id"),
+                )
+            else:
+                print(
+                    "No matching historical structural setup found."
+                )
+
+            print("Entry confirmation blocked.")
+
+            result["status"] = "DUPLICATE_SETUP_REJECTED"
+            result["reason"] = (
+                "The current setup is not the first retained "
+                "setup for its structural OB/FVG pair."
+            )
+            result["setup"] = None
+
+            return result
+
+        print("\nSETUP DEDUPLICATION CHECK")
+        print("=========================")
+        print("Structural identity: VALID")
+        print("First retained setup: YES")
+        print("Duplicate rejection: PASSED")
+
     setup = print_setup_report(result)
 
     if setup is None:
         print("\nLOWER-TIMEFRAME CONFIRMATION SKIPPED")
         print("===================================")
-        print("No 4H setup was generated.")
+        print("No valid 4H setup is available.")
         return result
 
     if setup.get("status") != "CONFIRMED_CONFLUENCE":
@@ -835,9 +999,13 @@ def main():
         run_market_direction_analysis()
     )
 
+    historical_deduplication = None
+
     if RUN_HISTORICAL_CONFLUENCE_AUDIT:
-        run_historical_confluence_audit(
-            four_hour_candles
+        historical_deduplication = (
+            run_historical_confluence_audit(
+                four_hour_candles
+            )
         )
 
     if market_decision["allowed_direction"] == "WAIT":
@@ -857,10 +1025,12 @@ def main():
         run_four_hour_setup_engine(
             market_decision,
             four_hour_candles,
+            historical_deduplication,
         )
 
     print("\nSYSTEM EXECUTION COMPLETED")
     print("==========================")
+    print("No trades were executed.")
     print("Live Trading: DISABLED")
 
 
