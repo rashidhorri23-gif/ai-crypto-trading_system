@@ -16,7 +16,10 @@ def classify_market_regime(data):
     if not isinstance(data, pd.DataFrame):
         raise TypeError("Input must be a pandas DataFrame.")
 
-    missing = [column for column in required if column not in data.columns]
+    missing = [
+        column for column in required
+        if column not in data.columns
+    ]
 
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -47,14 +50,13 @@ def classify_market_regime(data):
         & (result["minus_di_14"] > result["plus_di_14"])
     )
 
-    ranging = (
-        valid
-        & ~strong_trend
-    )
+    ranging = valid & ~strong_trend
 
+    mixed = valid & strong_trend & ~bullish & ~bearish
+
+    result.loc[ranging, "market_regime"] = "RANGE"
+    result.loc[mixed, "market_regime"] = "MIXED"
     result.loc[bullish, "market_regime"] = "BULLISH_TREND"
     result.loc[bearish, "market_regime"] = "BEARISH_TREND"
-    result.loc[ranging, "market_regime"] = "RANGE"
 
     return result
-
