@@ -29,6 +29,20 @@ jobs:
       - name: Run Python application
         run: python Src/Main.py
 
+      - name: Run 4H Mitigation Mode Comparison Audit
+        run: |
+          python - <<'PY'
+          from Src.Main import load_structure_candles
+          from Src.Main import run_four_hour_mode_comparison_audit
+
+          candles = load_structure_candles("4H")
+
+          if not candles:
+              raise RuntimeError("No 4H candles available for mode comparison.")
+
+          run_four_hour_mode_comparison_audit(candles)
+          PY
+
       - name: Run historical recovery test
         run: python Src/Data/recovery_test.py
 
@@ -55,11 +69,11 @@ jobs:
 
       - name: Run 4H Confluence History Audit
         run: python -m Src.Analysis.confluence_history_audit
-        
+
       - name: Run Independent 4H Setup Deduplication Audit
         run: python -m Src.Analysis.setup_deduplication_audit
-        
-      - name: Run Real Market Direction Analysis 
+
+      - name: Run Real Market Direction Analysis
         run: python -m Src.Analysis.test_market_direction_real
 
       - name: Run Real Market Structure History Audit
