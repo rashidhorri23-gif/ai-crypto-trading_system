@@ -46,6 +46,9 @@ DIAGNOSTIC_SUM_KEYS = (
     "fvg_invalid_zone",
     "fvg_valid_patterns",
     "fvg_found",
+    "ob_fvg_pairs_checked",
+    "ob_mitigated_after_fvg",
+    "ob_unmitigated_after_fvg",
     "ob_fvg_overlap_confirmed",
     "ob_fvg_overlap_failed",
     "valid_stop_swings",
@@ -481,6 +484,18 @@ def run_historical_confluence_audit():
                 "fvg_found",
                 0,
             ),
+            "ob_fvg_pairs_checked": diagnostics.get(
+                "ob_fvg_pairs_checked",
+                0,
+            ),
+            "ob_mitigated_after_fvg": diagnostics.get(
+                "ob_mitigated_after_fvg",
+                0,
+            ),
+            "ob_unmitigated_after_fvg": diagnostics.get(
+                "ob_unmitigated_after_fvg",
+                0,
+            ),
             "overlap_confirmed": diagnostics.get(
                 "ob_fvg_overlap_confirmed",
                 0,
@@ -563,10 +578,6 @@ def run_historical_confluence_audit():
         diagnostic_counts.get("ob_candidates_examined", 0),
     )
     print(
-        "Rejected as mitigated:",
-        diagnostic_counts.get("ob_mitigated", 0),
-    )
-    print(
         "Rejected due to candle direction:",
         diagnostic_counts.get("ob_wrong_candle_direction", 0),
     )
@@ -575,8 +586,20 @@ def run_historical_confluence_audit():
         diagnostic_counts.get("ob_invalid_zone", 0),
     )
     print(
-        "Valid OB candidates:",
+        "Structurally valid OB candidates:",
         diagnostic_counts.get("ob_valid_candidates", 0),
+    )
+    print(
+        "OB/FVG pairs checked:",
+        diagnostic_counts.get("ob_fvg_pairs_checked", 0),
+    )
+    print(
+        "OB mitigated after FVG:",
+        diagnostic_counts.get("ob_mitigated_after_fvg", 0),
+    )
+    print(
+        "OB unmitigated after FVG:",
+        diagnostic_counts.get("ob_unmitigated_after_fvg", 0),
     )
 
     print_section("FVG DIAGNOSTIC INTERPRETATION")
@@ -630,7 +653,7 @@ def run_historical_confluence_audit():
         for reason, count in reason_counts.most_common():
             print(f"{count} | {reason}")
 
-    print_section("PER EVENT FVG DIAGNOSTICS")
+    print_section("PER EVENT FVG AND MITIGATION DIAGNOSTICS")
 
     if not event_diagnostic_records:
         print("No events were successfully reproduced.")
@@ -653,12 +676,7 @@ def run_historical_confluence_audit():
                 )
             )
             print(
-                "OB rejected as mitigated: {}".format(
-                    record["ob_mitigated"]
-                )
-            )
-            print(
-                "Valid OB candidates: {}".format(
+                "OB candidates found: {}".format(
                     record["order_blocks_found"]
                 )
             )
@@ -685,6 +703,21 @@ def run_historical_confluence_audit():
             print(
                 "FVG candidates found: {}".format(
                     record["fvg_found"]
+                )
+            )
+            print(
+                "OB/FVG pairs checked: {}".format(
+                    record["ob_fvg_pairs_checked"]
+                )
+            )
+            print(
+                "OB mitigated after FVG: {}".format(
+                    record["ob_mitigated_after_fvg"]
+                )
+            )
+            print(
+                "OB unmitigated after FVG: {}".format(
+                    record["ob_unmitigated_after_fvg"]
                 )
             )
             print(
