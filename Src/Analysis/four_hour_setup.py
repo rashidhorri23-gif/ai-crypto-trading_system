@@ -20,6 +20,8 @@ VALID_EVENTS = {
     "CHOCH_BEARISH",
 }
 
+VALID_MITIGATION_MODES = ("A", "B", "C")
+
 
 def _is_number(value):
     return (
@@ -58,8 +60,18 @@ def _reject(diagnostics, event, reason):
     })
 
 
-def _record_pair(diagnostics, ob, fvg, status, reason,
-                 overlap=None, touched_index=None):
+def _record_pair(
+    diagnostics,
+    ob,
+    fvg,
+    status,
+    reason,
+    overlap=None,
+    touched_index=None,
+    mitigation_start_index=None,
+    mitigation_end_index=None,
+    mitigation_mode=None,
+):
     record = {
         "status": status,
         "reason": reason,
@@ -72,8 +84,9 @@ def _record_pair(diagnostics, ob, fvg, status, reason,
         "fvg": None,
         "overlap": None,
         "mitigation": {
-            "checked_from_index": ob.get("index") + 1,
-            "checked_to_index": ob.get("linked_event_index") - 1,
+            "mode": mitigation_mode,
+            "checked_from_index": mitigation_start_index,
+            "checked_to_index": mitigation_end_index,
             "touched": touched_index is not None,
             "touched_index": touched_index,
         },
@@ -360,12 +373,15 @@ def _order_block_is_valid_after_fvg(
     fvg,
     event_index,
     diagnostics,
+    mitigation_mode="A",
 ):
     diagnostics["ob_fvg_pairs_checked"] += 1
 
-    # The OB must remain untouched from the candle after its formation
-    # until the candle immediately before the structure event.
-    start_index = order_block["index"] + 1
+    if mitigation_mode == "B":
+        start_index = fvg["index"] + 1
+    else:
+        start_index = order_block["index"] + 1
+
     end_index = event_index - 1
 
     touched_index = _find_zone_touch(
@@ -377,13 +393,22 @@ def _order_block_is_valid_after_fvg(
 
     if touched_index is not None:
         diagnostics["ob_mitigated"] += 1
-        diagnostics["ob_mitigated_after_fvg"] += 1
-        diagnostics["ob_mitigated_before_or_during_fvg"] += 1
-        return False, touched_index
 
-    diagnostics["ob_unmitigated_after_fvg"] += 1
+        if mitigation_mode == "B":
+            diagnostics["ob_mitigated_after_fvg"] += 1
+        else:
+            diagnostics["ob_mitigated_before_or_during_fvg"] += 1
 
-    return True, None
+        return False, touched_index, start_index, end_index
+
+    diagnostics["ob_unmitigated_in_window"] += 1
+
+    if mitigation_mode == "B":
+        diagnostics["ob_unmitigated_after_fvg"] += 1
+    else:
+        diagnostics["ob_unmitigated_from_ob"] += 1
+
+    return True, None, start_index, end_index
 
 
 def _validate_zone_sequence(order_block, fvg):
@@ -566,6 +591,7 @@ def generate_four_hour_setup(
     risk_reward=2.0,
     symbol="BTC-USDT",
     target_event=None,
+    mitigation_mode="A",
 ):
     diagnostics = {
         "input_candles": 0,
@@ -573,14 +599,22 @@ def generate_four_hour_setup(
         "swing_count": 0,
         "structure_events": 0,
         "matching_events": 0,
+
+        "mitigation_mode": mitigation_mode,
+
         "order_block_search_attempts": 0,
         "ob_candidates_examined": 0,
         "ob_wrong_candle_direction": 0,
         "ob_invalid_zone": 0,
         "ob_mitigated": 0,
         "ob_mitigated_before_or_during_fvg": 0,
+        "ob_mitigated_after_fvg": 0,
+        "ob_unmitigated_in_window": 0,
+        "ob_unmitigated_from_ob": 0,
+        "ob_unmitigated_after_fvg": 0,
         "ob_valid_candidates": 0,
         "order_blocks_found": 0,
+
         "fvg_search_windows_empty": 0,
         "fvg_patterns_checked": 0,
         "fvg_no_gap": 0,
@@ -590,17 +624,21 @@ def generate_four_hour_setup(
         "fvg_invalid_zone": 0,
         "fvg_valid_patterns": 0,
         "fvg_found": 0,
+
         "ob_fvg_pairs_checked": 0,
-        "ob_mitigated_after_fvg": 0,
-        "ob_unmitigated_after_fvg": 0,
         "ob_fvg_overlap_confirmed": 0,
         "ob_fvg_overlap_failed": 0,
+
         "valid_stop_swings": 0,
         "evaluated_candidate_count": 0,
+        "expired_candidate_count": 0,
         "rejected_candidate_count": 0,
+
         "rejected_candidates": [],
+        "expired_candidates": [],
         "evaluated_candidates": [],
         "ob_fvg_pair_details": [],
+
         "selected_setup_id": None,
     }
 
@@ -608,6 +646,13 @@ def generate_four_hour_setup(
         return _empty_result(
             allowed_direction,
             "Allowed direction must be LONG or SHORT.",
+            diagnostics,
+        )
+
+    if mitigation_mode not in VALID_MITIGATION_MODES:
+        return _empty_result(
+            allowed_direction,
+            "mitigation_mode must be A, B or C.",
             diagnostics,
         )
 
@@ -819,6 +864,20 @@ def generate_four_hour_setup(
         expiry = int(available) + setup_expiry_candles * duration
 
         if current_close >= expiry:
+            diagnostics["expired_candidate_count"] += 1
+
+            diagnostics["expired_candidates"].append({
+                "event": event["event"],
+                "event_index": event_index,
+                "timestamp": event["timestamp"],
+                "available_timestamp": int(available),
+                "expiry_timestamp": int(expiry),
+                "age_candles": int(
+                    (current_close - available) / duration
+                ),
+                "expiry_limit_candles": setup_expiry_candles,
+            })
+
             _reject(diagnostics, event, "Setup has expired.")
             continue
 
@@ -856,6 +915,7 @@ def generate_four_hour_setup(
         any_overlap = False
         any_unmitigated_pair = False
         any_stop_swing = False
+
         final_rejection = "No valid OB/FVG combination."
 
         for ob in order_blocks:
@@ -885,23 +945,68 @@ def generate_four_hour_setup(
                         fvg,
                         "REJECTED_SEQUENCE",
                         sequence["reason"],
+                        mitigation_mode=mitigation_mode,
                     )
                     continue
 
-                is_valid_ob, touched_index = (
-                    _order_block_is_valid_after_fvg(
-                        candles,
+                (
+                    is_valid_ob,
+                    touched_index,
+                    mitigation_start,
+                    mitigation_end,
+                ) = _order_block_is_valid_after_fvg(
+                    candles,
+                    ob,
+                    fvg,
+                    event_index,
+                    diagnostics,
+                    mitigation_mode,
+                )
+
+                overlap = _calculate_overlap(ob, fvg)
+
+                # MODE C: Diagnostic only.
+                # It records mitigation and overlap results,
+                # but never creates a tradeable setup.
+
+                if mitigation_mode == "C":
+                    if touched_index is not None:
+                        pair_status = (
+                            "DIAGNOSTIC_ONLY_MITIGATED_OVERLAP"
+                            if overlap["confirmed"]
+                            else "DIAGNOSTIC_ONLY_MITIGATED_NO_OVERLAP"
+                        )
+                    else:
+                        pair_status = (
+                            "DIAGNOSTIC_ONLY_UNMITIGATED_OVERLAP"
+                            if overlap["confirmed"]
+                            else "DIAGNOSTIC_ONLY_UNMITIGATED_NO_OVERLAP"
+                        )
+
+                    _record_pair(
+                        diagnostics,
                         ob,
                         fvg,
-                        event_index,
-                        diagnostics,
+                        pair_status,
+                        "Diagnostic only. No tradeable setup is allowed.",
+                        overlap=overlap,
+                        touched_index=touched_index,
+                        mitigation_start_index=mitigation_start,
+                        mitigation_end_index=mitigation_end,
+                        mitigation_mode=mitigation_mode,
                     )
-                )
+
+                    if overlap["confirmed"]:
+                        diagnostics["ob_fvg_overlap_confirmed"] += 1
+                    else:
+                        diagnostics["ob_fvg_overlap_failed"] += 1
+
+                    continue
 
                 if not is_valid_ob:
                     final_rejection = (
-                        "Order Block was touched after its formation "
-                        "and before the structure event."
+                        "Order Block was touched during the mitigation "
+                        "validation window."
                     )
 
                     _record_pair(
@@ -910,13 +1015,15 @@ def generate_four_hour_setup(
                         fvg,
                         "REJECTED_MITIGATED",
                         final_rejection,
+                        overlap=overlap,
                         touched_index=touched_index,
+                        mitigation_start_index=mitigation_start,
+                        mitigation_end_index=mitigation_end,
+                        mitigation_mode=mitigation_mode,
                     )
                     continue
 
                 any_unmitigated_pair = True
-
-                overlap = _calculate_overlap(ob, fvg)
 
                 if not overlap["confirmed"]:
                     diagnostics["ob_fvg_overlap_failed"] += 1
@@ -929,6 +1036,9 @@ def generate_four_hour_setup(
                         "REJECTED_NO_OVERLAP",
                         overlap["reason"],
                         overlap=overlap,
+                        mitigation_start_index=mitigation_start,
+                        mitigation_end_index=mitigation_end,
+                        mitigation_mode=mitigation_mode,
                     )
                     continue
 
@@ -963,6 +1073,9 @@ def generate_four_hour_setup(
                         "REJECTED_NO_STOP_SWING",
                         final_rejection,
                         overlap=overlap,
+                        mitigation_start_index=mitigation_start,
+                        mitigation_end_index=mitigation_end,
+                        mitigation_mode=mitigation_mode,
                     )
                     continue
 
@@ -988,10 +1101,13 @@ def generate_four_hour_setup(
                     _record_pair(
                         diagnostics,
                         ob,
-                        fvg,
+                        fvg",
                         "REJECTED_INVALID_RISK",
                         final_rejection,
                         overlap=overlap,
+                        mitigation_start_index=mitigation_start,
+                        mitigation_end_index=mitigation_end,
+                        mitigation_mode=mitigation_mode,
                     )
                     continue
 
@@ -1044,6 +1160,9 @@ def generate_four_hour_setup(
                     "CONFIRMED",
                     "OB/FVG pair passed all validation rules.",
                     overlap=overlap,
+                    mitigation_start_index=mitigation_start,
+                    mitigation_end_index=mitigation_end,
+                    mitigation_mode=mitigation_mode,
                 )
 
                 diagnostics["selected_setup_id"] = setup_id
@@ -1055,7 +1174,7 @@ def generate_four_hour_setup(
                     "allowed_direction": allowed_direction,
                     "reason": (
                         "A valid 4H event, Order Block, subsequent FVG, "
-                        "untouched OB, overlap and opposite stop swing "
+                        "mitigation rules, overlap and opposite stop swing "
                         "were confirmed."
                     ),
                     "setup": setup,
@@ -1064,12 +1183,22 @@ def generate_four_hour_setup(
 
         if not any_fvg:
             final_rejection = "No valid FVG after any valid Order Block."
+
+        elif mitigation_mode == "C":
+            final_rejection = (
+                "Diagnostic mode C completed. "
+                "No tradeable setup is allowed in this mode."
+            )
+
         elif not any_unmitigated_pair:
             final_rejection = (
-                "All OB/FVG pairs were mitigated after OB formation."
+                "All OB/FVG pairs were mitigated during the selected "
+                "mitigation validation window."
             )
+
         elif not any_overlap:
             final_rejection = "No overlapping OB/FVG pair."
+
         elif not any_stop_swing:
             final_rejection = "No valid opposite stop swing."
 
