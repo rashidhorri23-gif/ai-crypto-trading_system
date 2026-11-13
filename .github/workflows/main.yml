@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -28,6 +28,9 @@ jobs:
 
       - name: Run Python application
         run: python Src/Main.py
+
+      - name: Run 4H Event Rejection Audit
+        run: python -m Src.Audits.four_hour_event_rejection_audit
 
       - name: Run 4H Mitigation Mode Comparison Audit
         run: |
