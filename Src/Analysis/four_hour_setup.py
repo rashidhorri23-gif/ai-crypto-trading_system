@@ -62,35 +62,46 @@ def _zone_is_touched(candles, zone, start_index, end_index):
     for index in range(start_index, end_index + 1):
         candle = candles[index]
 
-        intersects = (
+        if (
             candle["high"] >= zone["low"]
             and candle["low"] <= zone["high"]
-        )
-
-        if intersects:
+        ):
             return True
 
     return False
 
 
-def _find_order_block(
+def _find_order_blocks(
     candles,
     event_index,
     direction,
     lookback,
     broken_swing_index,
+    diagnostics=None,
 ):
+    if diagnostics is None:
+        diagnostics = {}
+
     start = max(
         broken_swing_index + 1,
         event_index - lookback,
         0,
     )
 
+    candidates = []
+
     for index in range(event_index - 1, start - 1, -1):
+        diagnostics["ob_candidates_examined"] = (
+            diagnostics.get("ob_candidates_examined", 0) + 1
+        )
+
         candle = candles[index]
 
         if direction == "LONG":
             if candle["close"] >= candle["open"]:
+                diagnostics["ob_wrong_candle_direction"] = (
+                    diagnostics.get("ob_wrong_candle_direction", 0) + 1
+                )
                 continue
 
             zone = {
@@ -100,6 +111,9 @@ def _find_order_block(
 
         else:
             if candle["close"] <= candle["open"]:
+                diagnostics["ob_wrong_candle_direction"] = (
+                    diagnostics.get("ob_wrong_candle_direction", 0) + 1
+                )
                 continue
 
             zone = {
@@ -108,6 +122,9 @@ def _find_order_block(
             }
 
         if zone["high"] <= zone["low"]:
+            diagnostics["ob_invalid_zone"] = (
+                diagnostics.get("ob_invalid_zone", 0) + 1
+            )
             continue
 
         if _zone_is_touched(
@@ -116,9 +133,12 @@ def _find_order_block(
             index + 1,
             event_index - 1,
         ):
+            diagnostics["ob_mitigated"] = (
+                diagnostics.get("ob_mitigated", 0) + 1
+            )
             continue
 
-        return {
+        candidates.append({
             "index": index,
             "timestamp": candle["timestamp"],
             "low": zone["low"],
@@ -127,12 +147,34 @@ def _find_order_block(
             "source": "ORDER_BLOCK",
             "structural_origin_index": broken_swing_index,
             "linked_event_index": event_index,
-        }
+        })
 
-    return None
+    diagnostics["ob_valid_candidates"] = (
+        diagnostics.get("ob_valid_candidates", 0) + len(candidates)
+    )
+
+    return candidates
 
 
-def _find_fvg(
+def _find_order_block(
+    candles,
+    event_index,
+    direction,
+    lookback,
+    broken_swing_index,
+):
+    candidates = _find_order_blocks(
+        candles,
+        event_index,
+        direction,
+        lookback,
+        broken_swing_index,
+    )
+
+    return candidates[0] if candidates else None
+
+
+def _find_fvgs(
     candles,
     event_index,
     direction,
@@ -141,7 +183,7 @@ def _find_fvg(
     diagnostics=None,
 ):
     if order_block is None:
-        return None
+        return []
 
     if diagnostics is None:
         diagnostics = {}
@@ -156,7 +198,9 @@ def _find_fvg(
         diagnostics["fvg_search_windows_empty"] = (
             diagnostics.get("fvg_search_windows_empty", 0) + 1
         )
-        return None
+        return []
+
+    candidates = []
 
     for index in range(event_index, start - 1, -1):
         diagnostics["fvg_patterns_checked"] = (
@@ -180,11 +224,7 @@ def _find_fvg(
                 diagnostics.get("fvg_gap_condition_passed", 0) + 1
             )
 
-            middle_direction_valid = (
-                middle["close"] > middle["open"]
-            )
-
-            if not middle_direction_valid:
+            if middle["close"] <= middle["open"]:
                 diagnostics["fvg_wrong_middle_direction"] = (
                     diagnostics.get("fvg_wrong_middle_direction", 0) + 1
                 )
@@ -211,11 +251,7 @@ def _find_fvg(
                 diagnostics.get("fvg_gap_condition_passed", 0) + 1
             )
 
-            middle_direction_valid = (
-                middle["close"] < middle["open"]
-            )
-
-            if not middle_direction_valid:
+            if middle["close"] >= middle["open"]:
                 diagnostics["fvg_wrong_middle_direction"] = (
                     diagnostics.get("fvg_wrong_middle_direction", 0) + 1
                 )
@@ -239,7 +275,7 @@ def _find_fvg(
             diagnostics.get("fvg_valid_patterns", 0) + 1
         )
 
-        return {
+        candidates.append({
             "index": index,
             "timestamp": third["timestamp"],
             "low": float(zone_low),
@@ -250,9 +286,29 @@ def _find_fvg(
                 "structural_origin_index"
             ],
             "linked_event_index": event_index,
-        }
+        })
 
-    return None
+    return candidates
+
+
+def _find_fvg(
+    candles,
+    event_index,
+    direction,
+    lookback,
+    order_block,
+    diagnostics=None,
+):
+    candidates = _find_fvgs(
+        candles,
+        event_index,
+        direction,
+        lookback,
+        order_block,
+        diagnostics,
+    )
+
+    return candidates[0] if candidates else None
 
 
 def _validate_zone_sequence(order_block, fvg):
@@ -443,6 +499,11 @@ def generate_four_hour_setup(
         "structure_events": 0,
         "matching_events": 0,
         "order_block_search_attempts": 0,
+        "ob_candidates_examined": 0,
+        "ob_wrong_candle_direction": 0,
+        "ob_invalid_zone": 0,
+        "ob_mitigated": 0,
+        "ob_valid_candidates": 0,
         "order_blocks_found": 0,
         "fvg_search_windows_empty": 0,
         "fvg_patterns_checked": 0,
@@ -641,11 +702,7 @@ def generate_four_hour_setup(
             not _is_integer(event_index)
             or not _is_integer(broken_index)
         ):
-            _reject(
-                diagnostics,
-                event,
-                "Invalid event indices.",
-            )
+            _reject(diagnostics, event, "Invalid event indices.")
             continue
 
         event_index = int(event_index)
@@ -655,11 +712,7 @@ def generate_four_hour_setup(
             event_index <= broken_index
             or event_index >= len(candles)
         ):
-            _reject(
-                diagnostics,
-                event,
-                "Invalid structural origin.",
-            )
+            _reject(diagnostics, event, "Invalid structural origin.")
             continue
 
         expected_type = (
@@ -667,19 +720,11 @@ def generate_four_hour_setup(
         )
 
         if event.get("broken_swing_type") != expected_type:
-            _reject(
-                diagnostics,
-                event,
-                "Broken swing type mismatch.",
-            )
+            _reject(diagnostics, event, "Broken swing type mismatch.")
             continue
 
         if event.get("timestamp") != candles[event_index]["timestamp"]:
-            _reject(
-                diagnostics,
-                event,
-                "Event timestamp mismatch.",
-            )
+            _reject(diagnostics, event, "Event timestamp mismatch.")
             continue
 
         available = event.get("available_timestamp")
@@ -688,21 +733,13 @@ def generate_four_hour_setup(
             not _is_integer(available)
             or available != event["timestamp"] + duration
         ):
-            _reject(
-                diagnostics,
-                event,
-                "Invalid event availability time.",
-            )
+            _reject(diagnostics, event, "Invalid event availability time.")
             continue
 
         expiry = int(available) + setup_expiry_candles * duration
 
         if current_close >= expiry:
-            _reject(
-                diagnostics,
-                event,
-                "Setup has expired.",
-            )
+            _reject(diagnostics, event, "Setup has expired.")
             continue
 
         diagnostics["evaluated_candidate_count"] += 1
@@ -716,15 +753,18 @@ def generate_four_hour_setup(
 
         diagnostics["order_block_search_attempts"] += 1
 
-        ob = _find_order_block(
+        order_blocks = _find_order_blocks(
             candles,
             event_index,
             allowed_direction,
             ob_lookback,
             broken_index,
+            diagnostics,
         )
 
-        if ob is None:
+        diagnostics["order_blocks_found"] += len(order_blocks)
+
+        if not order_blocks:
             _reject(
                 diagnostics,
                 event,
@@ -732,157 +772,151 @@ def generate_four_hour_setup(
             )
             continue
 
-        diagnostics["order_blocks_found"] += 1
+        any_fvg = False
+        any_overlap = False
+        any_stop_swing = False
+        final_rejection = "No valid OB/FVG combination."
 
-        fvg = _find_fvg(
-            candles,
-            event_index,
-            allowed_direction,
-            fvg_lookback,
-            ob,
-            diagnostics,
-        )
-
-        if fvg is None:
-            _reject(
+        for ob in order_blocks:
+            fvgs = _find_fvgs(
+                candles,
+                event_index,
+                allowed_direction,
+                fvg_lookback,
+                ob,
                 diagnostics,
-                event,
-                "No valid FVG after the Order Block.",
-            )
-            continue
-
-        diagnostics["fvg_found"] += 1
-
-        sequence = _validate_zone_sequence(ob, fvg)
-
-        if not sequence["valid"]:
-            _reject(
-                diagnostics,
-                event,
-                sequence["reason"],
-            )
-            continue
-
-        overlap = _calculate_overlap(ob, fvg)
-
-        if not overlap["confirmed"]:
-            diagnostics["ob_fvg_overlap_failed"] += 1
-
-            _reject(
-                diagnostics,
-                event,
-                overlap["reason"],
-            )
-            continue
-
-        diagnostics["ob_fvg_overlap_confirmed"] += 1
-
-        entry_zone = {
-            "source": "OB_FVG_OVERLAP",
-            "low": overlap["low"],
-            "high": overlap["high"],
-        }
-
-        entry_reference = (
-            entry_zone["low"] + entry_zone["high"]
-        ) / 2.0
-
-        stop_swing = _find_stop_swing(
-            swings,
-            candles,
-            event_index,
-            allowed_direction,
-            entry_zone,
-        )
-
-        if stop_swing is None:
-            _reject(
-                diagnostics,
-                event,
-                "No valid opposite stop swing.",
-            )
-            continue
-
-        diagnostics["valid_stop_swings"] += 1
-
-        stop_loss = float(stop_swing["price"])
-
-        if allowed_direction == "LONG":
-            risk_distance = entry_reference - stop_loss
-            take_profit = (
-                entry_reference + risk_distance * risk_reward
-            )
-        else:
-            risk_distance = stop_loss - entry_reference
-            take_profit = (
-                entry_reference - risk_distance * risk_reward
             )
 
-        if risk_distance <= 0 or take_profit <= 0:
-            _reject(
-                diagnostics,
-                event,
-                "Invalid risk or target.",
-            )
-            continue
+            diagnostics["fvg_found"] += len(fvgs)
 
-        setup_id = _build_setup_id(
-            symbol,
-            allowed_direction,
-            event,
-            ob,
-            fvg,
-        )
+            if fvgs:
+                any_fvg = True
 
-        setup = {
-            "setup_id": setup_id,
-            "symbol": symbol,
-            "timeframe": "4H",
-            "direction": allowed_direction,
-            "status": "CONFIRMED_CONFLUENCE",
-            "structure_event": event["event"],
-            "structure_event_timestamp": int(event["timestamp"]),
-            "available_timestamp": int(available),
-            "expiry_timestamp": expiry,
-            "entry_zone": entry_zone,
-            "entry_reference": float(entry_reference),
-            "order_block": ob,
-            "fvg": fvg,
-            "zone_overlap": overlap,
-            "zone_sequence": sequence,
-            "stop_swing": {
-                "type": stop_swing["type"],
-                "index": int(stop_swing["index"]),
-                "timestamp": stop_swing["timestamp"],
-                "confirmation_index": int(
-                    stop_swing["confirmation_index"]
-                ),
-                "confirmation_timestamp": stop_swing.get(
-                    "confirmation_timestamp"
-                ),
-                "price": stop_loss,
-            },
-            "stop_loss": stop_loss,
-            "take_profit": float(take_profit),
-            "risk_distance": float(risk_distance),
-            "risk_reward": float(risk_reward),
-        }
+            for fvg in fvgs:
+                sequence = _validate_zone_sequence(ob, fvg)
 
-        diagnostics["selected_setup_id"] = setup_id
-        diagnostics["selected_event"] = event["event"]
-        diagnostics["selected_event_index"] = event_index
+                if not sequence["valid"]:
+                    final_rejection = sequence["reason"]
+                    continue
 
-        return {
-            "status": "CONFIRMED_CONFLUENCE",
-            "allowed_direction": allowed_direction,
-            "reason": (
-                "A valid 4H event, unmitigated Order Block, "
-                "subsequent FVG, overlap and opposite stop swing "
-                "were confirmed."
-            ),
-            "setup": setup,
-            "diagnostics": diagnostics,
-        }
+                overlap = _calculate_overlap(ob, fvg)
+
+                if not overlap["confirmed"]:
+                    diagnostics["ob_fvg_overlap_failed"] += 1
+                    final_rejection = overlap["reason"]
+                    continue
+
+                diagnostics["ob_fvg_overlap_confirmed"] += 1
+                any_overlap = True
+
+                entry_zone = {
+                    "source": "OB_FVG_OVERLAP",
+                    "low": overlap["low"],
+                    "high": overlap["high"],
+                }
+
+                entry_reference = (
+                    entry_zone["low"] + entry_zone["high"]
+                ) / 2.0
+
+                stop_swing = _find_stop_swing(
+                    swings,
+                    candles,
+                    event_index,
+                    allowed_direction,
+                    entry_zone,
+                )
+
+                if stop_swing is None:
+                    final_rejection = "No valid opposite stop swing."
+                    continue
+
+                any_stop_swing = True
+                diagnostics["valid_stop_swings"] += 1
+
+                stop_loss = float(stop_swing["price"])
+
+                if allowed_direction == "LONG":
+                    risk_distance = entry_reference - stop_loss
+                    take_profit = (
+                        entry_reference + risk_distance * risk_reward
+                    )
+                else:
+                    risk_distance = stop_loss - entry_reference
+                    take_profit = (
+                        entry_reference - risk_distance * risk_reward
+                    )
+
+                if risk_distance <= 0 or take_profit <= 0:
+                    final_rejection = "Invalid risk or target."
+                    continue
+
+                setup_id = _build_setup_id(
+                    symbol,
+                    allowed_direction,
+                    event,
+                    ob,
+                    fvg,
+                )
+
+                setup = {
+                    "setup_id": setup_id,
+                    "symbol": symbol,
+                    "timeframe": "4H",
+                    "direction": allowed_direction,
+                    "status": "CONFIRMED_CONFLUENCE",
+                    "structure_event": event["event"],
+                    "structure_event_timestamp": int(event["timestamp"]),
+                    "available_timestamp": int(available),
+                    "expiry_timestamp": expiry,
+                    "entry_zone": entry_zone,
+                    "entry_reference": float(entry_reference),
+                    "order_block": ob,
+                    "fvg": fvg,
+                    "zone_overlap": overlap,
+                    "zone_sequence": sequence,
+                    "stop_swing": {
+                        "type": stop_swing["type"],
+                        "index": int(stop_swing["index"]),
+                        "timestamp": stop_swing["timestamp"],
+                        "confirmation_index": int(
+                            stop_swing["confirmation_index"]
+                        ),
+                        "confirmation_timestamp": stop_swing.get(
+                            "confirmation_timestamp"
+                        ),
+                        "price": stop_loss,
+                    },
+                    "stop_loss": stop_loss,
+                    "take_profit": float(take_profit),
+                    "risk_distance": float(risk_distance),
+                    "risk_reward": float(risk_reward),
+                }
+
+                diagnostics["selected_setup_id"] = setup_id
+                diagnostics["selected_event"] = event["event"]
+                diagnostics["selected_event_index"] = event_index
+
+                return {
+                    "status": "CONFIRMED_CONFLUENCE",
+                    "allowed_direction": allowed_direction,
+                    "reason": (
+                        "A valid 4H event, unmitigated Order Block, "
+                        "subsequent FVG, overlap and opposite stop swing "
+                        "were confirmed."
+                    ),
+                    "setup": setup,
+                    "diagnostics": diagnostics,
+                }
+
+        if not any_fvg:
+            final_rejection = "No valid FVG after any valid Order Block."
+        elif not any_overlap:
+            final_rejection = "No overlapping OB/FVG pair."
+        elif not any_stop_swing:
+            final_rejection = "No valid opposite stop swing."
+
+        _reject(diagnostics, event, final_rejection)
 
     return _empty_result(
         allowed_direction,
