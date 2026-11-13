@@ -58,9 +58,49 @@ def _reject(diagnostics, event, reason):
     })
 
 
-def _zone_is_touched(candles, zone, start_index, end_index):
+def _record_pair(diagnostics, ob, fvg, status, reason,
+                 overlap=None, touched_index=None):
+    record = {
+        "status": status,
+        "reason": reason,
+        "order_block": {
+            "index": ob.get("index"),
+            "timestamp": ob.get("timestamp"),
+            "low": ob.get("low"),
+            "high": ob.get("high"),
+        },
+        "fvg": None,
+        "overlap": None,
+        "mitigation": {
+            "checked_from_index": ob.get("index") + 1,
+            "checked_to_index": ob.get("linked_event_index") - 1,
+            "touched": touched_index is not None,
+            "touched_index": touched_index,
+        },
+    }
+
+    if fvg is not None:
+        record["fvg"] = {
+            "index": fvg.get("index"),
+            "timestamp": fvg.get("timestamp"),
+            "low": fvg.get("low"),
+            "high": fvg.get("high"),
+        }
+
+    if overlap is not None:
+        record["overlap"] = {
+            "confirmed": overlap.get("confirmed"),
+            "low": overlap.get("low"),
+            "high": overlap.get("high"),
+            "reason": overlap.get("reason"),
+        }
+
+    diagnostics["ob_fvg_pair_details"].append(record)
+
+
+def _find_zone_touch(candles, zone, start_index, end_index):
     if start_index > end_index:
-        return False
+        return None
 
     for index in range(start_index, end_index + 1):
         candle = candles[index]
@@ -69,9 +109,20 @@ def _zone_is_touched(candles, zone, start_index, end_index):
             candle["high"] >= zone["low"]
             and candle["low"] <= zone["high"]
         ):
-            return True
+            return index
 
-    return False
+    return None
+
+
+def _zone_is_touched(candles, zone, start_index, end_index):
+    return (
+        _find_zone_touch(
+            candles,
+            zone,
+            start_index,
+            end_index,
+        ) is not None
+    )
 
 
 def _find_order_blocks(
@@ -310,31 +361,29 @@ def _order_block_is_valid_after_fvg(
     event_index,
     diagnostics,
 ):
-    diagnostics["ob_fvg_pairs_checked"] = (
-        diagnostics.get("ob_fvg_pairs_checked", 0) + 1
-    )
+    diagnostics["ob_fvg_pairs_checked"] += 1
 
-    start_index = fvg["index"] + 1
+    # The OB must remain untouched from the candle after its formation
+    # until the candle immediately before the structure event.
+    start_index = order_block["index"] + 1
     end_index = event_index - 1
 
-    touched = _zone_is_touched(
+    touched_index = _find_zone_touch(
         candles,
         order_block,
         start_index,
         end_index,
     )
 
-    if touched:
-        diagnostics["ob_mitigated_after_fvg"] = (
-            diagnostics.get("ob_mitigated_after_fvg", 0) + 1
-        )
-        return False
+    if touched_index is not None:
+        diagnostics["ob_mitigated"] += 1
+        diagnostics["ob_mitigated_after_fvg"] += 1
+        diagnostics["ob_mitigated_before_or_during_fvg"] += 1
+        return False, touched_index
 
-    diagnostics["ob_unmitigated_after_fvg"] = (
-        diagnostics.get("ob_unmitigated_after_fvg", 0) + 1
-    )
+    diagnostics["ob_unmitigated_after_fvg"] += 1
 
-    return True
+    return True, None
 
 
 def _validate_zone_sequence(order_block, fvg):
@@ -529,6 +578,7 @@ def generate_four_hour_setup(
         "ob_wrong_candle_direction": 0,
         "ob_invalid_zone": 0,
         "ob_mitigated": 0,
+        "ob_mitigated_before_or_during_fvg": 0,
         "ob_valid_candidates": 0,
         "order_blocks_found": 0,
         "fvg_search_windows_empty": 0,
@@ -550,6 +600,7 @@ def generate_four_hour_setup(
         "rejected_candidate_count": 0,
         "rejected_candidates": [],
         "evaluated_candidates": [],
+        "ob_fvg_pair_details": [],
         "selected_setup_id": None,
     }
 
@@ -827,17 +878,39 @@ def generate_four_hour_setup(
 
                 if not sequence["valid"]:
                     final_rejection = sequence["reason"]
+
+                    _record_pair(
+                        diagnostics,
+                        ob,
+                        fvg,
+                        "REJECTED_SEQUENCE",
+                        sequence["reason"],
+                    )
                     continue
 
-                if not _order_block_is_valid_after_fvg(
-                    candles,
-                    ob,
-                    fvg,
-                    event_index,
-                    diagnostics,
-                ):
+                is_valid_ob, touched_index = (
+                    _order_block_is_valid_after_fvg(
+                        candles,
+                        ob,
+                        fvg,
+                        event_index,
+                        diagnostics,
+                    )
+                )
+
+                if not is_valid_ob:
                     final_rejection = (
-                        "Order Block was mitigated after FVG formation."
+                        "Order Block was touched after its formation "
+                        "and before the structure event."
+                    )
+
+                    _record_pair(
+                        diagnostics,
+                        ob,
+                        fvg,
+                        "REJECTED_MITIGATED",
+                        final_rejection,
+                        touched_index=touched_index,
                     )
                     continue
 
@@ -848,6 +921,15 @@ def generate_four_hour_setup(
                 if not overlap["confirmed"]:
                     diagnostics["ob_fvg_overlap_failed"] += 1
                     final_rejection = overlap["reason"]
+
+                    _record_pair(
+                        diagnostics,
+                        ob,
+                        fvg,
+                        "REJECTED_NO_OVERLAP",
+                        overlap["reason"],
+                        overlap=overlap,
+                    )
                     continue
 
                 diagnostics["ob_fvg_overlap_confirmed"] += 1
@@ -873,6 +955,15 @@ def generate_four_hour_setup(
 
                 if stop_swing is None:
                     final_rejection = "No valid opposite stop swing."
+
+                    _record_pair(
+                        diagnostics,
+                        ob,
+                        fvg,
+                        "REJECTED_NO_STOP_SWING",
+                        final_rejection,
+                        overlap=overlap,
+                    )
                     continue
 
                 any_stop_swing = True
@@ -893,6 +984,15 @@ def generate_four_hour_setup(
 
                 if risk_distance <= 0 or take_profit <= 0:
                     final_rejection = "Invalid risk or target."
+
+                    _record_pair(
+                        diagnostics,
+                        ob,
+                        fvg,
+                        "REJECTED_INVALID_RISK",
+                        final_rejection,
+                        overlap=overlap,
+                    )
                     continue
 
                 setup_id = _build_setup_id(
@@ -937,6 +1037,15 @@ def generate_four_hour_setup(
                     "risk_reward": float(risk_reward),
                 }
 
+                _record_pair(
+                    diagnostics,
+                    ob,
+                    fvg,
+                    "CONFIRMED",
+                    "OB/FVG pair passed all validation rules.",
+                    overlap=overlap,
+                )
+
                 diagnostics["selected_setup_id"] = setup_id
                 diagnostics["selected_event"] = event["event"]
                 diagnostics["selected_event_index"] = event_index
@@ -946,8 +1055,8 @@ def generate_four_hour_setup(
                     "allowed_direction": allowed_direction,
                     "reason": (
                         "A valid 4H event, Order Block, subsequent FVG, "
-                        "post-FVG unmitigated OB, overlap and opposite "
-                        "stop swing were confirmed."
+                        "untouched OB, overlap and opposite stop swing "
+                        "were confirmed."
                     ),
                     "setup": setup,
                     "diagnostics": diagnostics,
@@ -957,7 +1066,7 @@ def generate_four_hour_setup(
             final_rejection = "No valid FVG after any valid Order Block."
         elif not any_unmitigated_pair:
             final_rejection = (
-                "All OB/FVG pairs were mitigated after FVG formation."
+                "All OB/FVG pairs were mitigated after OB formation."
             )
         elif not any_overlap:
             final_rejection = "No overlapping OB/FVG pair."
