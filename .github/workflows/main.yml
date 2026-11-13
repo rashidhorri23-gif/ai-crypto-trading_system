@@ -35,7 +35,7 @@ jobs:
           from Src.Main import load_structure_candles
           from Src.Main import run_four_hour_mode_comparison_audit
 
-          candles = load_structure_candles("4H")
+          candles = load_structure_candles("4H", 540)
 
           if not candles:
               raise RuntimeError("No 4H candles available for mode comparison.")
