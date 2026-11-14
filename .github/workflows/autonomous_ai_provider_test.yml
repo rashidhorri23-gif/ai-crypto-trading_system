@@ -1,5 +1,5 @@
 
-name: Autonomous AI Provider Test
+name: Autonomous OpenRouter Engine Test
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  test-ai-providers:
+  test-openrouter:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,9 +20,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Test Gemini and OpenRouter
+      - name: Test OpenRouter engine
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PYTHONPATH: .
         run: |
