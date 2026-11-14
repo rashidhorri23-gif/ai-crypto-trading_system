@@ -120,6 +120,7 @@ def _request_with_retry(url, headers, payload):
 
         except urllib.error.HTTPError as exc:
             error_details = _read_error_body(exc)
+
             last_error = (
                 f"HTTP {exc.code}: {error_details}"
             )
@@ -195,7 +196,7 @@ def _request_with_retry(url, headers, payload):
     }
 
 
-def ask_openrouter(prompt):
+def ask_openrouter(prompt, model_override=None):
     started_at = time.time()
 
     config_status = Config.validate()
@@ -208,6 +209,15 @@ def ask_openrouter(prompt):
             error="Configuration error: "
             + "; ".join(config_status["errors"]),
         )
+
+    if model_override is not None:
+        if not isinstance(model_override, str) or not model_override.strip():
+            return _make_result(
+                "openrouter",
+                "",
+                started_at,
+                error="Invalid model_override value.",
+            )
 
     url = (
         Config.OPENROUTER_BASE_URL
@@ -229,7 +239,13 @@ def ask_openrouter(prompt):
     error_history = []
     total_attempts = 0
 
-    for model in Config.MODEL_PRIORITY:
+    models_to_try = (
+        [model_override.strip()]
+        if model_override
+        else Config.MODEL_PRIORITY
+    )
+
+    for model in models_to_try:
         print(f"Trying OpenRouter model: {model}")
 
         payload = {
@@ -278,7 +294,7 @@ def ask_openrouter(prompt):
 
     return _make_result(
         "openrouter",
-        "all_models_failed",
+        model_override or "all_models_failed",
         started_at,
         error=" | ".join(error_history),
         attempts=total_attempts,
