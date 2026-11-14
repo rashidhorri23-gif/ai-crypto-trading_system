@@ -16,6 +16,7 @@ def _make_result(
     usage=None,
     error=None,
     attempts=0,
+    diagnostics=None,
 ):
     return {
         "provider": provider,
@@ -26,6 +27,7 @@ def _make_result(
         "status": "success" if not error else "error",
         "error": error,
         "attempts": attempts,
+        "diagnostics": diagnostics or {},
     }
 
 
@@ -41,7 +43,11 @@ def _read_error_body(exc):
 
         try:
             data = json.loads(body)
-            return json.dumps(data, ensure_ascii=False)[:1500]
+            return json.dumps(
+                data,
+                ensure_ascii=False,
+            )[:1500]
+
         except json.JSONDecodeError:
             return body[:1500]
 
@@ -65,38 +71,93 @@ def _send_request(url, headers, payload):
         return json.loads(body)
 
 
-def _extract_text(data):
+def _extract_response(data):
     choices = data.get("choices", [])
 
-    if not choices:
-        raise ValueError("Model returned no choices.")
+    diagnostics = {
+        "choice_count": len(choices),
+        "finish_reason": None,
+        "message_keys": [],
+        "content_type": None,
+        "content_length": 0,
+        "content_preview": "",
+        "reasoning_present": False,
+        "reasoning_length": 0,
+        "refusal": None,
+        "tool_calls_count": 0,
+    }
 
-    message = choices[0].get("message", {})
+    if not choices:
+        raise ValueError(
+            "Model returned no choices. "
+            + json.dumps(diagnostics)
+        )
+
+    choice = choices[0]
+    message = choice.get("message", {})
+
+    diagnostics["finish_reason"] = choice.get(
+        "finish_reason"
+    )
+
+    diagnostics["message_keys"] = list(
+        message.keys()
+    )
+
+    diagnostics["refusal"] = message.get("refusal")
+
+    reasoning = message.get("reasoning")
+
+    if isinstance(reasoning, str):
+        diagnostics["reasoning_present"] = bool(
+            reasoning.strip()
+        )
+        diagnostics["reasoning_length"] = len(reasoning)
+
+    tool_calls = message.get("tool_calls", [])
+
+    if isinstance(tool_calls, list):
+        diagnostics["tool_calls_count"] = len(
+            tool_calls
+        )
+
     content = message.get("content")
 
+    diagnostics["content_type"] = type(
+        content
+    ).__name__
+
+    parts = []
+
     if isinstance(content, str):
-        result = content.strip()
+        if content.strip():
+            parts.append(content.strip())
 
-        if result:
-            return result
-
-    if isinstance(content, list):
-        parts = []
-
+    elif isinstance(content, list):
         for item in content:
             if isinstance(item, dict):
                 if item.get("type") == "text":
                     value = item.get("text", "")
 
-                    if value:
-                        parts.append(value)
+                    if isinstance(value, str) and value.strip():
+                        parts.append(value.strip())
 
-        result = "\n".join(parts).strip()
+    result_text = "\n".join(parts).strip()
 
-        if result:
-            return result
+    diagnostics["content_length"] = len(result_text)
+    diagnostics["content_preview"] = result_text[:500]
 
-    raise ValueError("Model returned no readable text content.")
+    if not result_text:
+        raise ValueError(
+            "Model returned no readable text content. "
+            "Diagnostics: "
+            + json.dumps(
+                diagnostics,
+                ensure_ascii=False,
+            )
+        )
+
+    return result_text, diagnostics
 
 
 def _request_with_retry(url, headers, payload):
@@ -211,7 +272,10 @@ def ask_openrouter(prompt, model_override=None):
         )
 
     if model_override is not None:
-        if not isinstance(model_override, str) or not model_override.strip():
+        if (
+            not isinstance(model_override, str)
+            or not model_override.strip()
+        ):
             return _make_result(
                 "openrouter",
                 "",
@@ -236,14 +300,14 @@ def ask_openrouter(prompt, model_override=None):
         "X-Title": "Autonomous Crypto Technical Analyst",
     }
 
-    error_history = []
-    total_attempts = 0
-
     models_to_try = (
         [model_override.strip()]
         if model_override
         else Config.MODEL_PRIORITY
     )
+
+    error_history = []
+    total_attempts = 0
 
     for model in models_to_try:
         print(f"Trying OpenRouter model: {model}")
@@ -273,23 +337,52 @@ def ask_openrouter(prompt, model_override=None):
             )
             continue
 
+        data = result["data"]
+
+        usage = data.get("usage", {})
+
         try:
-            data = result["data"]
-            response_text = _extract_text(data)
+            response_text, diagnostics = _extract_response(
+                data
+            )
 
             return _make_result(
                 "openrouter",
                 model,
                 started_at,
                 text=response_text,
-                usage=data.get("usage", {}),
+                usage=usage,
                 attempts=total_attempts,
+                diagnostics=diagnostics,
             )
 
         except Exception as exc:
+            choices = data.get("choices", [])
+            finish_reason = None
+
+            if choices:
+                finish_reason = choices[0].get(
+                    "finish_reason"
+                )
+
             error_history.append(
                 f"{model}: Response validation failed: "
                 f"{type(exc).__name__}: {exc}"
+            )
+
+            return _make_result(
+                "openrouter",
+                model,
+                started_at,
+                usage=usage,
+                error=" | ".join(error_history),
+                attempts=total_attempts,
+                diagnostics={
+                    "finish_reason": finish_reason,
+                    "choice_count": len(choices),
+                    "usage": usage,
+                    "response_error": str(exc)[:1500],
+                },
             )
 
     return _make_result(
