@@ -8,7 +8,14 @@ import urllib.request
 from .config import Config
 
 
-def _make_result(provider, model, started_at, text="", usage=None, error=None):
+def _make_result(
+    provider,
+    model,
+    started_at,
+    text="",
+    usage=None,
+    error=None,
+):
     return {
         "provider": provider,
         "model": model,
@@ -30,9 +37,26 @@ def _send_request(url, headers, payload):
 
     with urllib.request.urlopen(
         request,
-        timeout=Config.REQUEST_TIMEOUT
+        timeout=Config.REQUEST_TIMEOUT,
     ) as response:
-        return json.loads(response.read().decode("utf-8"))
+        response_body = response.read().decode("utf-8")
+        return json.loads(response_body)
+
+
+def _extract_http_error(exc):
+    try:
+        error_body = exc.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        if error_body:
+            return error_body[:1500]
+
+        return "No error details returned by server."
+
+    except Exception:
+        return "Could not read server error response."
 
 
 def _extract_openrouter_text(data):
@@ -45,18 +69,30 @@ def _extract_openrouter_text(data):
     content = message.get("content")
 
     if isinstance(content, str):
-        return content.strip()
+        result = content.strip()
 
-    if isinstance(content, list):
+        if result:
+            return result
+
+    elif isinstance(content, list):
         parts = []
 
         for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    text = item.get("text", "")
 
-        return "\n".join(parts).strip()
+                    if text:
+                        parts.append(text)
 
-    raise ValueError("OpenRouter returned no readable text content.")
+        result = "\n".join(parts).strip()
+
+        if result:
+            return result
+
+    raise ValueError(
+        "OpenRouter returned no readable text content."
+    )
 
 
 def _extract_gemini_text(data):
@@ -77,7 +113,9 @@ def _extract_gemini_text(data):
     result = "\n".join(texts).strip()
 
     if not result:
-        raise ValueError("Gemini returned no readable text content.")
+        raise ValueError(
+            "Gemini returned no readable text content."
+        )
 
     return result
 
@@ -88,8 +126,10 @@ def ask_openrouter(prompt):
 
     if not Config.OPENROUTER_API_KEY:
         return _make_result(
-            "openrouter", model, started_at,
-            error="OPENROUTER_API_KEY is not configured."
+            "openrouter",
+            model,
+            started_at,
+            error="OPENROUTER_API_KEY is not configured.",
         )
 
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -97,6 +137,8 @@ def ask_openrouter(prompt):
     headers = {
         "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/rashidhorri23-gif/ai-crypto-trading_system",
+        "X-Title": "Autonomous Crypto Technical Analyst",
     }
 
     payload = {
@@ -109,12 +151,17 @@ def ask_openrouter(prompt):
         ],
         "max_tokens": 1200,
         "reasoning": {
-            "effort": "none"
+            "effort": "none",
         },
     }
 
     try:
-        data = _send_request(url, headers, payload)
+        data = _send_request(
+            url,
+            headers,
+            payload,
+        )
+
         response_text = _extract_openrouter_text(data)
 
         return _make_result(
@@ -126,15 +173,40 @@ def ask_openrouter(prompt):
         )
 
     except urllib.error.HTTPError as exc:
+        error_details = _extract_http_error(exc)
+
         return _make_result(
-            "openrouter", model, started_at,
-            error=f"HTTP error: {exc.code}"
+            "openrouter",
+            model,
+            started_at,
+            error=(
+                f"HTTP error: {exc.code} | "
+                f"Details: {error_details}"
+            ),
+        )
+
+    except urllib.error.URLError as exc:
+        return _make_result(
+            "openrouter",
+            model,
+            started_at,
+            error=f"Connection error: {exc.reason}",
+        )
+
+    except TimeoutError:
+        return _make_result(
+            "openrouter",
+            model,
+            started_at,
+            error="Request timed out.",
         )
 
     except Exception as exc:
         return _make_result(
-            "openrouter", model, started_at,
-            error=f"{type(exc).__name__}: {exc}"
+            "openrouter",
+            model,
+            started_at,
+            error=f"{type(exc).__name__}: {exc}",
         )
 
 
@@ -144,16 +216,26 @@ def ask_gemini(prompt):
 
     if not Config.GEMINI_API_KEY:
         return _make_result(
-            "gemini", model, started_at,
-            error="GEMINI_API_KEY is not configured."
+            "gemini",
+            model,
+            started_at,
+            error="GEMINI_API_KEY is not configured.",
         )
 
-    encoded_model = urllib.parse.quote(model, safe="")
-    encoded_key = urllib.parse.quote(Config.GEMINI_API_KEY, safe="")
+    encoded_model = urllib.parse.quote(
+        model,
+        safe="",
+    )
+
+    encoded_key = urllib.parse.quote(
+        Config.GEMINI_API_KEY,
+        safe="",
+    )
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{encoded_model}:generateContent?key={encoded_key}"
+        f"models/{encoded_model}:generateContent"
+        f"?key={encoded_key}"
     )
 
     headers = {
@@ -165,7 +247,7 @@ def ask_gemini(prompt):
             {
                 "parts": [
                     {
-                        "text": prompt
+                        "text": prompt,
                     }
                 ]
             }
@@ -177,7 +259,12 @@ def ask_gemini(prompt):
     }
 
     try:
-        data = _send_request(url, headers, payload)
+        data = _send_request(
+            url,
+            headers,
+            payload,
+        )
+
         response_text = _extract_gemini_text(data)
 
         return _make_result(
@@ -189,14 +276,38 @@ def ask_gemini(prompt):
         )
 
     except urllib.error.HTTPError as exc:
+        error_details = _extract_http_error(exc)
+
         return _make_result(
-            "gemini", model, started_at,
-            error=f"HTTP error: {exc.code}"
+            "gemini",
+            model,
+            started_at,
+            error=(
+                f"HTTP error: {exc.code} | "
+                f"Details: {error_details}"
+            ),
+        )
+
+    except urllib.error.URLError as exc:
+        return _make_result(
+            "gemini",
+            model,
+            started_at,
+            error=f"Connection error: {exc.reason}",
+        )
+
+    except TimeoutError:
+        return _make_result(
+            "gemini",
+            model,
+            started_at,
+            error="Request timed out.",
         )
 
     except Exception as exc:
         return _make_result(
-            "gemini", model, started_at,
-            error=f"{type(exc).__name__}: {exc}"
+            "gemini",
+            model,
+            started_at,
+            error=f"{type(exc).__name__}: {exc}",
         )
-
