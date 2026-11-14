@@ -1,8 +1,8 @@
 
 import json
+import socket
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from .config import Config
@@ -15,6 +15,7 @@ def _make_result(
     text="",
     usage=None,
     error=None,
+    attempts=0,
 ):
     return {
         "provider": provider,
@@ -24,7 +25,28 @@ def _make_result(
         "usage": usage or {},
         "status": "success" if not error else "error",
         "error": error,
+        "attempts": attempts,
     }
+
+
+def _read_error_body(exc):
+    try:
+        body = exc.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        if not body:
+            return "No error details returned."
+
+        try:
+            data = json.loads(body)
+            return json.dumps(data, ensure_ascii=False)[:1500]
+        except json.JSONDecodeError:
+            return body[:1500]
+
+    except Exception:
+        return "Unable to read error response."
 
 
 def _send_request(url, headers, payload):
@@ -35,265 +57,229 @@ def _send_request(url, headers, payload):
         method="POST",
     )
 
-    max_attempts = Config.MAX_RETRIES + 1
-
-    for attempt in range(max_attempts):
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=Config.REQUEST_TIMEOUT,
-            ) as response:
-                response_body = response.read().decode("utf-8")
-                return json.loads(response_body)
-
-        except urllib.error.HTTPError as exc:
-            if exc.code in (429, 500, 502, 503, 504):
-                if attempt < max_attempts - 1:
-                    time.sleep(2 ** (attempt + 1))
-                    continue
-            raise
-
-        except (TimeoutError, urllib.error.URLError):
-            if attempt < max_attempts - 1:
-                time.sleep(2 ** (attempt + 1))
-                continue
-            raise
+    with urllib.request.urlopen(
+        request,
+        timeout=Config.REQUEST_TIMEOUT,
+    ) as response:
+        body = response.read().decode("utf-8")
+        return json.loads(body)
 
 
-def _extract_http_error(exc):
-    try:
-        error_body = exc.read().decode(
-            "utf-8",
-            errors="replace",
-        )
-
-        return error_body[:1500] or "No error details returned."
-
-    except Exception:
-        return "Could not read server error response."
-
-
-def _extract_openrouter_text(data):
+def _extract_text(data):
     choices = data.get("choices", [])
 
     if not choices:
-        raise ValueError("OpenRouter returned no choices.")
+        raise ValueError("Model returned no choices.")
 
     message = choices[0].get("message", {})
     content = message.get("content")
 
     if isinstance(content, str):
-        if content.strip():
-            return content.strip()
+        result = content.strip()
+
+        if result:
+            return result
 
     if isinstance(content, list):
         parts = []
 
         for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text = item.get("text", "")
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    value = item.get("text", "")
 
-                if text:
-                    parts.append(text)
+                    if value:
+                        parts.append(value)
 
         result = "\n".join(parts).strip()
 
         if result:
             return result
 
-    raise ValueError("OpenRouter returned no readable text content.")
+    raise ValueError("Model returned no readable text content.")
 
 
-def _extract_gemini_text(data):
-    candidates = data.get("candidates", [])
+def _request_with_retry(url, headers, payload):
+    max_attempts = Config.MAX_RETRIES + 1
+    last_error = "Unknown request error."
 
-    if not candidates:
-        raise ValueError("Gemini returned no candidates.")
+    for attempt in range(max_attempts):
+        try:
+            data = _send_request(
+                url,
+                headers,
+                payload,
+            )
 
-    content = candidates[0].get("content", {})
-    parts = content.get("parts", [])
+            return {
+                "success": True,
+                "data": data,
+                "attempts": attempt + 1,
+                "error": None,
+            }
 
-    texts = [
-        part.get("text", "")
-        for part in parts
-        if isinstance(part, dict) and part.get("text")
-    ]
+        except urllib.error.HTTPError as exc:
+            error_details = _read_error_body(exc)
+            last_error = (
+                f"HTTP {exc.code}: {error_details}"
+            )
 
-    result = "\n".join(texts).strip()
+            retryable = exc.code in (
+                408,
+                429,
+                500,
+                502,
+                503,
+                504,
+            )
 
-    if not result:
-        raise ValueError("Gemini returned no readable text content.")
+            if not retryable or attempt >= max_attempts - 1:
+                return {
+                    "success": False,
+                    "data": None,
+                    "attempts": attempt + 1,
+                    "error": last_error,
+                }
 
-    return result
+            retry_after = exc.headers.get("Retry-After")
+
+            try:
+                delay = float(retry_after)
+            except (TypeError, ValueError):
+                delay = (
+                    Config.RETRY_BASE_SECONDS
+                    * (2 ** attempt)
+                )
+
+            time.sleep(min(max(delay, 1), 30))
+
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            socket.timeout,
+        ) as exc:
+            last_error = (
+                f"Connection error: {exc}"
+            )
+
+            if attempt >= max_attempts - 1:
+                return {
+                    "success": False,
+                    "data": None,
+                    "attempts": attempt + 1,
+                    "error": last_error,
+                }
+
+            delay = (
+                Config.RETRY_BASE_SECONDS
+                * (2 ** attempt)
+            )
+
+            time.sleep(min(delay, 30))
+
+        except Exception as exc:
+            return {
+                "success": False,
+                "data": None,
+                "attempts": attempt + 1,
+                "error": (
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }
+
+    return {
+        "success": False,
+        "data": None,
+        "attempts": max_attempts,
+        "error": last_error,
+    }
 
 
 def ask_openrouter(prompt):
     started_at = time.time()
-    model = Config.OPENROUTER_MODEL
 
-    if not Config.OPENROUTER_API_KEY:
+    config_status = Config.validate()
+
+    if not config_status["valid"]:
         return _make_result(
             "openrouter",
-            model,
+            "",
             started_at,
-            error="OPENROUTER_API_KEY is not configured.",
+            error="Configuration error: "
+            + "; ".join(config_status["errors"]),
         )
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = (
+        Config.OPENROUTER_BASE_URL
+        + "/chat/completions"
+    )
 
     headers = {
-        "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+        "Authorization": (
+            f"Bearer {Config.OPENROUTER_API_KEY}"
+        ),
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/rashidhorri23-gif/ai-crypto-trading_system",
+        "HTTP-Referer": (
+            "https://github.com/"
+            "rashidhorri23-gif/ai-crypto-trading_system"
+        ),
         "X-Title": "Autonomous Crypto Technical Analyst",
     }
 
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-        "max_tokens": 1200,
-    }
+    error_history = []
+    total_attempts = 0
 
-    try:
-        data = _send_request(url, headers, payload)
-        response_text = _extract_openrouter_text(data)
+    for model in Config.MODEL_PRIORITY:
+        print(f"Trying OpenRouter model: {model}")
 
-        return _make_result(
-            "openrouter",
-            model,
-            started_at,
-            text=response_text,
-            usage=data.get("usage", {}),
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            "max_tokens": Config.MAX_OUTPUT_TOKENS,
+        }
+
+        result = _request_with_retry(
+            url,
+            headers,
+            payload,
         )
 
-    except urllib.error.HTTPError as exc:
-        return _make_result(
-            "openrouter",
-            model,
-            started_at,
-            error=(
-                f"HTTP error: {exc.code} | "
-                f"Details: {_extract_http_error(exc)}"
-            ),
-        )
+        total_attempts += result["attempts"]
 
-    except urllib.error.URLError as exc:
-        return _make_result(
-            "openrouter",
-            model,
-            started_at,
-            error=f"Connection error: {exc.reason}",
-        )
+        if not result["success"]:
+            error_history.append(
+                f"{model}: {result['error']}"
+            )
+            continue
 
-    except TimeoutError:
-        return _make_result(
-            "openrouter",
-            model,
-            started_at,
-            error="Request timed out after retries.",
-        )
+        try:
+            data = result["data"]
+            response_text = _extract_text(data)
 
-    except Exception as exc:
-        return _make_result(
-            "openrouter",
-            model,
-            started_at,
-            error=f"{type(exc).__name__}: {exc}",
-        )
+            return _make_result(
+                "openrouter",
+                model,
+                started_at,
+                text=response_text,
+                usage=data.get("usage", {}),
+                attempts=total_attempts,
+            )
 
+        except Exception as exc:
+            error_history.append(
+                f"{model}: Response validation failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
-def ask_gemini(prompt):
-    started_at = time.time()
-    model = Config.GEMINI_MODEL
-
-    if not Config.GEMINI_API_KEY:
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            error="GEMINI_API_KEY is not configured.",
-        )
-
-    encoded_model = urllib.parse.quote(model, safe="")
-    encoded_key = urllib.parse.quote(
-        Config.GEMINI_API_KEY,
-        safe="",
+    return _make_result(
+        "openrouter",
+        "all_models_failed",
+        started_at,
+        error=" | ".join(error_history),
+        attempts=total_attempts,
     )
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{encoded_model}:generateContent"
-        f"?key={encoded_key}"
-    )
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": prompt,
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "maxOutputTokens": 1200,
-            "temperature": 0.2,
-        },
-    }
-
-    try:
-        data = _send_request(url, headers, payload)
-        response_text = _extract_gemini_text(data)
-
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            text=response_text,
-            usage=data.get("usageMetadata", {}),
-        )
-
-    except urllib.error.HTTPError as exc:
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            error=(
-                f"HTTP error: {exc.code} | "
-                f"Details: {_extract_http_error(exc)}"
-            ),
-        )
-
-    except urllib.error.URLError as exc:
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            error=f"Connection error: {exc.reason}",
-        )
-
-    except TimeoutError:
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            error="Request timed out after retries.",
-        )
-
-    except Exception as exc:
-        return _make_result(
-            "gemini",
-            model,
-            started_at,
-            error=f"{type(exc).__name__}: {exc}",
-        )
