@@ -1,0 +1,110 @@
+
+name: Multi Model Connection Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-providers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test Gemini and OpenRouter
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.request
+          import urllib.error
+          import sys
+
+          def send_request(url, headers, payload):
+              request = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers=headers,
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      return json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as error:
+                  print("HTTP ERROR:", error.code)
+                  print(error.read().decode("utf-8"))
+                  raise
+
+          success = True
+
+          print("TESTING GEMINI")
+
+          try:
+              gemini_key = os.environ["GEMINI_API_KEY"]
+
+              result = send_request(
+                  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + gemini_key,
+                  {"Content-Type": "application/json"},
+                  {
+                      "contents": [
+                          {
+                              "parts": [
+                                  {"text": "Reply with GEMINI_SUCCESS"}
+                              ]
+                          }
+                      ]
+                  }
+              )
+
+              print(result["candidates"][0]["content"]["parts"][0]["text"])
+              print("GEMINI_CONNECTION_SUCCESSFUL")
+
+          except Exception as error:
+              print("GEMINI_CONNECTION_FAILED:", type(error).__name__)
+              success = False
+
+          print("\nTESTING OPENROUTER")
+
+          try:
+              openrouter_key = os.environ["OPENROUTER_API_KEY"]
+
+              result = send_request(
+                  "https://openrouter.ai/api/v1/chat/completions",
+                  {
+                      "Authorization": "Bearer " + openrouter_key,
+                      "Content-Type": "application/json"
+                  },
+                  {
+                      "model": "openrouter/free",
+                      "messages": [
+                          {
+                              "role": "user",
+                              "content": "Reply with OPENROUTER_SUCCESS"
+                          }
+                      ],
+                      "max_tokens": 50
+                  }
+              )
+
+              print("Working model:", result.get("model", "Unknown"))
+              print(result["choices"][0]["message"]["content"])
+              print("OPENROUTER_CONNECTION_SUCCESSFUL")
+
+          except Exception as error:
+              print("OPENROUTER_CONNECTION_FAILED:", type(error).__name__)
+              success = False
+
+          if not success:
+              sys.exit(1)
+
+          print("\nALL AI PROVIDERS VERIFIED")
+          PY
