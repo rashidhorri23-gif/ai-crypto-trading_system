@@ -32,6 +32,7 @@ jobs:
           python - <<'PY'
           import os
           import sys
+          import time
           from google import genai
           from google.genai import types
 
@@ -41,34 +42,63 @@ jobs:
               print("ERROR: GEMINI_API_KEY is missing.")
               sys.exit(1)
 
-          try:
-              client = genai.Client(
-                  api_key=api_key,
-                  http_options=types.HttpOptions(
-                      api_version="v1beta"
-                  )
+          client = genai.Client(
+              api_key=api_key,
+              http_options=types.HttpOptions(
+                  api_version="v1beta"
               )
+          )
 
-              print("Connecting to Gemini API...")
+          models = [
+              "gemini-3.8-flash",
+              "gemini-3.7-flash"
+          ]
 
-              response = client.models.generate_content(
-                  model="gemini-3.8-flash",
-                  contents="Reply only with: GEMINI_CONNECTION_SUCCESSFUL"
-              )
+          prompt = "Reply only with: GEMINI_CONNECTION_SUCCESSFUL"
 
-              print("Gemini response:")
-              print(response.text)
+          for model in models:
+              print(f"Testing model: {model}")
 
-              if response.text and "GEMINI_CONNECTION_SUCCESSFUL" in response.text:
-                  print("SUCCESS: Gemini API connection verified.")
-              else:
-                  print("WARNING: API responded, but the expected text was not returned.")
-                  sys.exit(1)
+              for attempt in range(1, 4):
+                  try:
+                      response = client.models.generate_content(
+                          model=model,
+                          contents=prompt
+                      )
 
-          except Exception as error:
-              print("ERROR: Gemini API request failed.")
-              print("Error type:", type(error).__name__)
-              print("Error details:", str(error))
+                      result = response.text or ""
 
-              sys.exit(1)
+                      print("Gemini response:", result)
+
+                      if "GEMINI_CONNECTION_SUCCESSFUL" in result:
+                          print("SUCCESS: Gemini API connection verified.")
+                          print("Working model:", model)
+                          sys.exit(0)
+
+                      print("ERROR: Unexpected response.")
+                      sys.exit(1)
+
+                  except Exception as error:
+                      error_message = str(error)
+
+                      if "503" in error_message or "UNAVAILABLE" in error_message:
+                          if attempt < 3:
+                              wait_time = 5 * (2 ** (attempt - 1))
+                              print(
+                                  f"Model busy. Retry {attempt}/3 "
+                                  f"after {wait_time} seconds."
+                              )
+                              time.sleep(wait_time)
+                              continue
+
+                          print(f"Model unavailable: {model}")
+                          break
+
+                      print("API request failed.")
+                      print("Error type:", type(error).__name__)
+                      print("Error details:", error_message)
+                      sys.exit(1)
+
+          print("ERROR: All available models failed.")
+          sys.exit(1)
           PY
