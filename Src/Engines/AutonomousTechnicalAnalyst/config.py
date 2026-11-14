@@ -41,7 +41,7 @@ class Config:
     REQUEST_TIMEOUT = 60
     MAX_RETRIES = 2
     RETRY_BASE_SECONDS = 2
-    MAX_OUTPUT_TOKENS = 1200
+    MAX_OUTPUT_TOKENS = 3000
 
     # Initial market configuration
     SYMBOL = "BTC_USDT"
