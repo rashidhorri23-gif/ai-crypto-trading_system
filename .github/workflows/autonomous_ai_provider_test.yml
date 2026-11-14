@@ -20,9 +20,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Test OpenRouter engine
+      - name: Test OpenRouter connection
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PYTHONPATH: .
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.test_ai_providers
+
+      - name: Test free model discovery
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PYTHONPATH: .
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_model_manager
