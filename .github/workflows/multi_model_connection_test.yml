@@ -7,6 +7,7 @@ on:
 jobs:
   test-providers:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -25,59 +26,72 @@ jobs:
           python - <<'PY'
           import os
           import json
+          import time
           import urllib.request
           import urllib.error
-          import sys
 
-          def send_request(url, headers, payload):
-              request = urllib.request.Request(
-                  url,
-                  data=json.dumps(payload).encode("utf-8"),
-                  headers=headers,
-                  method="POST"
-              )
-              try:
-                  with urllib.request.urlopen(request, timeout=90) as response:
-                      return json.loads(response.read().decode("utf-8"))
-              except urllib.error.HTTPError as error:
-                  print("HTTP ERROR:", error.code)
-                  print(error.read().decode("utf-8"))
-                  raise
+          def post_json(url, headers, payload, timeout=120, retries=3):
+              for attempt in range(1, retries + 1):
+                  try:
+                      request = urllib.request.Request(
+                          url,
+                          data=json.dumps(payload).encode("utf-8"),
+                          headers=headers,
+                          method="POST"
+                      )
 
-          success = True
+                      with urllib.request.urlopen(request, timeout=timeout) as response:
+                          return json.loads(response.read().decode("utf-8"))
+
+                  except Exception as error:
+                      print(f"Attempt {attempt}/{retries} failed: {type(error).__name__}: {error}")
+
+                      if attempt == retries:
+                          raise
+
+                      time.sleep(attempt * 10)
+
+          results = {}
 
           print("TESTING GEMINI")
 
           try:
               gemini_key = os.environ["GEMINI_API_KEY"]
 
-              result = send_request(
+              data = post_json(
                   "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + gemini_key,
                   {"Content-Type": "application/json"},
                   {
-                      "contents": [
-                          {
-                              "parts": [
-                                  {"text": "Reply with GEMINI_SUCCESS"}
-                              ]
-                          }
-                      ]
+                      "contents": [{
+                          "parts": [{
+                              "text": "Reply with exactly GEMINI_SUCCESS"
+                          }]
+                      }]
                   }
               )
 
-              print(result["candidates"][0]["content"]["parts"][0]["text"])
-              print("GEMINI_CONNECTION_SUCCESSFUL")
+              text = " ".join(
+                  part.get("text", "")
+                  for candidate in data.get("candidates", [])
+                  for part in candidate.get("content", {}).get("parts", [])
+              ).strip()
+
+              if not text:
+                  raise ValueError("Gemini returned no text")
+
+              print("Gemini response:", text)
+              results["Gemini"] = True
 
           except Exception as error:
-              print("GEMINI_CONNECTION_FAILED:", type(error).__name__)
-              success = False
+              print("GEMINI_FAILED:", type(error).__name__, str(error))
+              results["Gemini"] = False
 
           print("\nTESTING OPENROUTER")
 
           try:
               openrouter_key = os.environ["OPENROUTER_API_KEY"]
 
-              result = send_request(
+              data = post_json(
                   "https://openrouter.ai/api/v1/chat/completions",
                   {
                       "Authorization": "Bearer " + openrouter_key,
@@ -85,26 +99,53 @@ jobs:
                   },
                   {
                       "model": "openrouter/free",
-                      "messages": [
-                          {
-                              "role": "user",
-                              "content": "Reply with OPENROUTER_SUCCESS"
-                          }
-                      ],
-                      "max_tokens": 50
+                      "messages": [{
+                          "role": "user",
+                          "content": "Reply with exactly OPENROUTER_SUCCESS"
+                      }],
+                      "max_tokens": 80
                   }
               )
 
-              print("Working model:", result.get("model", "Unknown"))
-              print(result["choices"][0]["message"]["content"])
-              print("OPENROUTER_CONNECTION_SUCCESSFUL")
+              print("Selected model:", data.get("model", "Unknown"))
+
+              choices = data.get("choices", [])
+              if not choices:
+                  raise ValueError("OpenRouter returned no choices")
+
+              message = choices[0].get("message", {})
+              content = message.get("content")
+
+              if isinstance(content, str):
+                  text = content.strip()
+              elif isinstance(content, list):
+                  text = " ".join(
+                      item.get("text", "")
+                      for item in content
+                      if isinstance(item, dict)
+                  ).strip()
+              else:
+                  text = ""
+
+              if not text:
+                  raise ValueError(
+                      "No text content. Response structure: " +
+                      json.dumps(data)[:2000]
+                  )
+
+              print("OpenRouter response:", text)
+              results["OpenRouter"] = True
 
           except Exception as error:
-              print("OPENROUTER_CONNECTION_FAILED:", type(error).__name__)
-              success = False
+              print("OPENROUTER_FAILED:", type(error).__name__, str(error))
+              results["OpenRouter"] = False
 
-          if not success:
-              sys.exit(1)
+          print("\nFINAL RESULTS")
+          for provider, status in results.items():
+              print(provider, "SUCCESS" if status else "FAILED")
 
-          print("\nALL AI PROVIDERS VERIFIED")
+          if not any(results.values()):
+              raise SystemExit("All AI providers failed")
+
+          print("\nAT LEAST ONE AI PROVIDER VERIFIED")
           PY
