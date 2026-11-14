@@ -33,3 +33,10 @@ jobs:
           PYTHONPATH: .
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.test_model_manager
+
+      - name: Test model comparison
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PYTHONPATH: .
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_model_comparison
