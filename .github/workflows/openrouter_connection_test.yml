@@ -1,0 +1,113 @@
+
+name: OpenRouter Connection Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-openrouter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test OpenRouter API
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import time
+          import urllib.request
+          import urllib.error
+
+          api_key = os.environ.get("OPENROUTER_API_KEY")
+
+          if not api_key:
+              raise SystemExit("OPENROUTER_API_KEY is missing")
+
+          url = "https://openrouter.ai/api/v1/chat/completions"
+
+          payload = {
+              "model": "openrouter/free",
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": "Reply with exactly: OPENROUTER_SUCCESS"
+                  }
+              ],
+              "max_tokens": 100,
+              "temperature": 0
+          }
+
+          headers = {
+              "Authorization": f"Bearer {api_key}",
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://github.com",
+              "X-Title": "Crypto AI Trading System"
+          }
+
+          print("Starting OpenRouter test...")
+
+          request = urllib.request.Request(
+              url,
+              data=json.dumps(payload).encode("utf-8"),
+              headers=headers,
+              method="POST"
+          )
+
+          start_time = time.time()
+
+          try:
+              with urllib.request.urlopen(request, timeout=120) as response:
+                  result = json.loads(response.read().decode("utf-8"))
+
+              elapsed = round(time.time() - start_time, 2)
+
+              model = result.get("model", "Unknown")
+              choices = result.get("choices", [])
+
+              if not choices:
+                  raise ValueError("No choices returned by OpenRouter")
+
+              message = choices[0].get("message", {})
+              content = message.get("content")
+
+              if isinstance(content, str):
+                  answer = content.strip()
+              elif isinstance(content, list):
+                  answer = " ".join(
+                      item.get("text", "")
+                      for item in content
+                      if isinstance(item, dict)
+                  ).strip()
+              else:
+                  answer = ""
+
+              if not answer:
+                  raise ValueError(
+                      "Model returned no text. Response: " +
+                      json.dumps(result)[:2000]
+                  )
+
+              print("\nOPENROUTER CONNECTION SUCCESSFUL")
+              print("Selected model:", model)
+              print("AI response:", answer)
+              print("Response time:", elapsed, "seconds")
+              print("STATUS: SUCCESS")
+
+          except urllib.error.HTTPError as error:
+              print("HTTP ERROR:", error.code)
+              print(error.read().decode("utf-8"))
+              raise
+
+          except Exception as error:
+              print("OPENROUTER TEST FAILED:", repr(error))
+              raise
+
+          PY
