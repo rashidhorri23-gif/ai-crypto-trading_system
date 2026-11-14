@@ -7,7 +7,7 @@ on:
 jobs:
   test-openrouter:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Set up Python
@@ -26,88 +26,180 @@ jobs:
           import urllib.request
           import urllib.error
 
-          api_key = os.environ.get("OPENROUTER_API_KEY")
+          API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-          if not api_key:
-              raise SystemExit("OPENROUTER_API_KEY is missing")
+          if not API_KEY:
+              raise SystemExit("ERROR: OPENROUTER_API_KEY is missing")
 
-          url = "https://openrouter.ai/api/v1/chat/completions"
+          API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-          payload = {
-              "model": "openrouter/free",
-              "messages": [
-                  {
-                      "role": "user",
-                      "content": "Reply with exactly: OPENROUTER_SUCCESS"
-                  }
-              ],
-              "max_tokens": 100,
-              "temperature": 0
-          }
-
-          headers = {
-              "Authorization": f"Bearer {api_key}",
+          HEADERS = {
+              "Authorization": f"Bearer {API_KEY}",
               "Content-Type": "application/json",
               "HTTP-Referer": "https://github.com",
               "X-Title": "Crypto AI Trading System"
           }
 
-          print("Starting OpenRouter test...")
+          def send_request(payload, retries=3):
+              for attempt in range(1, retries + 1):
+                  try:
+                      request = urllib.request.Request(
+                          API_URL,
+                          data=json.dumps(payload).encode("utf-8"),
+                          headers=HEADERS,
+                          method="POST"
+                      )
 
-          request = urllib.request.Request(
-              url,
-              data=json.dumps(payload).encode("utf-8"),
-              headers=headers,
-              method="POST"
-          )
+                      with urllib.request.urlopen(
+                          request,
+                          timeout=120
+                      ) as response:
+                          return json.loads(
+                              response.read().decode("utf-8")
+                          )
 
-          start_time = time.time()
+                  except urllib.error.HTTPError as error:
+                      error_body = error.read().decode(
+                          "utf-8",
+                          errors="replace"
+                      )
 
-          try:
-              with urllib.request.urlopen(request, timeout=120) as response:
-                  result = json.loads(response.read().decode("utf-8"))
+                      print(f"HTTP ERROR: {error.code}")
+                      print(error_body[:1500])
 
-              elapsed = round(time.time() - start_time, 2)
+                      if error.code in (400, 401, 402, 403, 404):
+                          raise
 
-              model = result.get("model", "Unknown")
-              choices = result.get("choices", [])
+                      if attempt == retries:
+                          raise
+
+                  except Exception as error:
+                      print(
+                          f"Attempt {attempt}/{retries} failed: "
+                          f"{type(error).__name__}: {error}"
+                      )
+
+                      if attempt == retries:
+                          raise
+
+                  wait_time = attempt * 10
+                  print(f"Retrying in {wait_time} seconds...")
+                  time.sleep(wait_time)
+
+          def extract_text(data):
+              choices = data.get("choices", [])
 
               if not choices:
-                  raise ValueError("No choices returned by OpenRouter")
+                  raise ValueError("No choices returned")
 
-              message = choices[0].get("message", {})
+              choice = choices[0]
+              message = choice.get("message", {})
               content = message.get("content")
 
               if isinstance(content, str):
                   answer = content.strip()
+
               elif isinstance(content, list):
                   answer = " ".join(
                       item.get("text", "")
                       for item in content
                       if isinstance(item, dict)
+                      and isinstance(item.get("text"), str)
                   ).strip()
+
               else:
                   answer = ""
 
+              finish_reason = choice.get("finish_reason")
+
               if not answer:
+                  usage = data.get("usage", {})
+
+                  diagnostic = {
+                      "model": data.get("model"),
+                      "finish_reason": finish_reason,
+                      "message_keys": list(message.keys()),
+                      "usage": usage,
+                      "refusal": message.get("refusal")
+                  }
+
                   raise ValueError(
-                      "Model returned no text. Response: " +
-                      json.dumps(result)[:2000]
+                      "No final text received: " +
+                      json.dumps(diagnostic)
                   )
 
-              print("\nOPENROUTER CONNECTION SUCCESSFUL")
-              print("Selected model:", model)
-              print("AI response:", answer)
-              print("Response time:", elapsed, "seconds")
-              print("STATUS: SUCCESS")
+              return answer, finish_reason
 
-          except urllib.error.HTTPError as error:
-              print("HTTP ERROR:", error.code)
-              print(error.read().decode("utf-8"))
-              raise
+          print("=" * 55)
+          print("OPENROUTER CONNECTION TEST")
+          print("=" * 55)
+
+          payload = {
+              "model": "openrouter/free",
+              "messages": [
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a concise assistant. "
+                          "Follow the user's instruction exactly. "
+                          "Do not provide explanations."
+                      )
+                  },
+                  {
+                      "role": "user",
+                      "content": (
+                          "Reply with exactly this text: "
+                          "OPENROUTER_SUCCESS"
+                      )
+                  }
+              ],
+              "max_tokens": 1200,
+              "reasoning": {
+                  "effort": "none"
+              },
+              "temperature": 0
+          }
+
+          start_time = time.time()
+
+          try:
+              print("\nSending request to OpenRouter...")
+
+              result = send_request(payload)
+
+              elapsed = round(time.time() - start_time, 2)
+
+              answer, finish_reason = extract_text(result)
+
+              print("\n" + "=" * 55)
+              print("OPENROUTER CONNECTION SUCCESSFUL")
+              print("=" * 55)
+
+              print("Selected model:", result.get("model"))
+              print("Provider:", result.get("provider", "Unknown"))
+              print("AI response:", answer)
+              print("Finish reason:", finish_reason)
+              print("Response time:", elapsed, "seconds")
+              print("Token usage:", result.get("usage", {}))
+
+              if "OPENROUTER_SUCCESS" not in answer:
+                  print(
+                      "\nWARNING: Model responded, "
+                      "but did not return the exact test phrase."
+                  )
+
+              print("\nSTATUS: API AND TEXT RESPONSE VERIFIED")
 
           except Exception as error:
-              print("OPENROUTER TEST FAILED:", repr(error))
-              raise
+              elapsed = round(time.time() - start_time, 2)
+
+              print("\n" + "=" * 55)
+              print("OPENROUTER TEST FAILED")
+              print("=" * 55)
+
+              print("Error:", repr(error))
+              print("Elapsed time:", elapsed, "seconds")
+
+              raise SystemExit(1)
 
           PY
