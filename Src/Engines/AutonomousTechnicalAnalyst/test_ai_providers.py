@@ -1,5 +1,6 @@
 
-from .ai_providers import ask_gemini, ask_openrouter
+from .ai_providers import ask_openrouter
+from .config import Config
 
 
 TEST_PROMPT = (
@@ -8,39 +9,52 @@ TEST_PROMPT = (
 )
 
 
-def test_provider(provider_name, provider_function):
-    print(f"\nTesting provider: {provider_name}")
-    result = provider_function(TEST_PROMPT)
+def main():
+    print("=" * 60)
+    print("AUTONOMOUS OPENROUTER ENGINE TEST")
+    print("=" * 60)
 
-    print(f"Status: {result['status']}")
+    config = Config.validate()
+
+    print("\nConfiguration status:")
+    print(f"Valid: {config['valid']}")
+    print(f"Models: {config['models']}")
+
+    if not config["valid"]:
+        for error in config["errors"]:
+            print(f"Configuration error: {error}")
+
+        return 1
+
+    print("\nSending test request...")
+
+    result = ask_openrouter(TEST_PROMPT)
+
+    print("\n" + "=" * 60)
+    print("TEST RESULTS")
+    print("=" * 60)
+
+    print(f"Provider: {result['provider']}")
     print(f"Model: {result['model']}")
+    print(f"Status: {result['status']}")
     print(f"Latency: {result['latency_seconds']} seconds")
+    print(f"Attempts: {result['attempts']}")
 
     if result["status"] == "success":
-        print(f"Response: {result['response_text']}")
-        print("Provider test: PASSED")
-        return True
+        print(f"AI response: {result['response_text']}")
+        print(f"Token usage: {result['usage']}")
 
-    print(f"Error: {result['error']}")
-    print("Provider test: FAILED")
-    return False
+        if result["response_text"] == "AI_PROVIDER_TEST_SUCCESS":
+            print("\nRESULT: OPENROUTER TEST PASSED")
+            return 0
 
+        print("\nWARNING: AI response differs from expected text.")
+        print("RESULT: CONNECTION PASSED, RESPONSE CHECK FAILED")
+        return 1
 
-def main():
-    print("=" * 50)
-    print("AUTONOMOUS AI PROVIDER TEST")
-    print("=" * 50)
+    print(f"\nError: {result['error']}")
+    print("\nRESULT: OPENROUTER TEST FAILED")
 
-    gemini_ok = test_provider("Gemini", ask_gemini)
-    openrouter_ok = test_provider("OpenRouter", ask_openrouter)
-
-    print("\n" + "=" * 50)
-
-    if gemini_ok and openrouter_ok:
-        print("RESULT: BOTH PROVIDERS PASSED")
-        return 0
-
-    print("RESULT: ONE OR MORE PROVIDERS FAILED")
     return 1
 
 
