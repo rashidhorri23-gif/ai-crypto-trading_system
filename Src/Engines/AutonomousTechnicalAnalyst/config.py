@@ -28,7 +28,7 @@ class Config:
     DATA_DIRECTORY = "Data/Archive"
 
     # Request settings
-    REQUEST_TIMEOUT = 60
+    REQUEST_TIMEOUT = 120
     MAX_RETRIES = 2
 
     @classmethod
