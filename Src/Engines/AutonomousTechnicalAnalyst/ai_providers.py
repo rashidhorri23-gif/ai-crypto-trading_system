@@ -24,7 +24,7 @@ def _make_result(
         "response_text": text,
         "latency_seconds": round(time.time() - started_at, 3),
         "usage": usage or {},
-        "status": "success" if not error else "error",
+        "status": "success" if error is None else "error",
         "error": error,
         "attempts": attempts,
         "diagnostics": diagnostics or {},
@@ -135,12 +135,14 @@ def _extract_response(data):
 
     elif isinstance(content, list):
         for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    value = item.get("text", "")
+            if not isinstance(item, dict):
+                continue
 
-                    if isinstance(value, str) and value.strip():
-                        parts.append(value.strip())
+            if item.get("type") == "text":
+                value = item.get("text", "")
+
+                if isinstance(value, str) and value.strip():
+                    parts.append(value.strip())
 
     result_text = "\n".join(parts).strip()
 
@@ -150,6 +152,17 @@ def _extract_response(data):
     if not result_text:
         raise ValueError(
             "Model returned no readable text content. "
+            "Diagnostics: "
+            + json.dumps(
+                diagnostics,
+                ensure_ascii=False,
+            )
+        )
+
+    if choice.get("finish_reason") == "length":
+        raise ValueError(
+            "Model response was truncated because "
+            "the output token limit was reached. "
             "Diagnostics: "
             + json.dumps(
                 diagnostics,
@@ -220,9 +233,7 @@ def _request_with_retry(url, headers, payload):
             TimeoutError,
             socket.timeout,
         ) as exc:
-            last_error = (
-                f"Connection error: {exc}"
-            )
+            last_error = f"Connection error: {exc}"
 
             if attempt >= max_attempts - 1:
                 return {
@@ -271,6 +282,14 @@ def ask_openrouter(prompt, model_override=None):
             + "; ".join(config_status["errors"]),
         )
 
+    if not isinstance(prompt, str) or not prompt.strip():
+        return _make_result(
+            "openrouter",
+            "",
+            started_at,
+            error="Prompt must be a non-empty string.",
+        )
+
     if model_override is not None:
         if (
             not isinstance(model_override, str)
@@ -309,6 +328,8 @@ def ask_openrouter(prompt, model_override=None):
     error_history = []
     total_attempts = 0
 
+    last_diagnostics = {}
+
     for model in models_to_try:
         print(f"Trying OpenRouter model: {model}")
 
@@ -320,7 +341,10 @@ def ask_openrouter(prompt, model_override=None):
                     "content": prompt,
                 }
             ],
-            "max_tokens": Config.MAX_OUTPUT_TOKENS,
+            "reasoning": {
+                "effort": "low",
+            },
+            "max_tokens": 3000,
         }
 
         result = _request_with_retry(
@@ -338,7 +362,6 @@ def ask_openrouter(prompt, model_override=None):
             continue
 
         data = result["data"]
-
         usage = data.get("usage", {})
 
         try:
@@ -365,25 +388,23 @@ def ask_openrouter(prompt, model_override=None):
                     "finish_reason"
                 )
 
+            last_diagnostics = {
+                "finish_reason": finish_reason,
+                "choice_count": len(choices),
+                "usage": usage,
+                "response_error": str(exc)[:1500],
+            }
+
             error_history.append(
                 f"{model}: Response validation failed: "
                 f"{type(exc).__name__}: {exc}"
             )
 
-            return _make_result(
-                "openrouter",
-                model,
-                started_at,
-                usage=usage,
-                error=" | ".join(error_history),
-                attempts=total_attempts,
-                diagnostics={
-                    "finish_reason": finish_reason,
-                    "choice_count": len(choices),
-                    "usage": usage,
-                    "response_error": str(exc)[:1500],
-                },
+            print(
+                f"Model failed response validation: {model}"
             )
+
+            continue
 
     return _make_result(
         "openrouter",
@@ -391,4 +412,5 @@ def ask_openrouter(prompt, model_override=None):
         started_at,
         error=" | ".join(error_history),
         attempts=total_attempts,
+        diagnostics=last_diagnostics,
     )
