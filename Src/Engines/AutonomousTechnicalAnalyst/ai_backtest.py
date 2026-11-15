@@ -881,7 +881,7 @@ def execute_trade(data, decision, entry_index, entry_price):
 
 
 def calculate_performance(trades):
-    if not trades:
+        if not trades:
         return {
             "total_trades": 0,
             "winning_trades": 0,
@@ -895,8 +895,8 @@ def calculate_performance(trades):
             "initial_equity": INITIAL_EQUITY,
             "final_equity": INITIAL_EQUITY,
             "return_pct": 0.0,
-            "max_drawdown_pct": max_drawdown_pct,
-            "max_drawdown_percent": max_drawdown_pct,
+            "max_drawdown_pct": 0.0,
+            "max_drawdown_percent": 0.0,
         }
 
     returns = [
@@ -975,6 +975,7 @@ def calculate_performance(trades):
         "final_equity": equity,
         "return_pct": return_pct,
         "max_drawdown_pct": max_drawdown_pct,
+        "max_drawdown_percent": max_drawdown_pct,
     }
 
 
