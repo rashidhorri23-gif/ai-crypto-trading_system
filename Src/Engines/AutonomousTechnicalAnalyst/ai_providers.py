@@ -327,7 +327,6 @@ def ask_openrouter(prompt, model_override=None):
 
     error_history = []
     total_attempts = 0
-
     last_diagnostics = {}
 
     for model in models_to_try:
@@ -344,7 +343,7 @@ def ask_openrouter(prompt, model_override=None):
             "reasoning": {
                 "effort": "low",
             },
-            "max_tokens": 3000,
+            "max_tokens": Config.MAX_OUTPUT_TOKENS,
         }
 
         result = _request_with_retry(
