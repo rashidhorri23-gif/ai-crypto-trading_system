@@ -13,10 +13,22 @@ REQUIRED_COLUMNS = [
 ]
 
 
-def load_market_data(file_path):
-    """Load and validate historical OHLCV data."""
+def validate_period(period, name="period"):
+    if (
+        not isinstance(period, (int, np.integer))
+        or isinstance(period, (bool, np.bool_))
+        or period <= 0
+    ):
+        raise ValueError(
+            f"{name} must be a positive integer."
+        )
 
-    df = pd.read_csv(file_path)
+
+def validate_ohlcv_data(df):
+    """Validate OHLCV values without silently removing candles."""
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Market data must be a pandas DataFrame.")
 
     missing = [
         column
@@ -29,54 +41,74 @@ def load_market_data(file_path):
             f"Missing required columns: {missing}"
         )
 
-    df = df.copy()
+    result = df.copy()
 
     for column in REQUIRED_COLUMNS:
-        df[column] = pd.to_numeric(
-            df[column],
+        result[column] = pd.to_numeric(
+            result[column],
             errors="coerce",
         )
 
-    df = df.dropna(
-        subset=REQUIRED_COLUMNS
-    )
-
-    df = df.sort_values(
-        "timestamp"
-    ).reset_index(drop=True)
-
-    if df.empty:
+    if result[REQUIRED_COLUMNS].isna().any().any():
         raise ValueError(
-            "No valid market candles found."
+            "Missing or non-numeric OHLCV values found."
         )
 
-    if not np.isfinite(
-        df[REQUIRED_COLUMNS].to_numpy(dtype=float)
-    ).all():
+    values = result[REQUIRED_COLUMNS].to_numpy(
+        dtype=float
+    )
+
+    if not np.isfinite(values).all():
         raise ValueError(
             "Non-finite market data values found."
         )
 
-    if df["timestamp"].duplicated().any():
-        raise ValueError(
-            "Duplicate timestamps found."
-        )
-
-    if (df["timestamp"] <= 0).any():
+    if (result["timestamp"] <= 0).any():
         raise ValueError(
             "Invalid timestamps found."
         )
 
-    if (df["high"] < df["low"]).any():
+    if (
+        result["timestamp"]
+        != np.floor(result["timestamp"])
+    ).any():
+        raise ValueError(
+            "Timestamps must be integer Unix milliseconds."
+        )
+
+    if result["timestamp"].duplicated().any():
+        raise ValueError(
+            "Duplicate timestamps found."
+        )
+
+    if (
+        result["open"] <= 0
+    ).any() or (
+        result["high"] <= 0
+    ).any() or (
+        result["low"] <= 0
+    ).any() or (
+        result["close"] <= 0
+    ).any():
+        raise ValueError(
+            "OHLC prices must be greater than zero."
+        )
+
+    if (result["volume"] < 0).any():
+        raise ValueError(
+            "Negative volume values found."
+        )
+
+    if (result["high"] < result["low"]).any():
         raise ValueError(
             "Invalid candle: high is below low."
         )
 
     invalid_ohlc = (
-        (df["high"] < df["open"])
-        | (df["high"] < df["close"])
-        | (df["low"] > df["open"])
-        | (df["low"] > df["close"])
+        (result["high"] < result["open"])
+        | (result["high"] < result["close"])
+        | (result["low"] > result["open"])
+        | (result["low"] > result["close"])
     )
 
     if invalid_ohlc.any():
@@ -84,16 +116,37 @@ def load_market_data(file_path):
             "Invalid OHLC candle values found."
         )
 
-    if (df["volume"] < 0).any():
+    return result
+
+
+def load_market_data(file_path):
+    """Load and validate historical OHLCV data."""
+
+    try:
+        df = pd.read_csv(file_path)
+    except pd.errors.EmptyDataError as error:
         raise ValueError(
-            "Negative volume values found."
+            "Market data file is empty."
+        ) from error
+
+    if df.empty:
+        raise ValueError(
+            "No market candles found."
         )
+
+    df = validate_ohlcv_data(df)
+
+    df = df.sort_values(
+        "timestamp"
+    ).reset_index(drop=True)
 
     return df
 
 
 def calculate_ema(series, period):
     """Calculate exponential moving average."""
+
+    validate_period(period)
 
     return series.ewm(
         span=period,
@@ -103,7 +156,9 @@ def calculate_ema(series, period):
 
 
 def calculate_rsi(series, period=14):
-    """Calculate RSI using Wilder smoothing."""
+    """Calculate RSI using Wilder-style smoothing."""
+
+    validate_period(period)
 
     delta = series.diff()
 
@@ -146,6 +201,8 @@ def calculate_rsi(series, period=14):
 def calculate_atr(df, period=14):
     """Calculate Average True Range."""
 
+    validate_period(period)
+
     previous_close = df["close"].shift(1)
 
     true_range = pd.concat(
@@ -167,6 +224,8 @@ def calculate_atr(df, period=14):
 def calculate_adx(df, period=14):
     """Calculate ADX and directional indicators."""
 
+    validate_period(period)
+
     high_difference = df["high"].diff()
     low_difference = -df["low"].diff()
 
@@ -178,6 +237,7 @@ def calculate_adx(df, period=14):
             0.0,
         ),
         index=df.index,
+        dtype=float,
     )
 
     negative_dm = pd.Series(
@@ -188,6 +248,7 @@ def calculate_adx(df, period=14):
             0.0,
         ),
         index=df.index,
+        dtype=float,
     )
 
     previous_close = df["close"].shift(1)
@@ -249,6 +310,11 @@ def calculate_adx(df, period=14):
 def calculate_market_structure(df, swing_window=3):
     """Calculate confirmed swing points without lookahead."""
 
+    validate_period(
+        swing_window,
+        "swing_window",
+    )
+
     result = df.copy()
 
     window = (2 * swing_window) + 1
@@ -270,6 +336,9 @@ def calculate_market_structure(df, swing_window=3):
         )
         .min()
     )
+
+    # A swing is recorded only after swing_window
+    # candles have closed to its right.
 
     pivot_high = (
         result["high"].shift(swing_window)
@@ -350,9 +419,13 @@ def calculate_market_structure(df, swing_window=3):
 
 
 def build_market_features(df):
-    """Build all technical features for historical candles."""
+    """Build technical features using current and past candles only."""
 
-    result = df.copy()
+    result = validate_ohlcv_data(df)
+
+    result = result.sort_values(
+        "timestamp"
+    ).reset_index(drop=True)
 
     result["ema_20"] = calculate_ema(
         result["close"],
@@ -407,8 +480,13 @@ def build_market_features(df):
         swing_window=3,
     )
 
-    result["support"] = result["last_swing_low"]
-    result["resistance"] = result["last_swing_high"]
+    result["support"] = (
+        result["last_swing_low"]
+    )
+
+    result["resistance"] = (
+        result["last_swing_high"]
+    )
 
     result["ema_trend"] = "NEUTRAL"
 
@@ -424,11 +502,17 @@ def build_market_features(df):
         "ema_trend",
     ] = "BEARISH"
 
-    result["timestamp_utc"] = pd.to_datetime(
-        result["timestamp"],
-        unit="ms",
-        utc=True,
-    )
+    try:
+        result["timestamp_utc"] = pd.to_datetime(
+            result["timestamp"],
+            unit="ms",
+            utc=True,
+            errors="raise",
+        )
+    except (ValueError, TypeError, OverflowError) as error:
+        raise ValueError(
+            "Could not convert timestamps to UTC."
+        ) from error
 
     return result
 
