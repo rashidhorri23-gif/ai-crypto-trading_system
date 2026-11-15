@@ -673,13 +673,13 @@ def run_backtest():
     print("ERNIE AI HISTORICAL BACKTEST")
     print("=" * 65)
 
-    config_status = Config.validate()
-
-    if not config_status["valid"]:
+    # Validate configuration using the actual Config.validate() contract.
+    try:
+        Config.validate()
+    except ValueError as error:
         raise RuntimeError(
-            "Configuration error: "
-            + "; ".join(config_status["errors"])
-        )
+            f"Configuration error: {error}"
+        ) from error
 
     data_file = os.path.join(
         Config.DATA_DIRECTORY,
