@@ -1,0 +1,36 @@
+
+name: Market Features Validation
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "Src/Engines/AutonomousTechnicalAnalyst/market_features.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_market_features.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/config.py"
+      - "Data/Archive/BTC_USDT_SPOT_4H.csv"
+      - "requirements.txt"
+      - ".github/workflows/market_features_test.yml"
+
+jobs:
+  validate-market-features:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run market features validation
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_market_features
