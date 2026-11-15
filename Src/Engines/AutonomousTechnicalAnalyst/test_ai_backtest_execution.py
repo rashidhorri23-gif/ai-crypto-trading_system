@@ -54,12 +54,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 111, 99, 108),
         ])
 
-        trade = execute_trade(
-            data,
-            self.long_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.long_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "TAKE_PROFIT")
@@ -72,12 +67,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 101, 89, 92),
         ])
 
-        trade = execute_trade(
-            data,
-            self.short_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.short_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "TAKE_PROFIT")
@@ -90,12 +80,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 105, 94, 96),
         ])
 
-        trade = execute_trade(
-            data,
-            self.long_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.long_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "STOP_LOSS")
@@ -108,12 +93,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 106, 95, 104),
         ])
 
-        trade = execute_trade(
-            data,
-            self.short_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.short_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "STOP_LOSS")
@@ -126,12 +106,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 111, 94, 105),
         ])
 
-        trade = execute_trade(
-            data,
-            self.long_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.long_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "STOP_LOSS")
@@ -143,12 +118,7 @@ class TestTradeExecution(unittest.TestCase):
             (96, 100, 95, 98),
         ])
 
-        trade = execute_trade(
-            data,
-            self.long_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.long_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(
@@ -164,17 +134,64 @@ class TestTradeExecution(unittest.TestCase):
             (102, 105, 99, 103),
         ])
 
-        trade = execute_trade(
-            data,
-            self.long_decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, self.long_decision, 0, 100)
 
         self.assertIsNotNone(trade)
         self.assertEqual(trade["exit_reason"], "TIME_EXIT")
         self.assertEqual(trade["exit_index"], 2)
         self.assertEqual(trade["exit_price"], 103)
+
+    def test_long_stop_gap_exits_at_open(self):
+        data = make_market_data([
+            (100, 101, 99, 100),
+            (90, 96, 89, 92),
+        ])
+
+        trade = execute_trade(data, self.long_decision, 0, 100)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade["exit_reason"], "STOP_LOSS_GAP")
+        self.assertEqual(trade["exit_price"], 90)
+        self.assertLess(trade["net_r"], 0)
+
+    def test_short_stop_gap_exits_at_open(self):
+        data = make_market_data([
+            (100, 101, 99, 100),
+            (110, 112, 104, 108),
+        ])
+
+        trade = execute_trade(data, self.short_decision, 0, 100)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade["exit_reason"], "STOP_LOSS_GAP")
+        self.assertEqual(trade["exit_price"], 110)
+        self.assertLess(trade["net_r"], 0)
+
+    def test_long_target_gap_exits_at_open(self):
+        data = make_market_data([
+            (100, 101, 99, 100),
+            (112, 114, 111, 113),
+        ])
+
+        trade = execute_trade(data, self.long_decision, 0, 100)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade["exit_reason"], "TAKE_PROFIT_GAP")
+        self.assertEqual(trade["exit_price"], 112)
+        self.assertGreater(trade["net_r"], 0)
+
+    def test_short_target_gap_exits_at_open(self):
+        data = make_market_data([
+            (100, 101, 99, 100),
+            (88, 89, 86, 87),
+        ])
+
+        trade = execute_trade(data, self.short_decision, 0, 100)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade["exit_reason"], "TAKE_PROFIT_GAP")
+        self.assertEqual(trade["exit_price"], 88)
+        self.assertGreater(trade["net_r"], 0)
 
     def test_reject_long_when_slippage_crosses_target(self):
         decision = {
@@ -189,12 +206,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 101, 99, 100),
         ])
 
-        trade = execute_trade(
-            data,
-            decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, decision, 0, 100)
 
         self.assertIsNone(trade)
 
@@ -211,12 +223,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 101, 99, 100),
         ])
 
-        trade = execute_trade(
-            data,
-            decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, decision, 0, 100)
 
         self.assertIsNone(trade)
 
@@ -233,12 +240,7 @@ class TestTradeExecution(unittest.TestCase):
             (100, 101, 99, 100),
         ])
 
-        trade = execute_trade(
-            data,
-            decision,
-            0,
-            100,
-        )
+        trade = execute_trade(data, decision, 0, 100)
 
         self.assertIsNone(trade)
 
