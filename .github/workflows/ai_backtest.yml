@@ -1,0 +1,42 @@
+
+name: ERNIE AI Backtest
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-ai-backtest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run ERNIE AI Backtest
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.ai_backtest
+
+      - name: Upload Backtest Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ernie-ai-backtest-results
+          path: |
+            Data/Backtest/ernie_backtest_summary.json
+            Data/Backtest/ernie_backtest_trades.csv
+            Data/Backtest/ernie_backtest_decisions.csv
+            Data/Backtest/ernie_response_cache.json
+          if-no-files-found: warn
+          retention-days: 30
