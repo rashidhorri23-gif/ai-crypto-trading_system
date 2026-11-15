@@ -14,6 +14,7 @@ from .market_features import prepare_market_features
 
 
 MODEL_ID = "baidu/ernie-5.5-flash-preview:free"
+PROMPT_VERSION = "2.0"
 
 MAX_AI_CALLS = 40
 SIGNAL_INTERVAL = 12
@@ -23,9 +24,25 @@ WARMUP_CANDLES = 200
 
 FEE_RATE_PER_SIDE = 0.0005
 SLIPPAGE_RATE_PER_SIDE = 0.0002
-RISK_PER_TRADE = 0.01
+EXECUTION_COST_PER_SIDE = (
+    FEE_RATE_PER_SIDE + SLIPPAGE_RATE_PER_SIDE
+)
 
+RISK_PER_TRADE = 0.01
 INITIAL_EQUITY = 10000.0
+
+TIMEFRAME_SECONDS = {
+    "1M": 60,
+    "5M": 300,
+    "15M": 900,
+    "30M": 1800,
+    "1H": 3600,
+    "2H": 7200,
+    "4H": 14400,
+    "6H": 21600,
+    "12H": 43200,
+    "1D": 86400,
+}
 
 CACHE_DIRECTORY = Path("Data/Backtest")
 CACHE_FILE = CACHE_DIRECTORY / "ernie_response_cache.json"
@@ -57,13 +74,13 @@ def json_safe(value):
     if isinstance(value, (list, tuple)):
         return [json_safe(item) for item in value]
 
-    if isinstance(value, (np.integer,)):
+    if isinstance(value, np.integer):
         return int(value)
 
-    if isinstance(value, (np.floating,)):
+    if isinstance(value, np.floating):
         return float(value) if np.isfinite(value) else None
 
-    if isinstance(value, (np.bool_,)):
+    if isinstance(value, np.bool_):
         return bool(value)
 
     if isinstance(value, float):
@@ -118,6 +135,108 @@ def save_cache(cache):
     temporary_file.replace(CACHE_FILE)
 
 
+def get_timeframe_seconds():
+    timeframe = str(Config.TIMEFRAME).strip().upper()
+
+    if timeframe not in TIMEFRAME_SECONDS:
+        raise ValueError(
+            f"Unsupported timeframe: {timeframe}"
+        )
+
+    return TIMEFRAME_SECONDS[timeframe]
+
+
+def validate_backtest_data(data):
+    if data.empty:
+        raise ValueError("Market data is empty.")
+
+    required_columns = [
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "timestamp_utc",
+    ]
+
+    missing = [
+        column
+        for column in required_columns
+        if column not in data.columns
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing backtest columns: {missing}"
+        )
+
+    timestamps = pd.to_numeric(
+        data["timestamp"],
+        errors="coerce",
+    )
+
+    if timestamps.isna().any():
+        raise ValueError("Invalid timestamps found.")
+
+    timestamp_values = timestamps.to_numpy(dtype=np.float64)
+
+    if not np.isfinite(timestamp_values).all():
+        raise ValueError("Non-finite timestamps found.")
+
+    if (timestamp_values <= 0).any():
+        raise ValueError("Non-positive timestamps found.")
+
+    if not np.equal(
+        timestamp_values,
+        np.floor(timestamp_values),
+    ).all():
+        raise ValueError("Timestamps must be integer milliseconds.")
+
+    if pd.Series(timestamp_values).duplicated().any():
+        raise ValueError("Duplicate timestamps found.")
+
+    expected_interval_ms = get_timeframe_seconds() * 1000
+
+    differences = np.diff(timestamp_values)
+
+    if len(differences) and not np.all(
+        differences == expected_interval_ms
+    ):
+        raise ValueError(
+            "Market data contains missing or irregular candle intervals."
+        )
+
+    price_columns = ["open", "high", "low", "close"]
+
+    prices = data[price_columns].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    if prices.isna().any().any():
+        raise ValueError("Invalid OHLC prices found.")
+
+    if not np.isfinite(prices.to_numpy(dtype=float)).all():
+        raise ValueError("Non-finite OHLC prices found.")
+
+    if (prices <= 0).any().any():
+        raise ValueError("OHLC prices must be positive.")
+
+    invalid_candles = (
+        (prices["high"] < prices["low"])
+        | (prices["high"] < prices["open"])
+        | (prices["high"] < prices["close"])
+        | (prices["low"] > prices["open"])
+        | (prices["low"] > prices["close"])
+    )
+
+    if invalid_candles.any():
+        raise ValueError("Invalid OHLC candle geometry found.")
+
+    return True
+
+
 def build_market_snapshot(data, index, history_size=20):
     start_index = max(0, index - history_size + 1)
 
@@ -165,8 +284,13 @@ def build_prompt(data, index):
 
     snapshot = build_market_snapshot(data, index)
 
-    current_timestamp = str(
+    candle_open_time = pd.Timestamp(
         current_candle["timestamp_utc"]
+    )
+
+    candle_close_time = (
+        candle_open_time
+        + pd.Timedelta(seconds=get_timeframe_seconds())
     )
 
     current_close = safe_float(current_candle["close"])
@@ -175,7 +299,8 @@ def build_prompt(data, index):
         "symbol": Config.SYMBOL,
         "market_type": Config.MARKET_TYPE,
         "timeframe": Config.TIMEFRAME,
-        "decision_time_utc": current_timestamp,
+        "candle_open_time_utc": candle_open_time.isoformat(),
+        "decision_time_utc": candle_close_time.isoformat(),
         "current_close": current_close,
         "recent_market_history": snapshot,
     }
@@ -187,17 +312,18 @@ Analyze the following historical BTC-USDT market data.
 
 IMPORTANT RULES:
 1. Use only the information supplied in this prompt.
-2. Do not assume knowledge of future candles.
-3. Do not invent market prices or indicators.
-4. Evaluate trend, momentum, volatility, market structure,
+2. The current candle is fully closed.
+3. Do not assume knowledge of future candles.
+4. Do not invent market prices or indicators.
+5. Evaluate trend, momentum, volatility, market structure,
    support, resistance, and volume.
-5. Avoid entering trades when the evidence is insufficient.
-6. Prefer WAIT when the setup is unclear.
-7. Do not force a trade.
-8. Return exactly one JSON object.
-9. Do not include Markdown or explanations outside the JSON.
-10. Keep the reason and invalidation fields short.
-11. Do not provide hidden reasoning or lengthy analysis.
+6. Avoid entering trades when the evidence is insufficient.
+7. Prefer WAIT when the setup is unclear.
+8. Do not force a trade.
+9. Return exactly one JSON object.
+10. Do not include Markdown or explanations outside the JSON.
+11. Keep the reason and invalidation fields short.
+12. Do not provide hidden reasoning or lengthy analysis.
 
 A LONG decision requires:
 - entry above stop_loss
@@ -329,25 +455,33 @@ def validate_decision(payload):
     if actual_risk <= 0:
         raise ValueError("Invalid trade risk.")
 
-    actual_rr = actual_reward / actual_risk
-
-    if actual_rr <= 0:
-        raise ValueError("Invalid risk/reward ratio.")
-
-    result["risk_reward"] = actual_rr
+    result["risk_reward"] = actual_reward / actual_risk
 
     return result
 
 
 def get_ai_decision(prompt, cache):
+    cache_identity = {
+        "model": MODEL_ID,
+        "prompt_version": PROMPT_VERSION,
+        "prompt": prompt,
+    }
+
     cache_key = hashlib.sha256(
-        prompt.encode("utf-8")
+        json.dumps(
+            cache_identity,
+            sort_keys=True,
+            ensure_ascii=False,
+        ).encode("utf-8")
     ).hexdigest()
 
     if cache_key in cache:
         cached = cache[cache_key]
 
-        if cached.get("status") == "success":
+        if (
+            isinstance(cached, dict)
+            and cached.get("status") == "success"
+        ):
             return cached, True
 
     response = ask_openrouter(
@@ -396,7 +530,20 @@ def get_ai_decision(prompt, cache):
 
 
 def find_entry_fill(data, decision_index, decision):
-    entry = decision["entry"]
+    direction = decision.get("decision")
+    entry = safe_float(decision.get("entry"))
+
+    if direction not in ("LONG", "SHORT"):
+        return None, None
+
+    if entry is None or entry <= 0:
+        return None, None
+
+    if not isinstance(decision_index, (int, np.integer)):
+        return None, None
+
+    if decision_index < 0 or decision_index >= len(data):
+        return None, None
 
     last_index = min(
         decision_index + ENTRY_VALIDITY_CANDLES,
@@ -406,20 +553,79 @@ def find_entry_fill(data, decision_index, decision):
     for index in range(decision_index + 1, last_index + 1):
         candle = data.iloc[index]
 
+        open_price = safe_float(candle["open"])
         low = safe_float(candle["low"])
         high = safe_float(candle["high"])
 
-        if low is None or high is None:
+        if (
+            open_price is None
+            or low is None
+            or high is None
+            or high < low
+        ):
             continue
 
-        if low <= entry <= high:
-            return index, entry
+        if direction == "LONG":
+            if open_price <= entry:
+                return index, open_price
+
+            if low <= entry <= high:
+                return index, entry
+
+        else:
+            if open_price >= entry:
+                return index, open_price
+
+            if low <= entry <= high:
+                return index, entry
+
+    return None, None
+
+
+def get_exit_fill(direction, candle, stop, target):
+    open_price = safe_float(candle["open"])
+    high = safe_float(candle["high"])
+    low = safe_float(candle["low"])
+
+    if (
+        open_price is None
+        or high is None
+        or low is None
+        or high < low
+    ):
+        return None, None
+
+    if direction == "LONG":
+        if open_price <= stop:
+            return open_price, "STOP_LOSS_GAP"
+
+        if open_price >= target:
+            return open_price, "TAKE_PROFIT_GAP"
+
+        stop_hit = low <= stop
+        target_hit = high >= target
+
+    else:
+        if open_price >= stop:
+            return open_price, "STOP_LOSS_GAP"
+
+        if open_price <= target:
+            return open_price, "TAKE_PROFIT_GAP"
+
+        stop_hit = high >= stop
+        target_hit = low <= target
+
+    if stop_hit:
+        return stop, "STOP_LOSS"
+
+    if target_hit:
+        return target, "TAKE_PROFIT"
 
     return None, None
 
 
 def execute_trade(data, decision, entry_index, entry_price):
-    direction = decision["decision"]
+    direction = decision.get("decision")
 
     stop = safe_float(decision.get("stop_loss"))
     target = safe_float(decision.get("take_profit"))
@@ -443,29 +649,35 @@ def execute_trade(data, decision, entry_index, entry_price):
     if direction == "LONG":
         if not stop < entry_price < target:
             return None
+
+        executed_entry = (
+            entry_price * (1 + EXECUTION_COST_PER_SIDE)
+        )
+
+        planned_stop_exit = (
+            stop * (1 - EXECUTION_COST_PER_SIDE)
+        )
+
+        planned_risk = executed_entry - planned_stop_exit
+
     else:
         if not target < entry_price < stop:
             return None
 
-    execution_cost = (
-        FEE_RATE_PER_SIDE + SLIPPAGE_RATE_PER_SIDE
-    )
+        executed_entry = (
+            entry_price * (1 - EXECUTION_COST_PER_SIDE)
+        )
 
-    if direction == "LONG":
-        executed_entry = entry_price * (1 + execution_cost)
+        planned_stop_exit = (
+            stop * (1 + EXECUTION_COST_PER_SIDE)
+        )
 
-        if not stop < executed_entry < target:
-            return None
+        planned_risk = planned_stop_exit - executed_entry
 
-    else:
-        executed_entry = entry_price * (1 - execution_cost)
-
-        if not target < executed_entry < stop:
-            return None
-
-    initial_risk = abs(executed_entry - stop)
-
-    if not np.isfinite(initial_risk) or initial_risk <= 0:
+    if (
+        not np.isfinite(planned_risk)
+        or planned_risk <= 0
+    ):
         return None
 
     last_index = min(
@@ -482,43 +694,56 @@ def execute_trade(data, decision, entry_index, entry_price):
 
         high = safe_float(candle["high"])
         low = safe_float(candle["low"])
+        open_price = safe_float(candle["open"])
 
-        if high is None or low is None or high < low:
+        if (
+            high is None
+            or low is None
+            or open_price is None
+            or high < low
+        ):
             return None
 
-        if direction == "LONG":
-            stop_hit = low <= stop
-            target_hit = high >= target
-        else:
-            stop_hit = high >= stop
-            target_hit = low <= target
-
         if index == entry_index:
-            # OHLC data cannot establish intrabar event order.
-            # A stop touch on the entry candle is treated conservatively.
-            # Target-only touches on the entry candle are ignored.
+            # Intrabar ordering is unknown.
+            # A stop touch is treated conservatively.
+            # Target-only touches are ignored on the entry candle.
+
+            if direction == "LONG":
+                stop_hit = low <= stop
+            else:
+                stop_hit = high >= stop
 
             if stop_hit:
                 exit_index = index
-                exit_price = stop
-                exit_reason = "STOP_LOSS_ENTRY_CANDLE"
+
+                if direction == "LONG" and open_price <= stop:
+                    exit_price = open_price
+                    exit_reason = "STOP_LOSS_GAP_ENTRY_CANDLE"
+
+                elif direction == "SHORT" and open_price >= stop:
+                    exit_price = open_price
+                    exit_reason = "STOP_LOSS_GAP_ENTRY_CANDLE"
+
+                else:
+                    exit_price = stop
+                    exit_reason = "STOP_LOSS_ENTRY_CANDLE"
+
                 break
 
             continue
 
-        # If both levels are touched in one candle,
-        # assume the stop-loss was reached first.
+        fill_price, reason = get_exit_fill(
+            direction,
+            candle,
+            stop,
+            target,
+        )
 
-        if stop_hit:
+        if reason is not None:
             exit_index = index
-            exit_price = stop
-            exit_reason = "STOP_LOSS"
-            break
-
-        if target_hit:
-            exit_index = index
-            exit_price = target
-            exit_reason = "TAKE_PROFIT"
+            exit_price = fill_price
+            exit_reason = reason
             break
 
     if exit_index is None:
@@ -534,18 +759,22 @@ def execute_trade(data, decision, entry_index, entry_price):
         exit_reason = "TIME_EXIT"
 
     if direction == "LONG":
-        executed_exit = exit_price * (1 - execution_cost)
+        executed_exit = (
+            exit_price * (1 - EXECUTION_COST_PER_SIDE)
+        )
 
         gross_pnl = exit_price - entry_price
         net_pnl = executed_exit - executed_entry
 
     else:
-        executed_exit = exit_price * (1 + execution_cost)
+        executed_exit = (
+            exit_price * (1 + EXECUTION_COST_PER_SIDE)
+        )
 
         gross_pnl = entry_price - exit_price
         net_pnl = executed_entry - executed_exit
 
-    net_r = net_pnl / initial_risk
+    net_r = net_pnl / planned_risk
 
     if not np.isfinite(net_r):
         return None
@@ -553,8 +782,8 @@ def execute_trade(data, decision, entry_index, entry_price):
     return {
         "direction": direction,
         "decision_index": decision.get("decision_index"),
-        "entry_index": entry_index,
-        "exit_index": exit_index,
+        "entry_index": int(entry_index),
+        "exit_index": int(exit_index),
         "entry_time": str(
             data.iloc[entry_index]["timestamp_utc"]
         ),
@@ -568,7 +797,8 @@ def execute_trade(data, decision, entry_index, entry_price):
         "exit_price": exit_price,
         "executed_exit": executed_exit,
         "exit_reason": exit_reason,
-        "initial_risk": initial_risk,
+        "planned_risk_per_unit": planned_risk,
+        "initial_risk": planned_risk,
         "gross_pnl_per_unit": gross_pnl,
         "net_pnl_per_unit": net_pnl,
         "net_r": net_r,
@@ -598,20 +828,9 @@ def calculate_performance(trades):
         for trade in trades
     ]
 
-    winners = [
-        value for value in results
-        if value > 0
-    ]
-
-    losers = [
-        value for value in results
-        if value < 0
-    ]
-
-    breakeven = [
-        value for value in results
-        if value == 0
-    ]
+    winners = [value for value in results if value > 0]
+    losers = [value for value in results if value < 0]
+    breakeven = [value for value in results if value == 0]
 
     gross_profit = sum(winners)
     gross_loss = abs(sum(losers))
@@ -636,10 +855,7 @@ def calculate_performance(trades):
             (peak_equity - equity) / peak_equity
         ) * 100
 
-        max_drawdown = max(
-            max_drawdown,
-            drawdown,
-        )
+        max_drawdown = max(max_drawdown, drawdown)
 
     return {
         "total_trades": len(results),
@@ -673,7 +889,6 @@ def run_backtest():
     print("ERNIE AI HISTORICAL BACKTEST")
     print("=" * 65)
 
-    # Validate configuration using the actual Config.validate() contract.
     try:
         Config.validate()
     except ValueError as error:
@@ -695,11 +910,12 @@ def run_backtest():
     print(f"Model: {MODEL_ID}")
 
     data = prepare_market_features(data_file)
+    data = data.reset_index(drop=True)
+
+    validate_backtest_data(data)
 
     if len(data) <= WARMUP_CANDLES:
         raise ValueError("Not enough historical candles.")
-
-    data = data.reset_index(drop=True)
 
     CACHE_DIRECTORY.mkdir(
         parents=True,
@@ -718,7 +934,16 @@ def run_backtest():
     index = WARMUP_CANDLES
     next_query_index = WARMUP_CANDLES
 
-    while index < len(data) - 2:
+    # A decision must have enough future candles for the full
+    # entry-validity window and maximum holding period.
+    last_decision_index = (
+        len(data)
+        - 1
+        - ENTRY_VALIDITY_CANDLES
+        - MAX_HOLDING_CANDLES
+    )
+
+    while index <= last_decision_index:
         if index < next_query_index:
             index += 1
             continue
@@ -727,13 +952,20 @@ def run_backtest():
             print("Maximum AI request limit reached.")
             break
 
-        current_time = str(
+        candle_open_time = pd.Timestamp(
             data.iloc[index]["timestamp_utc"]
         )
 
+        decision_time = (
+            candle_open_time
+            + pd.Timedelta(seconds=get_timeframe_seconds())
+        )
+
+        current_time = decision_time.isoformat()
+
         print(
             f"\nAnalyzing candle {index + 1}/{len(data)} "
-            f"| {current_time}"
+            f"| Decision time: {current_time}"
         )
 
         prompt = build_prompt(data, index)
@@ -758,17 +990,13 @@ def run_backtest():
                 "model": result.get("model"),
             })
 
-            print(
-                "API ERROR:",
-                result.get("error"),
-            )
+            print("API ERROR:", result.get("error"))
 
             next_query_index = index + SIGNAL_INTERVAL
             index += 1
             continue
 
-        decision = result["decision"]
-
+        decision = result["decision"].copy()
         decision["decision_index"] = index
 
         decisions.append({
@@ -783,6 +1011,7 @@ def run_backtest():
             "reason": decision["reason"],
             "invalidation": decision["invalidation"],
             "cached": was_cached,
+            "model": result.get("model"),
             "execution_status": "NOT_PROCESSED",
         })
 
@@ -861,16 +1090,13 @@ def run_backtest():
 
     summary = {
         "model": MODEL_ID,
+        "prompt_version": PROMPT_VERSION,
         "symbol": Config.SYMBOL,
         "market_type": Config.MARKET_TYPE,
         "timeframe": Config.TIMEFRAME,
         "total_candles": len(data),
-        "first_candle": str(
-            data.iloc[0]["timestamp_utc"]
-        ),
-        "last_candle": str(
-            data.iloc[-1]["timestamp_utc"]
-        ),
+        "first_candle": str(data.iloc[0]["timestamp_utc"]),
+        "last_candle": str(data.iloc[-1]["timestamp_utc"]),
         "warmup_candles": WARMUP_CANDLES,
         "maximum_ai_calls": MAX_AI_CALLS,
         "actual_api_calls": api_calls,
@@ -881,8 +1107,13 @@ def run_backtest():
         "maximum_holding_candles": MAX_HOLDING_CANDLES,
         "fee_rate_per_side": FEE_RATE_PER_SIDE,
         "slippage_rate_per_side": SLIPPAGE_RATE_PER_SIDE,
+        "execution_cost_per_side": EXECUTION_COST_PER_SIDE,
         "risk_per_trade": RISK_PER_TRADE,
         "initial_equity": INITIAL_EQUITY,
+        "tail_policy": (
+            "Only decisions with a complete entry-validity "
+            "and maximum-holding window are evaluated."
+        ),
         "performance": overall,
         "long_performance": long_results,
         "short_performance": short_results,
@@ -903,6 +1134,7 @@ def run_backtest():
         "exit_price",
         "executed_exit",
         "exit_reason",
+        "planned_risk_per_unit",
         "initial_risk",
         "gross_pnl_per_unit",
         "net_pnl_per_unit",
@@ -923,11 +1155,11 @@ def run_backtest():
         "reason",
         "invalidation",
         "cached",
+        "model",
         "execution_status",
         "entry_index",
         "exit_index",
         "error",
-        "model",
     ]
 
     pd.DataFrame(
@@ -973,17 +1205,13 @@ def run_backtest():
     print(f"Losing trades: {overall['losing_trades']}")
     print(f"Breakeven trades: {overall['breakeven_trades']}")
 
-    print(
-        f"Win rate: {overall['win_rate_percent']:.2f}%"
-    )
-
+    print(f"Win rate: {overall['win_rate_percent']:.2f}%")
     print(f"Net R: {overall['net_r']:.4f}")
 
-    print(
-        f"Profit factor: {overall['profit_factor']:.4f}"
-        if np.isfinite(overall["profit_factor"])
-        else "Profit factor: Infinity"
-    )
+    if np.isfinite(overall["profit_factor"]):
+        print(f"Profit factor: {overall['profit_factor']:.4f}")
+    else:
+        print("Profit factor: Infinity")
 
     print(f"Average R: {overall['average_r']:.4f}")
 
@@ -992,10 +1220,7 @@ def run_backtest():
         f"{overall['max_drawdown_percent']:.2f}%"
     )
 
-    print(
-        f"Final equity: "
-        f"{overall['final_equity']:.2f}"
-    )
+    print(f"Final equity: {overall['final_equity']:.2f}")
 
     print("\nLONG PERFORMANCE")
     print(json.dumps(
