@@ -421,16 +421,23 @@ def find_entry_fill(data, decision_index, decision):
 def execute_trade(data, decision, entry_index, entry_price):
     direction = decision["decision"]
 
-    stop = decision["stop_loss"]
-    target = decision["take_profit"]
+    stop = safe_float(decision.get("stop_loss"))
+    target = safe_float(decision.get("take_profit"))
+    entry_price = safe_float(entry_price)
 
     if direction not in ("LONG", "SHORT"):
         return None
 
-    if not all(
-        np.isfinite(value) and value > 0
-        for value in (entry_price, stop, target)
-    ):
+    if entry_price is None or stop is None or target is None:
+        return None
+
+    if entry_price <= 0 or stop <= 0 or target <= 0:
+        return None
+
+    if not isinstance(entry_index, (int, np.integer)):
+        return None
+
+    if entry_index < 0 or entry_index >= len(data):
         return None
 
     if direction == "LONG":
@@ -446,12 +453,19 @@ def execute_trade(data, decision, entry_index, entry_price):
 
     if direction == "LONG":
         executed_entry = entry_price * (1 + execution_cost)
+
+        if not stop < executed_entry < target:
+            return None
+
     else:
         executed_entry = entry_price * (1 - execution_cost)
 
+        if not target < executed_entry < stop:
+            return None
+
     initial_risk = abs(executed_entry - stop)
 
-    if initial_risk <= 0:
+    if not np.isfinite(initial_risk) or initial_risk <= 0:
         return None
 
     last_index = min(
@@ -469,8 +483,8 @@ def execute_trade(data, decision, entry_index, entry_price):
         high = safe_float(candle["high"])
         low = safe_float(candle["low"])
 
-        if high is None or low is None:
-            continue
+        if high is None or low is None or high < low:
+            return None
 
         if direction == "LONG":
             stop_hit = low <= stop
@@ -480,9 +494,9 @@ def execute_trade(data, decision, entry_index, entry_price):
             target_hit = low <= target
 
         if index == entry_index:
-            # Intrabar event order is unknown with OHLC data.
-            # Count a stop touch conservatively.
-            # Ignore target-only touches on the entry candle.
+            # OHLC data cannot establish intrabar event order.
+            # A stop touch on the entry candle is treated conservatively.
+            # Target-only touches on the entry candle are ignored.
 
             if stop_hit:
                 exit_index = index
@@ -514,7 +528,7 @@ def execute_trade(data, decision, entry_index, entry_price):
             data.iloc[exit_index]["close"]
         )
 
-        if exit_price is None:
+        if exit_price is None or exit_price <= 0:
             return None
 
         exit_reason = "TIME_EXIT"
@@ -532,6 +546,9 @@ def execute_trade(data, decision, entry_index, entry_price):
         net_pnl = executed_entry - executed_exit
 
     net_r = net_pnl / initial_risk
+
+    if not np.isfinite(net_r):
+        return None
 
     return {
         "direction": direction,
