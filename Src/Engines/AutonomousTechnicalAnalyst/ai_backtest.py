@@ -634,20 +634,21 @@ def find_entry_fill(data, decision_index, decision):
             continue
 
         if direction == "LONG":
-            if open_price <= entry:
+            if open_price < entry:
                 return index, open_price
 
             if low <= entry <= high:
                 return index, entry
 
         else:
-            if open_price >= entry:
+            if open_price > entry:
                 return index, open_price
 
             if low <= entry <= high:
                 return index, entry
 
     return None, None
+
 
 
 def get_exit_fill(direction, candle, stop, target):
