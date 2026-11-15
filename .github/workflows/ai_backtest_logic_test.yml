@@ -29,3 +29,7 @@ jobs:
       - name: Run decision validation and performance tests
         run: |
           python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_ai_backtest_validation -v
+
+      - name: Run entry, execution cost, and holding period tests
+        run: |
+          python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_ai_backtest_entry_costs -v
