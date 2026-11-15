@@ -31,23 +31,14 @@ def load_market_data(file_path):
 
     df = df.copy()
 
-    numeric_columns = [
-        "timestamp",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]
-
-    for column in numeric_columns:
+    for column in REQUIRED_COLUMNS:
         df[column] = pd.to_numeric(
             df[column],
             errors="coerce",
         )
 
     df = df.dropna(
-        subset=numeric_columns
+        subset=REQUIRED_COLUMNS
     )
 
     df = df.sort_values(
@@ -59,9 +50,21 @@ def load_market_data(file_path):
             "No valid market candles found."
         )
 
+    if not np.isfinite(
+        df[REQUIRED_COLUMNS].to_numpy(dtype=float)
+    ).all():
+        raise ValueError(
+            "Non-finite market data values found."
+        )
+
     if df["timestamp"].duplicated().any():
         raise ValueError(
             "Duplicate timestamps found."
+        )
+
+    if (df["timestamp"] <= 0).any():
+        raise ValueError(
+            "Invalid timestamps found."
         )
 
     if (df["high"] < df["low"]).any():
@@ -252,7 +255,6 @@ def calculate_market_structure(df, swing_window=3):
 
     candidate_high = (
         result["high"]
-        .shift(swing_window)
         .rolling(
             window=window,
             min_periods=window,
@@ -262,7 +264,6 @@ def calculate_market_structure(df, swing_window=3):
 
     candidate_low = (
         result["low"]
-        .shift(swing_window)
         .rolling(
             window=window,
             min_periods=window,
@@ -310,12 +311,12 @@ def calculate_market_structure(df, swing_window=3):
 
     result["bos_bullish"] = (
         (result["close"] > previous_high)
-        & (previous_high.notna())
+        & previous_high.notna()
     )
 
     result["bos_bearish"] = (
         (result["close"] < previous_low)
-        & (previous_low.notna())
+        & previous_low.notna()
     )
 
     bullish_break = result["bos_bullish"]
@@ -334,11 +335,15 @@ def calculate_market_structure(df, swing_window=3):
     ] = "BEARISH_BOS"
 
     result["last_bullish_bos"] = (
-        result["close"].where(bullish_break).ffill()
+        result["close"]
+        .where(bullish_break)
+        .ffill()
     )
 
     result["last_bearish_bos"] = (
-        result["close"].where(bearish_break).ffill()
+        result["close"]
+        .where(bearish_break)
+        .ffill()
     )
 
     return result
@@ -402,13 +407,8 @@ def build_market_features(df):
         swing_window=3,
     )
 
-    result["support"] = (
-        result["last_swing_low"]
-    )
-
-    result["resistance"] = (
-        result["last_swing_high"]
-    )
+    result["support"] = result["last_swing_low"]
+    result["resistance"] = result["last_swing_high"]
 
     result["ema_trend"] = "NEUTRAL"
 
@@ -436,10 +436,6 @@ def build_market_features(df):
 def prepare_market_features(file_path):
     """Load historical candles and calculate technical features."""
 
-    market_data = load_market_data(
-        file_path
-    )
+    market_data = load_market_data(file_path)
 
-    return build_market_features(
-        market_data
-    )
+    return build_market_features(market_data)
