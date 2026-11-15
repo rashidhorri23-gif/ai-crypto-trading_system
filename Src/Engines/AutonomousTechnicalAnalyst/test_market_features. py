@@ -1,0 +1,139 @@
+
+import os
+import sys
+
+import numpy as np
+
+from .config import Config
+from .market_features import prepare_market_features
+
+
+def main():
+    print("=" * 70)
+    print("MARKET FEATURES TEST")
+    print("=" * 70)
+
+    file_path = os.path.join(
+        Config.DATA_DIRECTORY,
+        "BTC_USDT_SPOT_4H.csv",
+    )
+
+    print(f"Data file: {file_path}")
+
+    if not os.path.exists(file_path):
+        print("ERROR: Market data file not found.")
+        return 1
+
+    try:
+        df = prepare_market_features(file_path)
+
+    except Exception as exc:
+        print(
+            f"ERROR: {type(exc).__name__}: {exc}"
+        )
+        return 1
+
+    print(f"\nTotal candles: {len(df)}")
+
+    print("\nLatest candle:")
+    columns = [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "ema_20",
+        "ema_50",
+        "ema_200",
+        "rsi_14",
+        "adx_14",
+        "atr_14",
+        "plus_di",
+        "minus_di",
+        "relative_volume",
+        "support",
+        "resistance",
+        "market_structure",
+        "ema_trend",
+    ]
+
+    print(
+        df[columns].tail(1).to_string(
+            index=False
+        )
+    )
+
+    feature_columns = [
+        "ema_20",
+        "ema_50",
+        "ema_200",
+        "rsi_14",
+        "adx_14",
+        "atr_14",
+        "plus_di",
+        "minus_di",
+    ]
+
+    print("\nFeature validation:")
+
+    failed = False
+
+    for column in feature_columns:
+        valid_count = int(
+            df[column].notna().sum()
+        )
+
+        invalid_count = int(
+            np.isinf(
+                df[column].dropna()
+            ).sum()
+        )
+
+        passed = (
+            valid_count > 0
+            and invalid_count == 0
+        )
+
+        print(
+            f"{column}: "
+            f"{'PASS' if passed else 'FAIL'} "
+            f"| Valid: {valid_count} "
+            f"| Infinite: {invalid_count}"
+        )
+
+        if not passed:
+            failed = True
+
+    print("\nMarket data validation:")
+
+    timestamp_differences = (
+        df["timestamp"].diff().dropna()
+    )
+
+    expected_interval = 4 * 60 * 60 * 1000
+
+    missing_intervals = int(
+        (timestamp_differences != expected_interval).sum()
+    )
+
+    print(
+        f"Missing or irregular intervals: "
+        f"{missing_intervals}"
+    )
+
+    if missing_intervals > 0:
+        failed = True
+
+    print("\nRESULT:")
+
+    if failed:
+        print("MARKET FEATURES TEST FAILED")
+        return 1
+
+    print("MARKET FEATURES TEST PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
