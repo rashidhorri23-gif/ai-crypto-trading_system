@@ -1004,9 +1004,13 @@ def run_backtest():
 
     print("\nLoading market data...")
 
+    market_file = (
+        Path(Config.DATA_DIRECTORY)
+        / f"{Config.SYMBOL}_{Config.MARKET_TYPE}_{Config.TIMEFRAME}.csv"
+    )
+
     try:
-        raw_data = load_market_data()
-        data = build_market_features(raw_data)
+        data = prepare_market_features(market_file)
         validate_backtest_data(data)
 
     except Exception as error:
@@ -1017,6 +1021,7 @@ def run_backtest():
     print(f"Symbol: {Config.SYMBOL}")
     print(f"Market type: {Config.MARKET_TYPE}")
     print(f"Timeframe: {Config.TIMEFRAME}")
+    print(f"Data file: {market_file}")
 
     if len(data) <= WARMUP_CANDLES:
         print("Insufficient market data for backtesting.")
@@ -1030,6 +1035,7 @@ def run_backtest():
     api_calls = 0
     cache_hits = 0
     api_errors = 0
+    processing_errors = 0
 
     last_decision_index = (
         len(data)
@@ -1039,7 +1045,10 @@ def run_backtest():
     )
 
     if last_decision_index < WARMUP_CANDLES:
-        print("Insufficient candles after warmup and tail restrictions.")
+        print(
+            "Insufficient candles after warmup "
+            "and tail restrictions."
+        )
         return None
 
     print("\nStarting AI analysis...")
@@ -1051,7 +1060,11 @@ def run_backtest():
     index = WARMUP_CANDLES
 
     while index <= last_decision_index:
-        if index % SIGNAL_INTERVAL != WARMUP_CANDLES % SIGNAL_INTERVAL:
+
+        if (
+            index % SIGNAL_INTERVAL
+            != WARMUP_CANDLES % SIGNAL_INTERVAL
+        ):
             index += 1
             continue
 
@@ -1062,7 +1075,7 @@ def run_backtest():
         try:
             prompt = build_prompt(data, index)
 
-            decision, cache_hit = get_ai_decision(
+            decision_result, cache_hit = get_ai_decision(
                 prompt,
                 cache,
             )
@@ -1072,11 +1085,59 @@ def run_backtest():
             else:
                 api_calls += 1
 
-            if not decision:
+            if (
+                not isinstance(decision_result, dict)
+                or decision_result.get("status") != "success"
+            ):
                 api_errors += 1
+
+                error_message = (
+                    decision_result.get("error", "Unknown AI error")
+                    if isinstance(decision_result, dict)
+                    else "Invalid AI result structure"
+                )
+
+                decisions.append({
+                    "decision_index": index,
+                    "decision_time": str(
+                        data.iloc[index]["timestamp_utc"]
+                    ),
+                    "model": MODEL_ID,
+                    "prompt_version": PROMPT_VERSION,
+                    "status": "ERROR",
+                    "error": error_message,
+                    "cache_hit": cache_hit,
+                })
+
+                print(
+                    f"\nAI error at candle {index}: "
+                    f"{error_message}"
+                )
+
                 index += SIGNAL_INTERVAL
                 continue
 
+            decision_payload = decision_result.get("decision")
+
+            if not isinstance(decision_payload, dict):
+                api_errors += 1
+
+                decisions.append({
+                    "decision_index": index,
+                    "decision_time": str(
+                        data.iloc[index]["timestamp_utc"]
+                    ),
+                    "model": MODEL_ID,
+                    "prompt_version": PROMPT_VERSION,
+                    "status": "ERROR",
+                    "error": "Missing or invalid decision payload",
+                    "cache_hit": cache_hit,
+                })
+
+                index += SIGNAL_INTERVAL
+                continue
+
+            decision = dict(decision_payload)
             decision["decision_index"] = index
 
             decision_record = {
@@ -1084,8 +1145,9 @@ def run_backtest():
                 "decision_time": str(
                     data.iloc[index]["timestamp_utc"]
                 ),
-                "model": MODEL_ID,
+                "model": decision_result.get("model", MODEL_ID),
                 "prompt_version": PROMPT_VERSION,
+                "status": "SUCCESS",
                 "decision": decision.get("decision"),
                 "bias": decision.get("bias"),
                 "confidence": decision.get("confidence"),
@@ -1126,7 +1188,10 @@ def run_backtest():
                 index += SIGNAL_INTERVAL
                 continue
 
-            trade["model"] = MODEL_ID
+            trade["model"] = decision_result.get(
+                "model",
+                MODEL_ID,
+            )
             trade["prompt_version"] = PROMPT_VERSION
             trade["decision_time"] = str(
                 data.iloc[index]["timestamp_utc"]
@@ -1146,10 +1211,12 @@ def run_backtest():
             index = trade["exit_index"] + 1
 
         except Exception as error:
-            api_errors += 1
+            processing_errors += 1
+
             print(
-                f"\nError at candle {index}: {error}"
+                f"\nProcessing error at candle {index}: {error}"
             )
+
             index += SIGNAL_INTERVAL
 
     save_cache(cache)
@@ -1182,6 +1249,7 @@ def run_backtest():
         "api_calls": api_calls,
         "cache_hits": cache_hits,
         "api_errors": api_errors,
+        "processing_errors": processing_errors,
         "execution_cost_per_side": EXECUTION_COST_PER_SIDE,
         "fee_rate_per_side": FEE_RATE_PER_SIDE,
         "slippage_rate_per_side": SLIPPAGE_RATE_PER_SIDE,
@@ -1199,7 +1267,8 @@ def run_backtest():
 
     print(f"\nAI API calls: {api_calls}")
     print(f"Cache hits: {cache_hits}")
-    print(f"API errors: {api_errors}")
+    print(f"AI errors: {api_errors}")
+    print(f"Processing errors: {processing_errors}")
 
     print("\nOVERALL PERFORMANCE")
     print("-" * 50)
@@ -1270,27 +1339,15 @@ def run_backtest():
         "ernie_backtest_summary.json",
     )
 
-    if trades:
-        pd.DataFrame(trades).to_csv(
-            trades_path,
-            index=False,
-        )
-    else:
-        pd.DataFrame().to_csv(
-            trades_path,
-            index=False,
-        )
+    pd.DataFrame(trades).to_csv(
+        trades_path,
+        index=False,
+    )
 
-    if decisions:
-        pd.DataFrame(decisions).to_csv(
-            decisions_path,
-            index=False,
-        )
-    else:
-        pd.DataFrame().to_csv(
-            decisions_path,
-            index=False,
-        )
+    pd.DataFrame(decisions).to_csv(
+        decisions_path,
+        index=False,
+    )
 
     with open(
         summary_path,
@@ -1313,6 +1370,7 @@ def run_backtest():
     print("\nBACKTEST COMPLETED")
 
     return summary
+
 
 
 if __name__ == "__main__":
