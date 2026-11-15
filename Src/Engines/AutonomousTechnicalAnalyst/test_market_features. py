@@ -1,6 +1,5 @@
 
 import os
-import sys
 
 import numpy as np
 
@@ -10,7 +9,7 @@ from .market_features import prepare_market_features
 
 def main():
     print("=" * 70)
-    print("MARKET FEATURES TEST")
+    print("MARKET FEATURES VALIDATION TEST")
     print("=" * 70)
 
     file_path = os.path.join(
@@ -32,6 +31,8 @@ def main():
             f"ERROR: {type(exc).__name__}: {exc}"
         )
         return 1
+
+    failed = False
 
     print(f"\nTotal candles: {len(df)}")
 
@@ -64,6 +65,8 @@ def main():
         )
     )
 
+    print("\nFeature validation:")
+
     feature_columns = [
         "ema_20",
         "ema_50",
@@ -73,11 +76,8 @@ def main():
         "atr_14",
         "plus_di",
         "minus_di",
+        "relative_volume",
     ]
-
-    print("\nFeature validation:")
-
-    failed = False
 
     for column in feature_columns:
         valid_count = int(
@@ -105,27 +105,97 @@ def main():
         if not passed:
             failed = True
 
+    print("\nIndicator range validation:")
+
+    rsi_valid = df["rsi_14"].dropna()
+
+    rsi_passed = (
+        not rsi_valid.empty
+        and rsi_valid.between(0, 100).all()
+    )
+
+    print(
+        f"RSI range 0-100: "
+        f"{'PASS' if rsi_passed else 'FAIL'}"
+    )
+
+    if not rsi_passed:
+        failed = True
+
+    atr_valid = df["atr_14"].dropna()
+
+    atr_passed = (
+        not atr_valid.empty
+        and (atr_valid > 0).all()
+    )
+
+    print(
+        f"ATR positive values: "
+        f"{'PASS' if atr_passed else 'FAIL'}"
+    )
+
+    if not atr_passed:
+        failed = True
+
     print("\nMarket data validation:")
+
+    expected_interval = 4 * 60 * 60 * 1000
 
     timestamp_differences = (
         df["timestamp"].diff().dropna()
     )
 
-    expected_interval = 4 * 60 * 60 * 1000
-
-    missing_intervals = int(
+    irregular_intervals = int(
         (timestamp_differences != expected_interval).sum()
     )
 
     print(
-        f"Missing or irregular intervals: "
-        f"{missing_intervals}"
+        f"Expected 4H intervals: "
+        f"{'PASS' if irregular_intervals == 0 else 'FAIL'}"
     )
 
-    if missing_intervals > 0:
+    print(
+        f"Irregular intervals: {irregular_intervals}"
+    )
+
+    if irregular_intervals > 0:
         failed = True
 
-    print("\nRESULT:")
+    print(
+        f"Duplicate timestamps: "
+        f"{'FAIL' if df['timestamp'].duplicated().any() else 'PASS'}"
+    )
+
+    if df["timestamp"].duplicated().any():
+        failed = True
+
+    print("\nSwing structure validation:")
+
+    swing_high_count = int(
+        df["swing_high"].notna().sum()
+    )
+
+    swing_low_count = int(
+        df["swing_low"].notna().sum()
+    )
+
+    print(f"Confirmed swing highs: {swing_high_count}")
+    print(f"Confirmed swing lows: {swing_low_count}")
+
+    structure_passed = (
+        swing_high_count > 0
+        and swing_low_count > 0
+    )
+
+    print(
+        f"Swing detection: "
+        f"{'PASS' if structure_passed else 'FAIL'}"
+    )
+
+    if not structure_passed:
+        failed = True
+
+    print("\nFINAL RESULT:")
 
     if failed:
         print("MARKET FEATURES TEST FAILED")
