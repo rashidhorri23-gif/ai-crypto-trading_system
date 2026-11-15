@@ -271,15 +271,15 @@ def _request_with_retry(url, headers, payload):
 def ask_openrouter(prompt, model_override=None):
     started_at = time.time()
 
-    config_status = Config.validate()
+    try:
+        Config.validate()
 
-    if not config_status["valid"]:
+    except ValueError as exc:
         return _make_result(
             "openrouter",
             "",
             started_at,
-            error="Configuration error: "
-            + "; ".join(config_status["errors"]),
+            error=f"Configuration error: {exc}",
         )
 
     if not isinstance(prompt, str) or not prompt.strip():
