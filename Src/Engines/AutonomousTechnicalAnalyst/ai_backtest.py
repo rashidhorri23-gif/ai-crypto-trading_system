@@ -212,33 +212,32 @@ def validate_backtest_data(data):
     if utc_timestamps.isna().any():
         raise ValueError("Invalid UTC timestamps found.")
 
-    utc_values_ns = utc_timestamps.astype(
-        "int64"
-    ).to_numpy(dtype=np.int64)
-
-    expected_values_ns = (
-        timestamp_values.astype(np.int64) * 1_000_000
+    
+    utc_timestamps = pd.to_datetime(
+        data["timestamp_utc"],
+        utc=True,
+        errors="coerce",
     )
 
-    if not np.array_equal(
-        utc_values_ns,
-        expected_values_ns,
+    if utc_timestamps.isna().any():
+        raise ValueError("Invalid UTC timestamps found.")
+
+    expected_utc_timestamps = pd.to_datetime(
+        timestamps,
+        unit="ms",
+        utc=True,
+        errors="coerce",
+    )
+
+    if (
+        expected_utc_timestamps.isna().any()
+        or (
+            utc_timestamps.reset_index(drop=True)
+            != expected_utc_timestamps.reset_index(drop=True)
+        ).any()
     ):
         raise ValueError(
             "UTC timestamps do not match Unix timestamps."
-        )
-
-    expected_interval_ms = (
-        get_timeframe_seconds() * 1000
-    )
-
-    differences = np.diff(timestamp_values)
-
-    if len(differences) and not np.all(
-        differences == expected_interval_ms
-    ):
-        raise ValueError(
-            "Market data contains missing or irregular candle intervals."
         )
 
     price_columns = [
