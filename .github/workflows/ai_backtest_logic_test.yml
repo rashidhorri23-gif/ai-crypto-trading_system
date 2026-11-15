@@ -16,6 +16,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Run AI Backtest Integration Tests
+        run: python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_ai_backtest_integration -v
 
       - name: Install dependencies
         run: |
