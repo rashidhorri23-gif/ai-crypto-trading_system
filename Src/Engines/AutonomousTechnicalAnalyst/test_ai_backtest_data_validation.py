@@ -1,4 +1,4 @@
-
+import json
 import unittest
 
 import pandas as pd
@@ -90,21 +90,37 @@ class TestDecisionTimestamp(unittest.TestCase):
             prompt,
         )
 
-    def test_prompt_contains_only_available_history(self):
+        def test_prompt_contains_only_available_history(self):
         data = make_market_data(count=3)
-
         prompt = build_prompt(data, 1)
 
-        self.assertIn(
-            "2026-01-01T04:00:00+00:00",
-            prompt,
+        marker = "Historical market data:\n\n"
+        prompt_data = json.loads(
+            prompt.split(marker, 1)[1]
+        )
+
+        self.assertEqual(
+            prompt_data["decision_time_utc"],
+            "2026-01-01T08:00:00+00:00",
+        )
+
+        history_times = [
+            item["timestamp_utc"]
+            for item in prompt_data["recent_market_history"]
+        ]
+
+        self.assertEqual(
+            history_times,
+            [
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T04:00:00+00:00",
+            ],
         )
 
         self.assertNotIn(
             "2026-01-01T08:00:00+00:00",
-            prompt,
+            history_times,
         )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
