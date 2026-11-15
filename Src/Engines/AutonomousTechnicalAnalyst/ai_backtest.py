@@ -881,7 +881,7 @@ def execute_trade(data, decision, entry_index, entry_price):
 
 
 def calculate_performance(trades):
-        if not trades:
+    if not trades:
         return {
             "total_trades": 0,
             "winning_trades": 0,
@@ -920,9 +920,9 @@ def calculate_performance(trades):
         value for value in returns if value > 0
     )
 
-    gross_loss = abs(sum(
-        value for value in returns if value < 0
-    ))
+    gross_loss = abs(
+        sum(value for value in returns if value < 0)
+    )
 
     if gross_loss > 0:
         profit_factor = gross_profit / gross_loss
@@ -943,7 +943,9 @@ def calculate_performance(trades):
     max_drawdown_pct = 0.0
 
     for trade_r in returns:
-        equity *= (1 + (trade_r * RISK_PER_TRADE))
+        equity *= (
+            1 + (trade_r * RISK_PER_TRADE)
+        )
 
         peak_equity = max(peak_equity, equity)
 
@@ -954,7 +956,7 @@ def calculate_performance(trades):
 
             max_drawdown_pct = max(
                 max_drawdown_pct,
-                drawdown,
+                drawdown
             )
 
     return_pct = (
@@ -977,6 +979,7 @@ def calculate_performance(trades):
         "max_drawdown_pct": max_drawdown_pct,
         "max_drawdown_percent": max_drawdown_pct,
     }
+
 
 
 def calculate_direction_performance(trades, direction):
