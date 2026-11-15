@@ -33,3 +33,7 @@ jobs:
       - name: Run entry, execution cost, and holding period tests
         run: |
           python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_ai_backtest_entry_costs -v
+
+      - name: Run backtest data validation tests
+        run: |
+          python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_ai_backtest_data_validation -v
