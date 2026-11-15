@@ -888,6 +888,7 @@ def calculate_performance(trades):
             "losing_trades": 0,
             "breakeven_trades": 0,
             "win_rate": 0.0,
+            "win_rate_percent": 0.0,
             "net_r": 0.0,
             "profit_factor": 0.0,
             "average_r": 0.0,
@@ -932,6 +933,10 @@ def calculate_performance(trades):
     net_r = sum(returns)
     average_r = net_r / len(returns)
 
+    win_rate = (
+        winning_trades / len(returns)
+    ) * 100
+
     equity = INITIAL_EQUITY
     peak_equity = INITIAL_EQUITY
     max_drawdown_pct = 0.0
@@ -960,9 +965,8 @@ def calculate_performance(trades):
         "winning_trades": winning_trades,
         "losing_trades": losing_trades,
         "breakeven_trades": breakeven_trades,
-        "win_rate": (
-            winning_trades / len(returns)
-        ) * 100,
+        "win_rate": win_rate,
+        "win_rate_percent": win_rate,
         "net_r": net_r,
         "profit_factor": profit_factor,
         "average_r": average_r,
