@@ -52,21 +52,6 @@ class TestBacktestIntegration(unittest.TestCase):
             "exit_index": 3,
         }
 
-        performance = {
-            "total_trades": 1,
-            "winning_trades": 1,
-            "losing_trades": 0,
-            "breakeven_trades": 0,
-            "win_rate": 100.0,
-            "net_r": 1.8,
-            "profit_factor": float("inf"),
-            "average_r": 1.8,
-            "initial_equity": 10000.0,
-            "final_equity": 10180.0,
-            "return_pct": 1.8,
-            "max_drawdown_pct": 0.0,
-        }
-
         ai_results = [
             (
                 {
@@ -134,16 +119,6 @@ class TestBacktestIntegration(unittest.TestCase):
                     ) as mock_execute,
                     patch.object(
                         ai_backtest,
-                        "calculate_performance",
-                        return_value=performance,
-                    ),
-                    patch.object(
-                        ai_backtest,
-                        "calculate_direction_performance",
-                        return_value=performance,
-                    ),
-                    patch.object(
-                        ai_backtest,
                         "WARMUP_CANDLES",
                         2,
                     ),
@@ -171,18 +146,27 @@ class TestBacktestIntegration(unittest.TestCase):
 
                     summary = ai_backtest.run_backtest()
 
-                    expected_file = Path("Data/Backtest")
+                    expected_directory = Path("Data/Backtest")
 
                     self.assertTrue(
-                        (expected_file / "ernie_backtest_trades.csv").exists()
+                        (
+                            expected_directory
+                            / "ernie_backtest_trades.csv"
+                        ).exists()
                     )
 
                     self.assertTrue(
-                        (expected_file / "ernie_backtest_decisions.csv").exists()
+                        (
+                            expected_directory
+                            / "ernie_backtest_decisions.csv"
+                        ).exists()
                     )
 
                     self.assertTrue(
-                        (expected_file / "ernie_backtest_summary.json").exists()
+                        (
+                            expected_directory
+                            / "ernie_backtest_summary.json"
+                        ).exists()
                     )
 
                     self.assertEqual(summary["api_calls"], 2)
@@ -192,6 +176,26 @@ class TestBacktestIntegration(unittest.TestCase):
                     self.assertEqual(
                         summary["overall"]["total_trades"],
                         1,
+                    )
+
+                    self.assertEqual(
+                        summary["long"]["total_trades"],
+                        1,
+                    )
+
+                    self.assertEqual(
+                        summary["long"]["net_r"],
+                        1.8,
+                    )
+
+                    self.assertEqual(
+                        summary["short"]["total_trades"],
+                        0,
+                    )
+
+                    self.assertEqual(
+                        summary["short"]["net_r"],
+                        0.0,
                     )
 
                     self.assertEqual(
