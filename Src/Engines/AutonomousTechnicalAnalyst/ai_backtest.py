@@ -2,7 +2,6 @@
 import os
 import re
 import json
-import time
 import hashlib
 from pathlib import Path
 
@@ -25,6 +24,8 @@ WARMUP_CANDLES = 200
 FEE_RATE_PER_SIDE = 0.0005
 SLIPPAGE_RATE_PER_SIDE = 0.0002
 RISK_PER_TRADE = 0.01
+
+INITIAL_EQUITY = 10000.0
 
 CACHE_DIRECTORY = Path("Data/Backtest")
 CACHE_FILE = CACHE_DIRECTORY / "ernie_response_cache.json"
@@ -53,7 +54,7 @@ def json_safe(value):
             for key, item in value.items()
         }
 
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [json_safe(item) for item in value]
 
     if isinstance(value, (np.integer,)):
@@ -65,11 +66,20 @@ def json_safe(value):
     if isinstance(value, (np.bool_,)):
         return bool(value)
 
-    if pd.isna(value):
-        return None
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
 
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
+
+    if value is None:
+        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
 
     return value
 
@@ -97,7 +107,13 @@ def save_cache(cache):
     temporary_file = CACHE_FILE.with_suffix(".tmp")
 
     with open(temporary_file, "w", encoding="utf-8") as file:
-        json.dump(cache, file, indent=2, ensure_ascii=False)
+        json.dump(
+            json_safe(cache),
+            file,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
 
     temporary_file.replace(CACHE_FILE)
 
@@ -180,6 +196,8 @@ IMPORTANT RULES:
 7. Do not force a trade.
 8. Return exactly one JSON object.
 9. Do not include Markdown or explanations outside the JSON.
+10. Keep the reason and invalidation fields short.
+11. Do not provide hidden reasoning or lengthy analysis.
 
 A LONG decision requires:
 - entry above stop_loss
@@ -224,13 +242,13 @@ def extract_json(response_text):
         r"^```(?:json)?\s*",
         "",
         cleaned,
-        flags=re.IGNORECASE
+        flags=re.IGNORECASE,
     )
 
     cleaned = re.sub(
         r"\s*```$",
         "",
-        cleaned
+        cleaned,
     )
 
     start = cleaned.find("{")
@@ -253,10 +271,25 @@ def validate_decision(payload):
     if decision not in ("LONG", "SHORT", "WAIT"):
         raise ValueError("Invalid decision value.")
 
+    bias = str(
+        payload.get("bias", "NEUTRAL")
+    ).strip().upper()
+
+    if bias not in ("BULLISH", "BEARISH", "NEUTRAL"):
+        raise ValueError("Invalid bias value.")
+
+    confidence = safe_float(
+        payload.get("confidence"),
+        None,
+    )
+
+    if confidence is None or not 0 <= confidence <= 100:
+        raise ValueError("Confidence must be between 0 and 100.")
+
     result = {
         "decision": decision,
-        "bias": str(payload.get("bias", "NEUTRAL")).upper(),
-        "confidence": safe_float(payload.get("confidence"), 0),
+        "bias": bias,
+        "confidence": confidence,
         "entry": safe_float(payload.get("entry"), 0),
         "stop_loss": safe_float(payload.get("stop_loss"), 0),
         "take_profit": safe_float(payload.get("take_profit"), 0),
@@ -266,13 +299,20 @@ def validate_decision(payload):
     }
 
     if decision == "WAIT":
+        result["entry"] = 0
+        result["stop_loss"] = 0
+        result["take_profit"] = 0
+        result["risk_reward"] = 0
         return result
 
     entry = result["entry"]
     stop = result["stop_loss"]
     target = result["take_profit"]
 
-    if not all(value > 0 for value in (entry, stop, target)):
+    if not all(
+        value > 0
+        for value in (entry, stop, target)
+    ):
         raise ValueError("Trade prices must be positive.")
 
     if decision == "LONG":
@@ -312,14 +352,18 @@ def get_ai_decision(prompt, cache):
 
     response = ask_openrouter(
         prompt,
-        model_override=MODEL_ID
+        model_override=MODEL_ID,
     )
 
     if response.get("status") != "success":
         return {
             "status": "error",
-            "error": response.get("error", "Unknown API error"),
+            "error": response.get(
+                "error",
+                "Unknown API error",
+            ),
             "model": response.get("model", MODEL_ID),
+            "diagnostics": response.get("diagnostics", {}),
         }, False
 
     response_text = response.get("response_text", "")
@@ -333,6 +377,7 @@ def get_ai_decision(prompt, cache):
             "status": "error",
             "error": f"Invalid model response: {error}",
             "model": response.get("model", MODEL_ID),
+            "diagnostics": response.get("diagnostics", {}),
         }, False
 
     result = {
@@ -355,7 +400,7 @@ def find_entry_fill(data, decision_index, decision):
 
     last_index = min(
         decision_index + ENTRY_VALIDITY_CANDLES,
-        len(data) - 1
+        len(data) - 1,
     )
 
     for index in range(decision_index + 1, last_index + 1):
@@ -363,6 +408,9 @@ def find_entry_fill(data, decision_index, decision):
 
         low = safe_float(candle["low"])
         high = safe_float(candle["high"])
+
+        if low is None or high is None:
+            continue
 
         if low <= entry <= high:
             return index, entry
@@ -375,6 +423,22 @@ def execute_trade(data, decision, entry_index, entry_price):
 
     stop = decision["stop_loss"]
     target = decision["take_profit"]
+
+    if direction not in ("LONG", "SHORT"):
+        return None
+
+    if not all(
+        np.isfinite(value) and value > 0
+        for value in (entry_price, stop, target)
+    ):
+        return None
+
+    if direction == "LONG":
+        if not stop < entry_price < target:
+            return None
+    else:
+        if not target < entry_price < stop:
+            return None
 
     execution_cost = (
         FEE_RATE_PER_SIDE + SLIPPAGE_RATE_PER_SIDE
@@ -392,18 +456,21 @@ def execute_trade(data, decision, entry_index, entry_price):
 
     last_index = min(
         entry_index + MAX_HOLDING_CANDLES,
-        len(data) - 1
+        len(data) - 1,
     )
 
     exit_index = None
     exit_price = None
     exit_reason = None
 
-    for index in range(entry_index + 1, last_index + 1):
+    for index in range(entry_index, last_index + 1):
         candle = data.iloc[index]
 
         high = safe_float(candle["high"])
         low = safe_float(candle["low"])
+
+        if high is None or low is None:
+            continue
 
         if direction == "LONG":
             stop_hit = low <= stop
@@ -412,9 +479,21 @@ def execute_trade(data, decision, entry_index, entry_price):
             stop_hit = high >= stop
             target_hit = low <= target
 
-        # Conservative assumption:
+        if index == entry_index:
+            # Intrabar event order is unknown with OHLC data.
+            # Count a stop touch conservatively.
+            # Ignore target-only touches on the entry candle.
+
+            if stop_hit:
+                exit_index = index
+                exit_price = stop
+                exit_reason = "STOP_LOSS_ENTRY_CANDLE"
+                break
+
+            continue
+
         # If both levels are touched in one candle,
-        # the stop-loss is considered first.
+        # assume the stop-loss was reached first.
 
         if stop_hit:
             exit_index = index
@@ -430,36 +509,41 @@ def execute_trade(data, decision, entry_index, entry_price):
 
     if exit_index is None:
         exit_index = last_index
+
         exit_price = safe_float(
             data.iloc[exit_index]["close"]
         )
+
+        if exit_price is None:
+            return None
+
         exit_reason = "TIME_EXIT"
 
     if direction == "LONG":
         executed_exit = exit_price * (1 - execution_cost)
-        gross_pnl = executed_exit - executed_entry
+
+        gross_pnl = exit_price - entry_price
+        net_pnl = executed_exit - executed_entry
 
     else:
         executed_exit = exit_price * (1 + execution_cost)
-        gross_pnl = executed_entry - executed_exit
 
-    net_r = gross_pnl / initial_risk
+        gross_pnl = entry_price - exit_price
+        net_pnl = executed_entry - executed_exit
 
-    entry_timestamp = str(
-        data.iloc[entry_index]["timestamp_utc"]
-    )
-
-    exit_timestamp = str(
-        data.iloc[exit_index]["timestamp_utc"]
-    )
+    net_r = net_pnl / initial_risk
 
     return {
         "direction": direction,
         "decision_index": decision.get("decision_index"),
         "entry_index": entry_index,
         "exit_index": exit_index,
-        "entry_time": entry_timestamp,
-        "exit_time": exit_timestamp,
+        "entry_time": str(
+            data.iloc[entry_index]["timestamp_utc"]
+        ),
+        "exit_time": str(
+            data.iloc[exit_index]["timestamp_utc"]
+        ),
         "entry_price": entry_price,
         "executed_entry": executed_entry,
         "stop_loss": stop,
@@ -468,10 +552,8 @@ def execute_trade(data, decision, entry_index, entry_price):
         "executed_exit": executed_exit,
         "exit_reason": exit_reason,
         "initial_risk": initial_risk,
-        "gross_pnl_per_unit": (
-            abs(exit_price - entry_price)
-            * (1 if net_r >= 0 else -1)
-        ),
+        "gross_pnl_per_unit": gross_pnl,
+        "net_pnl_per_unit": net_pnl,
         "net_r": net_r,
         "confidence": decision.get("confidence"),
         "model_reason": decision.get("reason"),
@@ -484,38 +566,52 @@ def calculate_performance(trades):
             "total_trades": 0,
             "winning_trades": 0,
             "losing_trades": 0,
+            "breakeven_trades": 0,
             "win_rate_percent": 0,
             "net_r": 0,
             "profit_factor": 0,
             "average_r": 0,
             "max_drawdown_percent": 0,
-            "final_equity": 10000,
+            "initial_equity": INITIAL_EQUITY,
+            "final_equity": INITIAL_EQUITY,
         }
 
-    results = [trade["net_r"] for trade in trades]
+    results = [
+        safe_float(trade.get("net_r"), 0)
+        for trade in trades
+    ]
 
-    winners = [value for value in results if value > 0]
-    losers = [value for value in results if value < 0]
+    winners = [
+        value for value in results
+        if value > 0
+    ]
+
+    losers = [
+        value for value in results
+        if value < 0
+    ]
+
+    breakeven = [
+        value for value in results
+        if value == 0
+    ]
 
     gross_profit = sum(winners)
     gross_loss = abs(sum(losers))
 
-    profit_factor = (
-        gross_profit / gross_loss
-        if gross_loss > 0
-        else float("inf") if gross_profit > 0 else 0
-    )
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    elif gross_profit > 0:
+        profit_factor = float("inf")
+    else:
+        profit_factor = 0
 
-    equity = 10000.0
+    equity = INITIAL_EQUITY
     peak_equity = equity
     max_drawdown = 0.0
 
-    equity_values = [equity]
-
     for result in results:
         equity *= 1 + (RISK_PER_TRADE * result)
-
-        equity_values.append(equity)
 
         peak_equity = max(peak_equity, equity)
 
@@ -523,12 +619,16 @@ def calculate_performance(trades):
             (peak_equity - equity) / peak_equity
         ) * 100
 
-        max_drawdown = max(max_drawdown, drawdown)
+        max_drawdown = max(
+            max_drawdown,
+            drawdown,
+        )
 
     return {
         "total_trades": len(results),
         "winning_trades": len(winners),
         "losing_trades": len(losers),
+        "breakeven_trades": len(breakeven),
         "win_rate_percent": (
             len(winners) / len(results)
         ) * 100,
@@ -536,7 +636,7 @@ def calculate_performance(trades):
         "profit_factor": profit_factor,
         "average_r": float(np.mean(results)),
         "max_drawdown_percent": max_drawdown,
-        "initial_equity": 10000,
+        "initial_equity": INITIAL_EQUITY,
         "final_equity": equity,
     }
 
@@ -556,16 +656,17 @@ def run_backtest():
     print("ERNIE AI HISTORICAL BACKTEST")
     print("=" * 65)
 
-    errors = Config.validate()
+    config_status = Config.validate()
 
-    if not errors["valid"]:
+    if not config_status["valid"]:
         raise RuntimeError(
-            "Configuration error: " + "; ".join(errors["errors"])
+            "Configuration error: "
+            + "; ".join(config_status["errors"])
         )
 
     data_file = os.path.join(
         Config.DATA_DIRECTORY,
-        "BTC_USDT_SPOT_4H.csv"
+        "BTC_USDT_SPOT_4H.csv",
     )
 
     if not os.path.exists(data_file):
@@ -583,7 +684,10 @@ def run_backtest():
 
     data = data.reset_index(drop=True)
 
-    CACHE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    CACHE_DIRECTORY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     cache = load_cache()
 
@@ -617,7 +721,10 @@ def run_backtest():
 
         prompt = build_prompt(data, index)
 
-        result, was_cached = get_ai_decision(prompt, cache)
+        result, was_cached = get_ai_decision(
+            prompt,
+            cache,
+        )
 
         if was_cached:
             cache_hits += 1
@@ -631,9 +738,13 @@ def run_backtest():
                 "timestamp": current_time,
                 "decision": "API_ERROR",
                 "error": result.get("error"),
+                "model": result.get("model"),
             })
 
-            print("API ERROR:", result.get("error"))
+            print(
+                "API ERROR:",
+                result.get("error"),
+            )
 
             next_query_index = index + SIGNAL_INTERVAL
             index += 1
@@ -653,7 +764,9 @@ def run_backtest():
             "take_profit": decision["take_profit"],
             "risk_reward": decision["risk_reward"],
             "reason": decision["reason"],
+            "invalidation": decision["invalidation"],
             "cached": was_cached,
+            "execution_status": "NOT_PROCESSED",
         })
 
         print(
@@ -662,6 +775,8 @@ def run_backtest():
         )
 
         if decision["decision"] == "WAIT":
+            decisions[-1]["execution_status"] = "WAIT"
+
             next_query_index = index + SIGNAL_INTERVAL
             index += 1
             continue
@@ -669,7 +784,7 @@ def run_backtest():
         fill_index, fill_price = find_entry_fill(
             data,
             index,
-            decision
+            decision,
         )
 
         if fill_index is None:
@@ -685,17 +800,23 @@ def run_backtest():
             data,
             decision,
             fill_index,
-            fill_price
+            fill_price,
         )
 
         if trade is None:
-            print("Trade rejected: invalid risk.")
+            print("Trade rejected: invalid risk or price data.")
+
+            decisions[-1]["execution_status"] = "REJECTED"
 
             next_query_index = index + SIGNAL_INTERVAL
             index += 1
             continue
 
         trades.append(trade)
+
+        decisions[-1]["execution_status"] = "EXECUTED"
+        decisions[-1]["entry_index"] = fill_index
+        decisions[-1]["exit_index"] = trade["exit_index"]
 
         print(
             f"Trade closed: {trade['exit_reason']} "
@@ -706,19 +827,19 @@ def run_backtest():
 
         next_query_index = max(
             next_query_index,
-            index
+            index,
         )
 
     overall = calculate_performance(trades)
 
     long_results = calculate_direction_performance(
         trades,
-        "LONG"
+        "LONG",
     )
 
     short_results = calculate_direction_performance(
         trades,
-        "SHORT"
+        "SHORT",
     )
 
     summary = {
@@ -727,42 +848,98 @@ def run_backtest():
         "market_type": Config.MARKET_TYPE,
         "timeframe": Config.TIMEFRAME,
         "total_candles": len(data),
-        "first_candle": str(data.iloc[0]["timestamp_utc"]),
-        "last_candle": str(data.iloc[-1]["timestamp_utc"]),
+        "first_candle": str(
+            data.iloc[0]["timestamp_utc"]
+        ),
+        "last_candle": str(
+            data.iloc[-1]["timestamp_utc"]
+        ),
         "warmup_candles": WARMUP_CANDLES,
         "maximum_ai_calls": MAX_AI_CALLS,
         "actual_api_calls": api_calls,
         "cache_hits": cache_hits,
         "api_errors": api_errors,
         "signal_interval": SIGNAL_INTERVAL,
+        "entry_validity_candles": ENTRY_VALIDITY_CANDLES,
+        "maximum_holding_candles": MAX_HOLDING_CANDLES,
         "fee_rate_per_side": FEE_RATE_PER_SIDE,
         "slippage_rate_per_side": SLIPPAGE_RATE_PER_SIDE,
         "risk_per_trade": RISK_PER_TRADE,
+        "initial_equity": INITIAL_EQUITY,
         "performance": overall,
         "long_performance": long_results,
         "short_performance": short_results,
         "trades": trades,
     }
 
-    if trades:
-        pd.DataFrame(trades).to_csv(
-            TRADES_FILE,
-            index=False
-        )
+    trade_columns = [
+        "direction",
+        "decision_index",
+        "entry_index",
+        "exit_index",
+        "entry_time",
+        "exit_time",
+        "entry_price",
+        "executed_entry",
+        "stop_loss",
+        "take_profit",
+        "exit_price",
+        "executed_exit",
+        "exit_reason",
+        "initial_risk",
+        "gross_pnl_per_unit",
+        "net_pnl_per_unit",
+        "net_r",
+        "confidence",
+        "model_reason",
+    ]
 
-    if decisions:
-        pd.DataFrame(decisions).to_csv(
-            DECISIONS_FILE,
-            index=False
-        )
+    decision_columns = [
+        "timestamp",
+        "decision",
+        "bias",
+        "confidence",
+        "entry",
+        "stop_loss",
+        "take_profit",
+        "risk_reward",
+        "reason",
+        "invalidation",
+        "cached",
+        "execution_status",
+        "entry_index",
+        "exit_index",
+        "error",
+        "model",
+    ]
 
-    with open(SUMMARY_FILE, "w", encoding="utf-8") as file:
+    pd.DataFrame(
+        trades,
+        columns=trade_columns,
+    ).to_csv(
+        TRADES_FILE,
+        index=False,
+    )
+
+    pd.DataFrame(
+        decisions,
+        columns=decision_columns,
+    ).to_csv(
+        DECISIONS_FILE,
+        index=False,
+    )
+
+    with open(
+        SUMMARY_FILE,
+        "w",
+        encoding="utf-8",
+    ) as file:
         json.dump(
             json_safe(summary),
             file,
             indent=2,
             ensure_ascii=False,
-            allow_nan=False
+            allow_nan=False,
         )
 
     print("\n" + "=" * 65)
@@ -777,13 +954,20 @@ def run_backtest():
     print(f"Total trades: {overall['total_trades']}")
     print(f"Winning trades: {overall['winning_trades']}")
     print(f"Losing trades: {overall['losing_trades']}")
+    print(f"Breakeven trades: {overall['breakeven_trades']}")
 
     print(
         f"Win rate: {overall['win_rate_percent']:.2f}%"
     )
 
     print(f"Net R: {overall['net_r']:.4f}")
-    print(f"Profit factor: {overall['profit_factor']:.4f}")
+
+    print(
+        f"Profit factor: {overall['profit_factor']:.4f}"
+        if np.isfinite(overall["profit_factor"])
+        else "Profit factor: Infinity"
+    )
+
     print(f"Average R: {overall['average_r']:.4f}")
 
     print(
@@ -797,10 +981,18 @@ def run_backtest():
     )
 
     print("\nLONG PERFORMANCE")
-    print(json.dumps(long_results, indent=2))
+    print(json.dumps(
+        json_safe(long_results),
+        indent=2,
+        ensure_ascii=False,
+    ))
 
     print("\nSHORT PERFORMANCE")
-    print(json.dumps(short_results, indent=2))
+    print(json.dumps(
+        json_safe(short_results),
+        indent=2,
+        ensure_ascii=False,
+    ))
 
     print("\nOutput files:")
     print(TRADES_FILE)
