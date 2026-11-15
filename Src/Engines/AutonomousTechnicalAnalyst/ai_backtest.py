@@ -723,6 +723,10 @@ def execute_trade(data, decision, entry_index, entry_price):
             entry_price * (1 + EXECUTION_COST_PER_SIDE)
         )
 
+        # Reject trades where entry costs reach or exceed the target.
+        if executed_entry >= target:
+            return None
+
         planned_stop_exit = (
             stop * (1 - EXECUTION_COST_PER_SIDE)
         )
@@ -736,6 +740,10 @@ def execute_trade(data, decision, entry_index, entry_price):
         executed_entry = (
             entry_price * (1 - EXECUTION_COST_PER_SIDE)
         )
+
+        # Reject trades where entry costs reach or fall below the target.
+        if executed_entry <= target:
+            return None
 
         planned_stop_exit = (
             stop * (1 + EXECUTION_COST_PER_SIDE)
@@ -774,10 +782,6 @@ def execute_trade(data, decision, entry_index, entry_price):
             return None
 
         if index == entry_index:
-            # Intrabar ordering is unknown.
-            # Stop touches are treated conservatively.
-            # Target-only touches are ignored on the entry candle.
-
             if direction == "LONG":
                 stop_hit = low <= stop
             else:
@@ -874,6 +878,7 @@ def execute_trade(data, decision, entry_index, entry_price):
         "confidence": decision.get("confidence"),
         "model_reason": decision.get("reason"),
     }
+
 
 def calculate_performance(trades):
     if not trades:
