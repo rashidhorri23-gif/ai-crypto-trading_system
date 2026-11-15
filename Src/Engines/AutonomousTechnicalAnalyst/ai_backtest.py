@@ -16,8 +16,8 @@ from .market_features import prepare_market_features
 MODEL_ID = "baidu/ernie-5.5-flash-preview:free"
 PROMPT_VERSION = "2.0"
 
-MAX_AI_CALLS = 40
-SIGNAL_INTERVAL = 12
+MAX_AI_CALLS = 125
+SIGNAL_INTERVAL = 3
 ENTRY_VALIDITY_CANDLES = 3
 MAX_HOLDING_CANDLES = 24
 WARMUP_CANDLES = 200
