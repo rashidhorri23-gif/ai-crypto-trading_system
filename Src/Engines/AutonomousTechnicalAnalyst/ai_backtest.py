@@ -895,7 +895,8 @@ def calculate_performance(trades):
             "initial_equity": INITIAL_EQUITY,
             "final_equity": INITIAL_EQUITY,
             "return_pct": 0.0,
-            "max_drawdown_pct": 0.0,
+            "max_drawdown_pct": max_drawdown_pct,
+            "max_drawdown_percent": max_drawdown_pct,
         }
 
     returns = [
