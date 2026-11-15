@@ -18,7 +18,10 @@ def make_market_data(candles):
 
     for index, candle in enumerate(candles):
         rows.append({
-            "timestamp_utc": pd.Timestamp("2026-01-01") + pd.Timedelta(hours=4 * index),
+            "timestamp_utc": pd.Timestamp(
+                "2026-01-01",
+                tz="UTC"
+            ) + pd.Timedelta(hours=4 * index),
             "open": candle.get("open", 100.0),
             "high": candle["high"],
             "low": candle["low"],
@@ -103,6 +106,35 @@ class TestEntryFill(unittest.TestCase):
         self.assertEqual(index, 2)
         self.assertEqual(price, 100.0)
 
+    def test_long_entry_gap_uses_open_price(self):
+        data = make_market_data([
+            {"high": 105, "low": 101},
+            {"open": 98, "high": 102, "low": 97},
+        ])
+
+        index, price = find_entry_fill(data, 0, self.decision)
+
+        self.assertEqual(index, 1)
+        self.assertEqual(price, 98.0)
+
+    def test_short_entry_gap_uses_open_price(self):
+        decision = {
+            "decision": "SHORT",
+            "entry": 100.0,
+            "stop_loss": 105.0,
+            "take_profit": 90.0,
+        }
+
+        data = make_market_data([
+            {"high": 99, "low": 95},
+            {"open": 102, "high": 103, "low": 99},
+        ])
+
+        index, price = find_entry_fill(data, 0, decision)
+
+        self.assertEqual(index, 1)
+        self.assertEqual(price, 102.0)
+
 
 class TestExecutionCosts(unittest.TestCase):
 
@@ -131,8 +163,8 @@ class TestExecutionCosts(unittest.TestCase):
         expected_entry = 100.0 * (1 + cost)
         expected_exit = 110.0 * (1 - cost)
         expected_net_pnl = expected_exit - expected_entry
-        expected_initial_risk = expected_entry - 95.0
-        expected_net_r = expected_net_pnl / expected_initial_risk
+        expected_risk = expected_entry - 95.0 * (1 - cost)
+        expected_net_r = expected_net_pnl / expected_risk
 
         self.assertAlmostEqual(
             trade["executed_entry"],
@@ -153,8 +185,14 @@ class TestExecutionCosts(unittest.TestCase):
         )
 
         self.assertAlmostEqual(
+            trade["planned_risk_per_unit"],
+            expected_risk,
+            places=8,
+        )
+
+        self.assertAlmostEqual(
             trade["initial_risk"],
-            expected_initial_risk,
+            expected_risk,
             places=8,
         )
 
@@ -189,8 +227,8 @@ class TestExecutionCosts(unittest.TestCase):
         expected_entry = 100.0 * (1 - cost)
         expected_exit = 90.0 * (1 + cost)
         expected_net_pnl = expected_entry - expected_exit
-        expected_initial_risk = 105.0 - expected_entry
-        expected_net_r = expected_net_pnl / expected_initial_risk
+        expected_risk = 105.0 * (1 + cost) - expected_entry
+        expected_net_r = expected_net_pnl / expected_risk
 
         self.assertAlmostEqual(
             trade["executed_entry"],
@@ -207,6 +245,18 @@ class TestExecutionCosts(unittest.TestCase):
         self.assertAlmostEqual(
             trade["net_pnl_per_unit"],
             expected_net_pnl,
+            places=8,
+        )
+
+        self.assertAlmostEqual(
+            trade["planned_risk_per_unit"],
+            expected_risk,
+            places=8,
+        )
+
+        self.assertAlmostEqual(
+            trade["initial_risk"],
+            expected_risk,
             places=8,
         )
 
@@ -261,4 +311,4 @@ class TestMaximumHoldingPeriod(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)
