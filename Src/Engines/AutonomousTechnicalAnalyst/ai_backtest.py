@@ -147,6 +147,9 @@ def get_timeframe_seconds():
 
 
 def validate_backtest_data(data):
+    if not isinstance(data, pd.DataFrame):
+        raise ValueError("Market data must be a DataFrame.")
+
     if data.empty:
         raise ValueError("Market data is empty.")
 
@@ -179,7 +182,9 @@ def validate_backtest_data(data):
     if timestamps.isna().any():
         raise ValueError("Invalid timestamps found.")
 
-    timestamp_values = timestamps.to_numpy(dtype=np.float64)
+    timestamp_values = timestamps.to_numpy(
+        dtype=np.float64
+    )
 
     if not np.isfinite(timestamp_values).all():
         raise ValueError("Non-finite timestamps found.")
@@ -191,12 +196,41 @@ def validate_backtest_data(data):
         timestamp_values,
         np.floor(timestamp_values),
     ).all():
-        raise ValueError("Timestamps must be integer milliseconds.")
+        raise ValueError(
+            "Timestamps must be integer milliseconds."
+        )
 
     if pd.Series(timestamp_values).duplicated().any():
         raise ValueError("Duplicate timestamps found.")
 
-    expected_interval_ms = get_timeframe_seconds() * 1000
+    utc_timestamps = pd.to_datetime(
+        data["timestamp_utc"],
+        utc=True,
+        errors="coerce",
+    )
+
+    if utc_timestamps.isna().any():
+        raise ValueError("Invalid UTC timestamps found.")
+
+    utc_values_ns = utc_timestamps.astype(
+        "int64"
+    ).to_numpy(dtype=np.int64)
+
+    expected_values_ns = (
+        timestamp_values.astype(np.int64) * 1_000_000
+    )
+
+    if not np.array_equal(
+        utc_values_ns,
+        expected_values_ns,
+    ):
+        raise ValueError(
+            "UTC timestamps do not match Unix timestamps."
+        )
+
+    expected_interval_ms = (
+        get_timeframe_seconds() * 1000
+    )
 
     differences = np.diff(timestamp_values)
 
@@ -207,7 +241,12 @@ def validate_backtest_data(data):
             "Market data contains missing or irregular candle intervals."
         )
 
-    price_columns = ["open", "high", "low", "close"]
+    price_columns = [
+        "open",
+        "high",
+        "low",
+        "close",
+    ]
 
     prices = data[price_columns].apply(
         pd.to_numeric,
@@ -217,10 +256,12 @@ def validate_backtest_data(data):
     if prices.isna().any().any():
         raise ValueError("Invalid OHLC prices found.")
 
-    if not np.isfinite(prices.to_numpy(dtype=float)).all():
+    price_values = prices.to_numpy(dtype=np.float64)
+
+    if not np.isfinite(price_values).all():
         raise ValueError("Non-finite OHLC prices found.")
 
-    if (prices <= 0).any().any():
+    if (price_values <= 0).any():
         raise ValueError("OHLC prices must be positive.")
 
     invalid_candles = (
@@ -232,10 +273,27 @@ def validate_backtest_data(data):
     )
 
     if invalid_candles.any():
-        raise ValueError("Invalid OHLC candle geometry found.")
+        raise ValueError(
+            "Invalid OHLC candle geometry found."
+        )
+
+    volume = pd.to_numeric(
+        data["volume"],
+        errors="coerce",
+    )
+
+    if volume.isna().any():
+        raise ValueError("Invalid volume values found.")
+
+    volume_values = volume.to_numpy(dtype=np.float64)
+
+    if not np.isfinite(volume_values).all():
+        raise ValueError("Non-finite volume values found.")
+
+    if (volume_values < 0).any():
+        raise ValueError("Volume cannot be negative.")
 
     return True
-
 
 def build_market_snapshot(data, index, history_size=20):
     start_index = max(0, index - history_size + 1)
@@ -280,6 +338,12 @@ def build_market_snapshot(data, index, history_size=20):
 
 
 def build_prompt(data, index):
+    if not isinstance(index, (int, np.integer)):
+        raise ValueError("Index must be an integer.")
+
+    if index < 0 or index >= len(data):
+        raise ValueError("Prompt index is out of range.")
+
     current_candle = data.iloc[index]
 
     snapshot = build_market_snapshot(data, index)
@@ -381,7 +445,9 @@ def extract_json(response_text):
     end = cleaned.rfind("}")
 
     if start == -1 or end <= start:
-        raise ValueError("No JSON object found in model response.")
+        raise ValueError(
+            "No JSON object found in model response."
+        )
 
     return json.loads(cleaned[start:end + 1])
 
@@ -410,7 +476,9 @@ def validate_decision(payload):
     )
 
     if confidence is None or not 0 <= confidence <= 100:
-        raise ValueError("Confidence must be between 0 and 100.")
+        raise ValueError(
+            "Confidence must be between 0 and 100."
+        )
 
     result = {
         "decision": decision,
@@ -429,6 +497,7 @@ def validate_decision(payload):
         result["stop_loss"] = 0
         result["take_profit"] = 0
         result["risk_reward"] = 0
+
         return result
 
     entry = result["entry"]
@@ -528,7 +597,6 @@ def get_ai_decision(prompt, cache):
 
     return result, False
 
-
 def find_entry_fill(data, decision_index, decision):
     direction = decision.get("decision")
     entry = safe_float(decision.get("entry"))
@@ -615,6 +683,7 @@ def get_exit_fill(direction, candle, stop, target):
         stop_hit = high >= stop
         target_hit = low <= target
 
+    # Conservative assumption when both levels are touched.
     if stop_hit:
         return stop, "STOP_LOSS"
 
@@ -706,7 +775,7 @@ def execute_trade(data, decision, entry_index, entry_price):
 
         if index == entry_index:
             # Intrabar ordering is unknown.
-            # A stop touch is treated conservatively.
+            # Stop touches are treated conservatively.
             # Target-only touches are ignored on the entry candle.
 
             if direction == "LONG":
@@ -806,7 +875,6 @@ def execute_trade(data, decision, entry_index, entry_price):
         "model_reason": decision.get("reason"),
     }
 
-
 def calculate_performance(trades):
     if not trades:
         return {
@@ -814,113 +882,131 @@ def calculate_performance(trades):
             "winning_trades": 0,
             "losing_trades": 0,
             "breakeven_trades": 0,
-            "win_rate_percent": 0,
-            "net_r": 0,
-            "profit_factor": 0,
-            "average_r": 0,
-            "max_drawdown_percent": 0,
+            "win_rate": 0.0,
+            "net_r": 0.0,
+            "profit_factor": 0.0,
+            "average_r": 0.0,
             "initial_equity": INITIAL_EQUITY,
             "final_equity": INITIAL_EQUITY,
+            "return_pct": 0.0,
+            "max_drawdown_pct": 0.0,
         }
 
-    results = [
-        safe_float(trade.get("net_r"), 0)
+    returns = [
+        safe_float(trade.get("net_r"))
         for trade in trades
     ]
 
-    winners = [value for value in results if value > 0]
-    losers = [value for value in results if value < 0]
-    breakeven = [value for value in results if value == 0]
+    returns = [
+        value for value in returns
+        if value is not None
+    ]
 
-    gross_profit = sum(winners)
-    gross_loss = abs(sum(losers))
+    if not returns:
+        return calculate_performance([])
+
+    winning_trades = sum(value > 0 for value in returns)
+    losing_trades = sum(value < 0 for value in returns)
+    breakeven_trades = sum(value == 0 for value in returns)
+
+    gross_profit = sum(
+        value for value in returns if value > 0
+    )
+
+    gross_loss = abs(sum(
+        value for value in returns if value < 0
+    ))
 
     if gross_loss > 0:
         profit_factor = gross_profit / gross_loss
     elif gross_profit > 0:
         profit_factor = float("inf")
     else:
-        profit_factor = 0
+        profit_factor = 0.0
+
+    net_r = sum(returns)
+    average_r = net_r / len(returns)
 
     equity = INITIAL_EQUITY
-    peak_equity = equity
-    max_drawdown = 0.0
+    peak_equity = INITIAL_EQUITY
+    max_drawdown_pct = 0.0
 
-    for result in results:
-        equity *= 1 + (RISK_PER_TRADE * result)
+    for trade_r in returns:
+        equity *= (1 + (trade_r * RISK_PER_TRADE))
 
         peak_equity = max(peak_equity, equity)
 
-        drawdown = (
-            (peak_equity - equity) / peak_equity
-        ) * 100
+        if peak_equity > 0:
+            drawdown = (
+                (peak_equity - equity) / peak_equity
+            ) * 100
 
-        max_drawdown = max(max_drawdown, drawdown)
+            max_drawdown_pct = max(
+                max_drawdown_pct,
+                drawdown,
+            )
+
+    return_pct = (
+        (equity - INITIAL_EQUITY) / INITIAL_EQUITY
+    ) * 100
 
     return {
-        "total_trades": len(results),
-        "winning_trades": len(winners),
-        "losing_trades": len(losers),
-        "breakeven_trades": len(breakeven),
-        "win_rate_percent": (
-            len(winners) / len(results)
+        "total_trades": len(returns),
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "breakeven_trades": breakeven_trades,
+        "win_rate": (
+            winning_trades / len(returns)
         ) * 100,
-        "net_r": sum(results),
+        "net_r": net_r,
         "profit_factor": profit_factor,
-        "average_r": float(np.mean(results)),
-        "max_drawdown_percent": max_drawdown,
+        "average_r": average_r,
         "initial_equity": INITIAL_EQUITY,
         "final_equity": equity,
+        "return_pct": return_pct,
+        "max_drawdown_pct": max_drawdown_pct,
     }
 
 
 def calculate_direction_performance(trades, direction):
-    selected = [
-        trade
-        for trade in trades
-        if trade["direction"] == direction
+    filtered_trades = [
+        trade for trade in trades
+        if trade.get("direction") == direction
     ]
 
-    return calculate_performance(selected)
+    return calculate_performance(filtered_trades)
 
 
 def run_backtest():
-    print("=" * 65)
-    print("ERNIE AI HISTORICAL BACKTEST")
-    print("=" * 65)
+    print("=" * 70)
+    print("AUTONOMOUS AI TECHNICAL ANALYST BACKTEST")
+    print("=" * 70)
 
     try:
         Config.validate()
     except ValueError as error:
-        raise RuntimeError(
-            f"Configuration error: {error}"
-        ) from error
+        print(f"Configuration error: {error}")
+        return None
 
-    data_file = os.path.join(
-        Config.DATA_DIRECTORY,
-        "BTC_USDT_SPOT_4H.csv",
-    )
+    print("\nLoading market data...")
 
-    if not os.path.exists(data_file):
-        raise FileNotFoundError(
-            f"Market data file not found: {data_file}"
-        )
+    try:
+        raw_data = load_market_data()
+        data = build_market_features(raw_data)
+        validate_backtest_data(data)
 
-    print(f"Data file: {data_file}")
-    print(f"Model: {MODEL_ID}")
+    except Exception as error:
+        print(f"Market data error: {error}")
+        return None
 
-    data = prepare_market_features(data_file)
-    data = data.reset_index(drop=True)
-
-    validate_backtest_data(data)
+    print(f"Loaded candles: {len(data)}")
+    print(f"Symbol: {Config.SYMBOL}")
+    print(f"Market type: {Config.MARKET_TYPE}")
+    print(f"Timeframe: {Config.TIMEFRAME}")
 
     if len(data) <= WARMUP_CANDLES:
-        raise ValueError("Not enough historical candles.")
-
-    CACHE_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+        print("Insufficient market data for backtesting.")
+        return None
 
     cache = load_cache()
 
@@ -931,11 +1017,6 @@ def run_backtest():
     cache_hits = 0
     api_errors = 0
 
-    index = WARMUP_CANDLES
-    next_query_index = WARMUP_CANDLES
-
-    # A decision must have enough future candles for the full
-    # entry-validity window and maximum holding period.
     last_decision_index = (
         len(data)
         - 1
@@ -943,304 +1024,277 @@ def run_backtest():
         - MAX_HOLDING_CANDLES
     )
 
+    if last_decision_index < WARMUP_CANDLES:
+        print("Insufficient candles after warmup and tail restrictions.")
+        return None
+
+    print("\nStarting AI analysis...")
+    print(f"Maximum live API calls: {MAX_AI_CALLS}")
+    print(f"Signal interval: {SIGNAL_INTERVAL} candles")
+    print(f"Entry validity: {ENTRY_VALIDITY_CANDLES} candles")
+    print(f"Maximum holding period: {MAX_HOLDING_CANDLES} candles")
+
+    index = WARMUP_CANDLES
+
     while index <= last_decision_index:
-        if index < next_query_index:
+        if index % SIGNAL_INTERVAL != WARMUP_CANDLES % SIGNAL_INTERVAL:
             index += 1
             continue
 
         if api_calls >= MAX_AI_CALLS:
-            print("Maximum AI request limit reached.")
+            print("\nMaximum AI API call limit reached.")
             break
 
-        candle_open_time = pd.Timestamp(
-            data.iloc[index]["timestamp_utc"]
-        )
+        try:
+            prompt = build_prompt(data, index)
 
-        decision_time = (
-            candle_open_time
-            + pd.Timedelta(seconds=get_timeframe_seconds())
-        )
+            decision, cache_hit = get_ai_decision(
+                prompt,
+                cache,
+            )
 
-        current_time = decision_time.isoformat()
+            if cache_hit:
+                cache_hits += 1
+            else:
+                api_calls += 1
 
-        print(
-            f"\nAnalyzing candle {index + 1}/{len(data)} "
-            f"| Decision time: {current_time}"
-        )
+            if not decision:
+                api_errors += 1
+                index += SIGNAL_INTERVAL
+                continue
 
-        prompt = build_prompt(data, index)
+            decision["decision_index"] = index
 
-        result, was_cached = get_ai_decision(
-            prompt,
-            cache,
-        )
+            decision_record = {
+                "decision_index": index,
+                "decision_time": str(
+                    data.iloc[index]["timestamp_utc"]
+                ),
+                "model": MODEL_ID,
+                "prompt_version": PROMPT_VERSION,
+                "decision": decision.get("decision"),
+                "bias": decision.get("bias"),
+                "confidence": decision.get("confidence"),
+                "entry": decision.get("entry"),
+                "stop_loss": decision.get("stop_loss"),
+                "take_profit": decision.get("take_profit"),
+                "risk_reward": decision.get("risk_reward"),
+                "reason": decision.get("reason"),
+                "cache_hit": cache_hit,
+            }
 
-        if was_cached:
-            cache_hits += 1
-        else:
-            api_calls += 1
+            decisions.append(decision_record)
 
-        if result.get("status") != "success":
+            direction = decision.get("decision")
+
+            if direction not in ("LONG", "SHORT"):
+                index += SIGNAL_INTERVAL
+                continue
+
+            entry_index, entry_price = find_entry_fill(
+                data,
+                index,
+                decision,
+            )
+
+            if entry_index is None:
+                index += SIGNAL_INTERVAL
+                continue
+
+            trade = execute_trade(
+                data,
+                decision,
+                entry_index,
+                entry_price,
+            )
+
+            if trade is None:
+                index += SIGNAL_INTERVAL
+                continue
+
+            trade["model"] = MODEL_ID
+            trade["prompt_version"] = PROMPT_VERSION
+            trade["decision_time"] = str(
+                data.iloc[index]["timestamp_utc"]
+            )
+
+            trades.append(trade)
+
+            print(
+                f"\nTrade {len(trades)}: "
+                f"{trade['direction']} | "
+                f"Entry: {trade['entry_price']:.2f} | "
+                f"Exit: {trade['exit_price']:.2f} | "
+                f"Result: {trade['net_r']:.4f}R | "
+                f"Reason: {trade['exit_reason']}"
+            )
+
+            index = trade["exit_index"] + 1
+
+        except Exception as error:
             api_errors += 1
+            print(
+                f"\nError at candle {index}: {error}"
+            )
+            index += SIGNAL_INTERVAL
 
-            decisions.append({
-                "timestamp": current_time,
-                "decision": "API_ERROR",
-                "error": result.get("error"),
-                "model": result.get("model"),
-            })
+    save_cache(cache)
 
-            print("API ERROR:", result.get("error"))
+    print("\n" + "=" * 70)
+    print("BACKTEST RESULTS")
+    print("=" * 70)
 
-            next_query_index = index + SIGNAL_INTERVAL
-            index += 1
-            continue
+    performance = calculate_performance(trades)
 
-        decision = result["decision"].copy()
-        decision["decision_index"] = index
-
-        decisions.append({
-            "timestamp": current_time,
-            "decision": decision["decision"],
-            "bias": decision["bias"],
-            "confidence": decision["confidence"],
-            "entry": decision["entry"],
-            "stop_loss": decision["stop_loss"],
-            "take_profit": decision["take_profit"],
-            "risk_reward": decision["risk_reward"],
-            "reason": decision["reason"],
-            "invalidation": decision["invalidation"],
-            "cached": was_cached,
-            "model": result.get("model"),
-            "execution_status": "NOT_PROCESSED",
-        })
-
-        print(
-            f"Decision: {decision['decision']} "
-            f"| Confidence: {decision['confidence']}"
-        )
-
-        if decision["decision"] == "WAIT":
-            decisions[-1]["execution_status"] = "WAIT"
-
-            next_query_index = index + SIGNAL_INTERVAL
-            index += 1
-            continue
-
-        fill_index, fill_price = find_entry_fill(
-            data,
-            index,
-            decision,
-        )
-
-        if fill_index is None:
-            print("Entry order was not filled.")
-
-            decisions[-1]["execution_status"] = "NOT_FILLED"
-
-            next_query_index = index + SIGNAL_INTERVAL
-            index += 1
-            continue
-
-        trade = execute_trade(
-            data,
-            decision,
-            fill_index,
-            fill_price,
-        )
-
-        if trade is None:
-            print("Trade rejected: invalid risk or price data.")
-
-            decisions[-1]["execution_status"] = "REJECTED"
-
-            next_query_index = index + SIGNAL_INTERVAL
-            index += 1
-            continue
-
-        trades.append(trade)
-
-        decisions[-1]["execution_status"] = "EXECUTED"
-        decisions[-1]["entry_index"] = fill_index
-        decisions[-1]["exit_index"] = trade["exit_index"]
-
-        print(
-            f"Trade closed: {trade['exit_reason']} "
-            f"| Net R: {trade['net_r']:.4f}"
-        )
-
-        index = trade["exit_index"] + 1
-
-        next_query_index = max(
-            next_query_index,
-            index,
-        )
-
-    overall = calculate_performance(trades)
-
-    long_results = calculate_direction_performance(
+    long_performance = calculate_direction_performance(
         trades,
         "LONG",
     )
 
-    short_results = calculate_direction_performance(
+    short_performance = calculate_direction_performance(
         trades,
         "SHORT",
     )
 
     summary = {
-        "model": MODEL_ID,
-        "prompt_version": PROMPT_VERSION,
         "symbol": Config.SYMBOL,
         "market_type": Config.MARKET_TYPE,
         "timeframe": Config.TIMEFRAME,
-        "total_candles": len(data),
+        "model": MODEL_ID,
+        "prompt_version": PROMPT_VERSION,
+        "candles": len(data),
         "first_candle": str(data.iloc[0]["timestamp_utc"]),
         "last_candle": str(data.iloc[-1]["timestamp_utc"]),
-        "warmup_candles": WARMUP_CANDLES,
-        "maximum_ai_calls": MAX_AI_CALLS,
-        "actual_api_calls": api_calls,
+        "api_calls": api_calls,
         "cache_hits": cache_hits,
         "api_errors": api_errors,
-        "signal_interval": SIGNAL_INTERVAL,
-        "entry_validity_candles": ENTRY_VALIDITY_CANDLES,
-        "maximum_holding_candles": MAX_HOLDING_CANDLES,
+        "execution_cost_per_side": EXECUTION_COST_PER_SIDE,
         "fee_rate_per_side": FEE_RATE_PER_SIDE,
         "slippage_rate_per_side": SLIPPAGE_RATE_PER_SIDE,
-        "execution_cost_per_side": EXECUTION_COST_PER_SIDE,
         "risk_per_trade": RISK_PER_TRADE,
-        "initial_equity": INITIAL_EQUITY,
+        "entry_validity_candles": ENTRY_VALIDITY_CANDLES,
+        "maximum_holding_candles": MAX_HOLDING_CANDLES,
         "tail_policy": (
-            "Only decisions with a complete entry-validity "
-            "and maximum-holding window are evaluated."
+            "Only decisions with a complete entry window "
+            "and maximum holding period are eligible."
         ),
-        "performance": overall,
-        "long_performance": long_results,
-        "short_performance": short_results,
-        "trades": trades,
+        "overall": performance,
+        "long": long_performance,
+        "short": short_performance,
     }
 
-    trade_columns = [
-        "direction",
-        "decision_index",
-        "entry_index",
-        "exit_index",
-        "entry_time",
-        "exit_time",
-        "entry_price",
-        "executed_entry",
-        "stop_loss",
-        "take_profit",
-        "exit_price",
-        "executed_exit",
-        "exit_reason",
-        "planned_risk_per_unit",
-        "initial_risk",
-        "gross_pnl_per_unit",
-        "net_pnl_per_unit",
-        "net_r",
-        "confidence",
-        "model_reason",
-    ]
+    print(f"\nAI API calls: {api_calls}")
+    print(f"Cache hits: {cache_hits}")
+    print(f"API errors: {api_errors}")
 
-    decision_columns = [
-        "timestamp",
-        "decision",
-        "bias",
-        "confidence",
-        "entry",
-        "stop_loss",
-        "take_profit",
-        "risk_reward",
-        "reason",
-        "invalidation",
-        "cached",
-        "model",
-        "execution_status",
-        "entry_index",
-        "exit_index",
-        "error",
-    ]
+    print("\nOVERALL PERFORMANCE")
+    print("-" * 50)
+    print(f"Total trades: {performance['total_trades']}")
+    print(f"Wins: {performance['winning_trades']}")
+    print(f"Losses: {performance['losing_trades']}")
+    print(f"Breakeven: {performance['breakeven_trades']}")
+    print(f"Win rate: {performance['win_rate']:.2f}%")
+    print(f"Net R: {performance['net_r']:.4f}R")
 
-    pd.DataFrame(
-        trades,
-        columns=trade_columns,
-    ).to_csv(
-        TRADES_FILE,
-        index=False,
+    if np.isfinite(performance["profit_factor"]):
+        print(
+            f"Profit factor: "
+            f"{performance['profit_factor']:.4f}"
+        )
+    else:
+        print("Profit factor: Infinity")
+
+    print(f"Average R: {performance['average_r']:.4f}R")
+    print(f"Initial equity: ${performance['initial_equity']:.2f}")
+    print(f"Final equity: ${performance['final_equity']:.2f}")
+    print(f"Return: {performance['return_pct']:.2f}%")
+    print(
+        f"Maximum drawdown: "
+        f"{performance['max_drawdown_pct']:.2f}%"
     )
 
-    pd.DataFrame(
-        decisions,
-        columns=decision_columns,
-    ).to_csv(
-        DECISIONS_FILE,
-        index=False,
+    print("\nLONG PERFORMANCE")
+    print("-" * 50)
+    print(f"Trades: {long_performance['total_trades']}")
+    print(f"Wins: {long_performance['winning_trades']}")
+    print(f"Losses: {long_performance['losing_trades']}")
+    print(f"Win rate: {long_performance['win_rate']:.2f}%")
+    print(f"Net R: {long_performance['net_r']:.4f}R")
+    print(f"Profit factor: {long_performance['profit_factor']}")
+
+    print("\nSHORT PERFORMANCE")
+    print("-" * 50)
+    print(f"Trades: {short_performance['total_trades']}")
+    print(f"Wins: {short_performance['winning_trades']}")
+    print(f"Losses: {short_performance['losing_trades']}")
+    print(f"Win rate: {short_performance['win_rate']:.2f}%")
+    print(f"Net R: {short_performance['net_r']:.4f}R")
+    print(f"Profit factor: {short_performance['profit_factor']}")
+
+    output_directory = os.path.join(
+        "Data",
+        "Backtest",
     )
+
+    os.makedirs(
+        output_directory,
+        exist_ok=True,
+    )
+
+    trades_path = os.path.join(
+        output_directory,
+        "ernie_backtest_trades.csv",
+    )
+
+    decisions_path = os.path.join(
+        output_directory,
+        "ernie_backtest_decisions.csv",
+    )
+
+    summary_path = os.path.join(
+        output_directory,
+        "ernie_backtest_summary.json",
+    )
+
+    if trades:
+        pd.DataFrame(trades).to_csv(
+            trades_path,
+            index=False,
+        )
+    else:
+        pd.DataFrame().to_csv(
+            trades_path,
+            index=False,
+        )
+
+    if decisions:
+        pd.DataFrame(decisions).to_csv(
+            decisions_path,
+            index=False,
+        )
+    else:
+        pd.DataFrame().to_csv(
+            decisions_path,
+            index=False,
+        )
 
     with open(
-        SUMMARY_FILE,
+        summary_path,
         "w",
         encoding="utf-8",
     ) as file:
         json.dump(
             json_safe(summary),
             file,
-            indent=2,
+            indent=4,
             ensure_ascii=False,
-            allow_nan=False,
         )
 
-    print("\n" + "=" * 65)
-    print("BACKTEST RESULTS")
-    print("=" * 65)
-
-    print(f"Total candles: {len(data)}")
-    print(f"AI requests: {api_calls}")
-    print(f"Cache hits: {cache_hits}")
-    print(f"API errors: {api_errors}")
-
-    print(f"Total trades: {overall['total_trades']}")
-    print(f"Winning trades: {overall['winning_trades']}")
-    print(f"Losing trades: {overall['losing_trades']}")
-    print(f"Breakeven trades: {overall['breakeven_trades']}")
-
-    print(f"Win rate: {overall['win_rate_percent']:.2f}%")
-    print(f"Net R: {overall['net_r']:.4f}")
-
-    if np.isfinite(overall["profit_factor"]):
-        print(f"Profit factor: {overall['profit_factor']:.4f}")
-    else:
-        print("Profit factor: Infinity")
-
-    print(f"Average R: {overall['average_r']:.4f}")
-
-    print(
-        f"Maximum drawdown: "
-        f"{overall['max_drawdown_percent']:.2f}%"
-    )
-
-    print(f"Final equity: {overall['final_equity']:.2f}")
-
-    print("\nLONG PERFORMANCE")
-    print(json.dumps(
-        json_safe(long_results),
-        indent=2,
-        ensure_ascii=False,
-    ))
-
-    print("\nSHORT PERFORMANCE")
-    print(json.dumps(
-        json_safe(short_results),
-        indent=2,
-        ensure_ascii=False,
-    ))
-
-    print("\nOutput files:")
-    print(TRADES_FILE)
-    print(DECISIONS_FILE)
-    print(SUMMARY_FILE)
-    print(CACHE_FILE)
+    print("\nOUTPUT FILES")
+    print("-" * 50)
+    print(trades_path)
+    print(decisions_path)
+    print(summary_path)
 
     print("\nBACKTEST COMPLETED")
 
