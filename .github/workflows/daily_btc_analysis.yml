@@ -10,7 +10,7 @@ permissions:
 jobs:
   btc-analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Repository
@@ -31,10 +31,6 @@ jobs:
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
 
-      - name: Run BTC 4H Analysis Preparation
-        run: |
-          python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
-
       - name: Save Updated BTC Archive
         run: |
           git add Data/Archive/BTC_USDT_SPOT_4H.csv
@@ -49,6 +45,12 @@ jobs:
             git push
           fi
 
+      - name: Run BTC 4H Vision Analysis
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
+
       - name: Upload BTC Analysis Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,5 +59,7 @@ jobs:
           path: |
             Reports/BTC_4H_Vision_Chart.png
             Reports/BTC_4H_Market_Context.txt
+            Reports/BTC_4H_Vision_Report.json
+            Reports/BTC_4H_Vision_Raw.txt
           if-no-files-found: warn
           retention-days: 7
