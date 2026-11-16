@@ -1,217 +1,519 @@
 
-def build_btc_4h_prompt(market_context):
-    """Build a structured BTC 4H chart analysis prompt."""
+import base64
+import json
+import mimetypes
+import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
-    if not isinstance(market_context, str):
-        raise TypeError("Market context must be a string.")
+from pathlib import Path
 
-    if not market_context.strip():
-        raise ValueError("Market context cannot be empty.")
+from .config import Config
 
-    prompt = """
-You are a professional cryptocurrency market structure analyst.
 
-Analyze the attached BTC-USDT 4H candlestick chart using the
-provided market data context.
+def _read_error_body(error):
+    try:
+        return error.read().decode(
+            "utf-8",
+            errors="replace",
+        )[:2000]
+    except Exception:
+        return str(error)
 
-Do not predict with certainty.
-Do not invent price levels or technical events.
-Do not force trades.
-Do not treat an unclosed candle as confirmed.
 
-MARKET DATA CONTEXT:
-"""
+def _request_json(url, method="GET", payload=None):
+    headers = {
+        "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-    prompt += market_context.strip()
+    body = None
 
-    prompt += """
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
 
-ANALYSIS REQUIREMENTS:
+    request = urllib.request.Request(
+        url=url,
+        headers=headers,
+        data=body,
+        method=method,
+    )
 
-1. Identify the dominant direction:
-   BULLISH, BEARISH, or SIDEWAYS.
+    with urllib.request.urlopen(
+        request,
+        timeout=Config.REQUEST_TIMEOUT,
+    ) as response:
+        return json.loads(
+            response.read().decode("utf-8")
+        )
 
-2. Analyze external and internal market structure.
 
-3. Identify HH, HL, LH, LL, BOS and CHOCH when visible.
+def discover_free_vision_models(limit=10):
+    """Discover free models that accept images and return text."""
 
-4. Identify important support and resistance levels.
+    if not Config.OPENROUTER_API_KEY:
+        return {
+            "status": "error",
+            "models": [],
+            "error": "OPENROUTER_API_KEY is not configured.",
+        }
 
-5. Evaluate breakouts, failed breakouts and pullbacks.
+    query = urllib.parse.urlencode({
+        "input_modalities": "image",
+        "sort": "most-popular",
+    })
 
-6. Identify candlestick patterns only when clearly visible.
+    url = (
+        Config.OPENROUTER_BASE_URL
+        + "/models?"
+        + query
+    )
 
-7. Evaluate both bullish and bearish scenarios independently.
+    try:
+        data = _request_json(url)
 
-8. Prepare a complete conditional LONG plan and a complete
-   conditional SHORT plan, even when the final decision is WAIT.
+        discovered = []
 
-9. Each scenario must include:
-   - Breakout entry zone.
-   - Retest entry zone.
-   - Stop loss.
-   - Take profit 1.
-   - Take profit 2.
-   - Take profit 3.
-   - Risk/reward ratio for each target.
-   - Activation condition.
-   - Invalidation condition.
+        for item in data.get("data", []):
+            model_id = item.get("id", "")
+            architecture = item.get("architecture", {})
+            pricing = item.get("pricing", {})
 
-10. Breakout entries must require a confirmed 4H candle close
-    beyond the relevant support or resistance.
+            input_modalities = architecture.get(
+                "input_modalities", []
+            )
 
-11. Retest entries must require price to revisit the broken
-    level and show confirmation in the intended direction.
+            output_modalities = architecture.get(
+                "output_modalities", []
+            )
 
-12. Do not consider a simple wick beyond a level as a confirmed
-    breakout.
+            try:
+                prompt_price = float(
+                    pricing.get("prompt", -1)
+                )
 
-13. Entry zones must be based on visible price structure.
-    Do not create arbitrary percentage-based entry zones.
+                completion_price = float(
+                    pricing.get("completion", -1)
+                )
+            except (TypeError, ValueError):
+                continue
 
-14. Stop loss must be placed beyond a technically meaningful
-    invalidation level.
+            if not model_id.endswith(":free"):
+                continue
 
-15. Take profit levels must be based on visible support,
-    resistance, liquidity areas, or other defensible chart levels.
+            if prompt_price != 0 or completion_price != 0:
+                continue
 
-16. Target prices must be ordered correctly:
-    LONG: TP1 < TP2 < TP3.
-    SHORT: TP1 > TP2 > TP3.
+            if "image" not in input_modalities:
+                continue
 
-17. Risk/reward ratios must be calculated from the proposed
-    entry and stop loss. Return null if they cannot be calculated.
+            if "text" not in input_modalities:
+                continue
 
-18. If a reliable entry, stop loss, or target cannot be identified,
-    use null for that value. Explain the limitation.
+            if "text" not in output_modalities:
+                continue
 
-19. Keep both scenario plans CONDITIONAL unless their activation
-    conditions have already been confirmed.
+            discovered.append({
+                "id": model_id,
+                "name": item.get("name", model_id),
+                "context_length": item.get(
+                    "context_length", 0
+                ),
+            })
 
-20. The final decision must reflect current market conditions:
-    LONG, SHORT, or WAIT.
+            if len(discovered) >= limit:
+                break
 
-21. WAIT means there is no currently confirmed trade.
-    It does not mean bullish_plan and bearish_plan should be empty.
+        return {
+            "status": "success",
+            "models": discovered,
+            "error": None,
+        }
 
-22. Never use future information.
+    except urllib.error.HTTPError as error:
+        return {
+            "status": "error",
+            "models": [],
+            "error": (
+                f"HTTP {error.code}: "
+                f"{_read_error_body(error)}"
+            ),
+        }
 
-23. Distinguish chart observations from interpretations.
+    except Exception as error:
+        return {
+            "status": "error",
+            "models": [],
+            "error": f"{type(error).__name__}: {error}",
+        }
 
-24. If the chart is unclear or data is insufficient, reduce
-    confidence and return WAIT.
 
-FINAL DECISION RULES:
+def build_vision_model_priority():
+    """Build the priority list for vision-capable models."""
 
-- LONG only when a bullish setup is currently confirmed.
-- SHORT only when a bearish setup is currently confirmed.
-- Otherwise return WAIT.
-- Never activate both directions simultaneously.
-- When decision is WAIT, trade_setup.direction must be NONE.
-- Conditional scenario plans must remain available during WAIT.
-- When a trade is active, trade_setup must contain the selected
-  active setup.
+    discovered = discover_free_vision_models(limit=10)
 
-OUTPUT REQUIREMENTS:
+    if discovered["status"] != "success":
+        return {
+            "status": "error",
+            "models": [],
+            "error": discovered["error"],
+        }
 
-Return one valid JSON object only.
-Do not use Markdown code fences.
-Do not add text before or after the JSON.
+    models = [
+        item["id"]
+        for item in discovered["models"]
+    ]
 
-Use exactly these keys:
+    preferred = os.getenv(
+        "OPENROUTER_VISION_MODEL",
+        "",
+    ).strip()
 
-{
-  "symbol": "BTC-USDT",
-  "timeframe": "4H",
-  "market_bias": "BULLISH | BEARISH | SIDEWAYS",
-  "confidence": 0,
-  "decision": "LONG | SHORT | WAIT",
-  "current_price": null,
-  "structure_summary": "",
-  "external_structure": "",
-  "internal_structure": "",
-  "key_supports": [],
-  "key_resistances": [],
-  "bullish_scenario": "",
-  "bearish_scenario": "",
-  "bullish_plan": {
-    "status": "CONDITIONAL",
-    "breakout_entry": {
-      "entry_zone_low": null,
-      "entry_zone_high": null,
-      "confirmation_condition": ""
-    },
-    "retest_entry": {
-      "entry_zone_low": null,
-      "entry_zone_high": null,
-      "confirmation_condition": ""
-    },
-    "stop_loss": null,
-    "take_profit_1": null,
-    "take_profit_2": null,
-    "take_profit_3": null,
-    "risk_reward_to_tp1": null,
-    "risk_reward_to_tp2": null,
-    "risk_reward_to_tp3": null,
-    "activation_condition": "",
-    "invalidation_condition": ""
-  },
-  "bearish_plan": {
-    "status": "CONDITIONAL",
-    "breakout_entry": {
-      "entry_zone_low": null,
-      "entry_zone_high": null,
-      "confirmation_condition": ""
-    },
-    "retest_entry": {
-      "entry_zone_low": null,
-      "entry_zone_high": null,
-      "confirmation_condition": ""
-    },
-    "stop_loss": null,
-    "take_profit_1": null,
-    "take_profit_2": null,
-    "take_profit_3": null,
-    "risk_reward_to_tp1": null,
-    "risk_reward_to_tp2": null,
-    "risk_reward_to_tp3": null,
-    "activation_condition": "",
-    "invalidation_condition": ""
-  },
-  "trade_setup": {
-    "direction": "LONG | SHORT | NONE",
-    "entry_zone_low": null,
-    "entry_zone_high": null,
-    "stop_loss": null,
-    "take_profit_1": null,
-    "take_profit_2": null,
-    "take_profit_3": null,
-    "risk_reward_ratio": null,
-    "confirmation_condition": "",
-    "invalidation_condition": ""
-  },
-  "main_risks": [],
-  "data_limitations": []
-}
+    if preferred:
+        if preferred not in models:
+            return {
+                "status": "error",
+                "models": [],
+                "error": (
+                    "Configured vision model is not "
+                    "available in the verified free vision list: "
+                    + preferred
+                ),
+            }
 
-VALIDATION RULES:
+        models.remove(preferred)
+        models.insert(0, preferred)
 
-- confidence must be an integer from 0 to 100.
-- Numeric price levels must be JSON numbers or null.
-- Use null when a value cannot be determined reliably.
-- Support and resistance arrays must contain numeric prices.
-- All three take profit levels must be logically ordered.
-- Risk/reward values must be numeric or null.
-- Do not fabricate prices to fill missing values.
-- Both bullish_plan and bearish_plan must always be present.
-- Both scenario plan statuses must be CONDITIONAL unless the
-  corresponding scenario is currently confirmed.
-- WAIT requires trade_setup.direction = NONE.
-- LONG requires trade_setup.direction = LONG.
-- SHORT requires trade_setup.direction = SHORT.
-- For LONG, trade_setup must reflect the active bullish plan.
-- For SHORT, trade_setup must reflect the active bearish plan.
-- Return valid JSON with double quotes.
-"""
+    return {
+        "status": "success",
+        "models": models,
+        "error": None,
+    }
 
-    return prompt
+
+def _extract_text(response):
+    choices = response.get("choices", [])
+
+    if not choices:
+        raise ValueError(
+            "The AI response contains no choices."
+        )
+
+    message = choices[0].get("message", {})
+    content = message.get("content")
+
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        text_parts = []
+
+        for part in content:
+            if (
+                isinstance(part, dict)
+                and part.get("type") == "text"
+            ):
+                text_parts.append(
+                    part.get("text", "")
+                )
+
+        return "\n".join(text_parts).strip()
+
+    raise ValueError(
+        "The AI response does not contain readable text."
+    )
+
+
+def _validate_json_response(content):
+    """Check whether the model returned a complete JSON object."""
+
+    try:
+        parsed = json.loads(content)
+
+        if not isinstance(parsed, dict):
+            return False, "Response is not a JSON object."
+
+        return True, None
+
+    except json.JSONDecodeError as error:
+        return (
+            False,
+            (
+                f"Invalid JSON: {error.msg} "
+                f"at line {error.lineno}, "
+                f"column {error.colno}."
+            ),
+        )
+
+
+def _build_retry_prompt(original_prompt, attempt):
+    """Build a stricter prompt for retry attempts."""
+
+    return (
+        original_prompt
+        + "\n\n"
+        + "IMPORTANT RETRY INSTRUCTIONS:\n"
+        + "Your previous response was incomplete or invalid.\n"
+        + "Return one complete JSON object only.\n"
+        + "Do not use Markdown or code fences.\n"
+        + "Keep descriptions concise.\n"
+        + "Do not omit required JSON keys.\n"
+        + "Do not stop before closing every JSON object and string.\n"
+        + "Use null for unavailable numeric values.\n"
+        + f"Retry attempt: {attempt}\n"
+    )
+
+
+def ask_openrouter_vision(
+    image_path,
+    prompt,
+    model_override=None,
+):
+    """Send a chart image and prompt to a vision model."""
+
+    if not Config.OPENROUTER_API_KEY:
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": "OPENROUTER_API_KEY is not configured.",
+        }
+
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": "Prompt must be a non-empty string.",
+        }
+
+    image_file = Path(image_path)
+
+    if not image_file.is_file():
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": f"Image file not found: {image_path}",
+        }
+
+    mime_type, _ = mimetypes.guess_type(
+        str(image_file)
+    )
+
+    if mime_type not in (
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+    ):
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": "Only PNG, JPEG and WEBP images are supported.",
+        }
+
+    try:
+        image_bytes = image_file.read_bytes()
+
+        if not image_bytes:
+            raise ValueError("Image file is empty.")
+
+        encoded_image = base64.b64encode(
+            image_bytes
+        ).decode("ascii")
+
+        image_data_url = (
+            f"data:{mime_type};base64,{encoded_image}"
+        )
+
+    except Exception as error:
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": f"{type(error).__name__}: {error}",
+        }
+
+    if model_override:
+        models = [model_override]
+    else:
+        priority = build_vision_model_priority()
+
+        if priority["status"] != "success":
+            return {
+                "status": "error",
+                "model": None,
+                "content": None,
+                "error": priority["error"],
+            }
+
+        models = priority["models"]
+
+    if not models:
+        return {
+            "status": "error",
+            "model": None,
+            "content": None,
+            "error": "No vision-capable models are available.",
+        }
+
+    url = (
+        Config.OPENROUTER_BASE_URL
+        + "/chat/completions"
+    )
+
+    last_error = None
+    last_content = None
+    total_attempts = Config.MAX_RETRIES + 1
+
+    for model_id in models:
+
+        for attempt in range(total_attempts):
+
+            max_tokens = min(
+                Config.MAX_OUTPUT_TOKENS * (attempt + 1),
+                16000,
+            )
+
+            current_prompt = prompt
+
+            if attempt > 0:
+                current_prompt = _build_retry_prompt(
+                    prompt,
+                    attempt,
+                )
+
+            payload = {
+                "model": model_id,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": current_prompt,
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_data_url,
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0.1,
+            }
+
+            try:
+                response = _request_json(
+                    url,
+                    method="POST",
+                    payload=payload,
+                )
+
+                content = _extract_text(response)
+                last_content = content
+
+                if not content:
+                    raise ValueError(
+                        "The AI returned an empty response."
+                    )
+
+                choices = response.get("choices", [])
+                finish_reason = choices[0].get(
+                    "finish_reason"
+                )
+
+                if finish_reason == "length":
+                    last_error = (
+                        f"Model {model_id} reached its "
+                        "output token limit."
+                    )
+
+                    if attempt < total_attempts - 1:
+                        time.sleep(
+                            Config.RETRY_BASE_SECONDS
+                        )
+                        continue
+
+                    break
+
+                is_valid, validation_error = (
+                    _validate_json_response(content)
+                )
+
+                if not is_valid:
+                    last_error = (
+                        f"Model {model_id}: "
+                        f"{validation_error}"
+                    )
+
+                    if attempt < total_attempts - 1:
+                        time.sleep(
+                            Config.RETRY_BASE_SECONDS
+                        )
+                        continue
+
+                    break
+
+                return {
+                    "status": "success",
+                    "model": model_id,
+                    "content": content,
+                    "finish_reason": finish_reason,
+                    "error": None,
+                }
+
+            except urllib.error.HTTPError as error:
+                error_body = _read_error_body(error)
+
+                last_error = (
+                    f"Model {model_id}: "
+                    f"HTTP {error.code}: {error_body}"
+                )
+
+                if error.code not in (
+                    400, 404, 408, 429,
+                    500, 502, 503, 504,
+                ):
+                    break
+
+                if attempt < total_attempts - 1:
+                    time.sleep(
+                        Config.RETRY_BASE_SECONDS
+                    )
+
+            except Exception as error:
+                last_error = (
+                    f"Model {model_id}: "
+                    f"{type(error).__name__}: {error}"
+                )
+
+                if attempt < total_attempts - 1:
+                    time.sleep(
+                        Config.RETRY_BASE_SECONDS
+                    )
+
+        if last_content:
+            is_valid, _ = _validate_json_response(
+                last_content
+            )
+
+            if not is_valid:
+                continue
+
+    return {
+        "status": "error",
+        "model": None,
+        "content": last_content,
+        "error": (
+            last_error
+            or "All vision models failed."
+        ),
+    }
