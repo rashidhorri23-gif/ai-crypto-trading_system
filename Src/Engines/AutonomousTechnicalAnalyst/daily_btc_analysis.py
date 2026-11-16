@@ -1,3 +1,4 @@
+
 import sys
 import json
 import math
@@ -36,11 +37,6 @@ CANDLE_INTERVAL_MS = 4 * 60 * 60 * 1000
 MAX_CANDLES = 120
 MAX_DATA_AGE_HOURS = 8
 
-PLAN_ENTRY_TYPES = (
-    "breakout_entry",
-    "retest_entry",
-)
-
 PLAN_TARGET_FIELDS = (
     "take_profit_1",
     "take_profit_2",
@@ -48,9 +44,17 @@ PLAN_TARGET_FIELDS = (
 )
 
 PLAN_RR_FIELDS = (
-    "risk_reward_to_tp1",
-    "risk_reward_to_tp2",
-    "risk_reward_to_tp3",
+    "risk_reward_tp1",
+    "risk_reward_tp2",
+    "risk_reward_tp3",
+)
+
+PLAN_NUMERIC_FIELDS = (
+    "entry_zone_low",
+    "entry_zone_high",
+    "stop_loss",
+    *PLAN_TARGET_FIELDS,
+    *PLAN_RR_FIELDS,
 )
 
 
@@ -62,7 +66,7 @@ def safe_float(value, field_name, allow_none=False):
 
     if isinstance(value, bool):
         raise ValueError(
-            f"{field_name} must be a numeric value, not a boolean."
+            f"{field_name} must be numeric, not boolean."
         )
 
     if not isinstance(value, (int, float)):
@@ -203,9 +207,11 @@ def draw_candlesticks(ax, df):
 def generate_chart(df):
     """Generate a BTC 4H candlestick chart."""
 
-    chart_data = df.tail(
-        MAX_CANDLES
-    ).copy().reset_index(drop=True)
+    chart_data = (
+        df.tail(MAX_CANDLES)
+        .copy()
+        .reset_index(drop=True)
+    )
 
     if len(chart_data) < 50:
         raise ValueError(
@@ -366,105 +372,20 @@ def build_market_context(df, freshness):
     return context
 
 
-def validate_entry_candidate(candidate, field_name):
-    """Validate one breakout or retest entry candidate."""
-
-    if candidate is None:
-        return None
-
-    if not isinstance(candidate, dict):
-        raise ValueError(
-            f"{field_name} must be an object or null."
-        )
-
-    low = safe_float(
-        candidate.get("entry_zone_low"),
-        f"{field_name}.entry_zone_low",
-    )
-
-    high = safe_float(
-        candidate.get("entry_zone_high"),
-        f"{field_name}.entry_zone_high",
-    )
-
-    if low > high:
-        raise ValueError(
-            f"{field_name}: entry_zone_low cannot exceed entry_zone_high."
-        )
-
-    confirmation = candidate.get(
-        "confirmation_condition"
-    )
-
-    if not isinstance(confirmation, str) or not confirmation.strip():
-        raise ValueError(
-            f"{field_name}.confirmation_condition must be a non-empty string."
-        )
-
-    return {
-        "low": low,
-        "high": high,
-    }
-
-
 def validate_plan(plan, plan_name, direction):
-    """Validate a conditional bullish or bearish trading plan."""
+    """Validate a bullish or bearish conditional trading plan."""
 
     if not isinstance(plan, dict):
         raise ValueError(
             f"{plan_name} must be a JSON object."
         )
 
-    status = plan.get("status")
+    setup_type = plan.get("setup_type")
 
-    if status != "CONDITIONAL":
+    if not isinstance(setup_type, str) or not setup_type.strip():
         raise ValueError(
-            f"{plan_name}.status must be CONDITIONAL."
+            f"{plan_name}.setup_type must be a non-empty string."
         )
-
-    entry_candidates = []
-
-    for entry_type in PLAN_ENTRY_TYPES:
-        candidate = validate_entry_candidate(
-            plan.get(entry_type),
-            f"{plan_name}.{entry_type}",
-        )
-
-        if candidate is not None:
-            entry_candidates.append(candidate)
-
-    if not entry_candidates:
-        raise ValueError(
-            f"{plan_name} must contain at least one valid entry candidate."
-        )
-
-    stop_loss = safe_float(
-        plan.get("stop_loss"),
-        f"{plan_name}.stop_loss",
-    )
-
-    targets = {}
-
-    for field_name in PLAN_TARGET_FIELDS:
-        targets[field_name] = safe_float(
-            plan.get(field_name),
-            f"{plan_name}.{field_name}",
-        )
-
-    rr_values = {}
-
-    for field_name in PLAN_RR_FIELDS:
-        value = safe_float(
-            plan.get(field_name),
-            f"{plan_name}.{field_name}",
-        )
-
-        if value < 0:
-            raise ValueError(
-                f"{plan_name}.{field_name} cannot be negative."
-            )
-
-        rr_values[field_name] = value
 
     activation = plan.get("activation_condition")
     invalidation = plan.get("invalidation_condition")
@@ -479,51 +400,83 @@ def validate_plan(plan, plan_name, direction):
             f"{plan_name}.invalidation_condition must be a non-empty string."
         )
 
-    overall_entry_low = min(
-        item["low"] for item in entry_candidates
-    )
-
-    overall_entry_high = max(
-        item["high"] for item in entry_candidates
-    )
-
-    if direction == "LONG":
-        if stop_loss >= overall_entry_low:
-            raise ValueError(
-                f"{plan_name}: LONG stop_loss must be below the entry zone."
-            )
-
-        for field_name, target in targets.items():
-            if target <= overall_entry_high:
+    if setup_type == "NONE":
+        for field_name in PLAN_NUMERIC_FIELDS:
+            if plan.get(field_name) is not None:
                 raise ValueError(
-                    f"{plan_name}: {field_name} must be above the LONG entry zone."
+                    f"{plan_name}: {field_name} must be null "
+                    "when setup_type is NONE."
                 )
 
+        return True
+
+    values = {}
+
+    for field_name in PLAN_NUMERIC_FIELDS:
+        values[field_name] = safe_float(
+            plan.get(field_name),
+            f"{plan_name}.{field_name}",
+        )
+
+    entry_low = values["entry_zone_low"]
+    entry_high = values["entry_zone_high"]
+    stop_loss = values["stop_loss"]
+
+    if entry_low > entry_high:
+        raise ValueError(
+            f"{plan_name}: entry_zone_low cannot exceed entry_zone_high."
+        )
+
+    targets = [
+        values[field_name]
+        for field_name in PLAN_TARGET_FIELDS
+    ]
+
+    rr_values = [
+        values[field_name]
+        for field_name in PLAN_RR_FIELDS
+    ]
+
+    if any(value < 0 for value in rr_values):
+        raise ValueError(
+            f"{plan_name}: risk-reward values cannot be negative."
+        )
+
+    if direction == "LONG":
+        if stop_loss >= entry_low:
+            raise ValueError(
+                f"{plan_name}: LONG stop_loss must be below entry."
+            )
+
+        if not all(
+            target > entry_high for target in targets
+        ):
+            raise ValueError(
+                f"{plan_name}: LONG targets must be above entry."
+            )
+
         if not (
-            targets["take_profit_1"]
-            <= targets["take_profit_2"]
-            <= targets["take_profit_3"]
+            targets[0] <= targets[1] <= targets[2]
         ):
             raise ValueError(
                 f"{plan_name}: LONG targets must be ordered TP1 <= TP2 <= TP3."
             )
 
     elif direction == "SHORT":
-        if stop_loss <= overall_entry_high:
+        if stop_loss <= entry_high:
             raise ValueError(
-                f"{plan_name}: SHORT stop_loss must be above the entry zone."
+                f"{plan_name}: SHORT stop_loss must be above entry."
             )
 
-        for field_name, target in targets.items():
-            if target >= overall_entry_low:
-                raise ValueError(
-                    f"{plan_name}: {field_name} must be below the SHORT entry zone."
-                )
+        if not all(
+            target < entry_low for target in targets
+        ):
+            raise ValueError(
+                f"{plan_name}: SHORT targets must be below entry."
+            )
 
         if not (
-            targets["take_profit_1"]
-            >= targets["take_profit_2"]
-            >= targets["take_profit_3"]
+            targets[0] >= targets[1] >= targets[2]
         ):
             raise ValueError(
                 f"{plan_name}: SHORT targets must be ordered TP1 >= TP2 >= TP3."
@@ -547,11 +500,6 @@ def validate_trade_setup(trade_setup, decision):
 
     direction = trade_setup.get("direction")
 
-    if direction not in ("LONG", "SHORT", "NONE"):
-        raise ValueError(
-            "trade_setup.direction must be LONG, SHORT, or NONE."
-        )
-
     expected_direction = {
         "LONG": "LONG",
         "SHORT": "SHORT",
@@ -564,89 +512,6 @@ def validate_trade_setup(trade_setup, decision):
             f"{expected_direction}, received {direction}."
         )
 
-    if direction == "NONE":
-        return
-
-    entry_low = safe_float(
-        trade_setup.get("entry_zone_low"),
-        "trade_setup.entry_zone_low",
-    )
-
-    entry_high = safe_float(
-        trade_setup.get("entry_zone_high"),
-        "trade_setup.entry_zone_high",
-    )
-
-    stop_loss = safe_float(
-        trade_setup.get("stop_loss"),
-        "trade_setup.stop_loss",
-    )
-
-    if entry_low > entry_high:
-        raise ValueError(
-            "trade_setup.entry_zone_low cannot exceed entry_zone_high."
-        )
-
-    targets = []
-
-    for field_name in PLAN_TARGET_FIELDS:
-        targets.append(
-            safe_float(
-                trade_setup.get(field_name),
-                f"trade_setup.{field_name}",
-            )
-        )
-
-    rr_ratio = safe_float(
-        trade_setup.get("risk_reward_ratio"),
-        "trade_setup.risk_reward_ratio",
-    )
-
-    if rr_ratio < 0:
-        raise ValueError(
-            "trade_setup.risk_reward_ratio cannot be negative."
-        )
-
-    if direction == "LONG":
-        if stop_loss >= entry_low:
-            raise ValueError(
-                "LONG trade_setup stop_loss must be below the entry zone."
-            )
-
-        if not all(
-            target > entry_high for target in targets
-        ):
-            raise ValueError(
-                "All LONG take-profit targets must be above the entry zone."
-            )
-
-        if not (
-            targets[0] <= targets[1] <= targets[2]
-        ):
-            raise ValueError(
-                "LONG trade_setup targets must be ordered TP1 <= TP2 <= TP3."
-            )
-
-    if direction == "SHORT":
-        if stop_loss <= entry_high:
-            raise ValueError(
-                "SHORT trade_setup stop_loss must be above the entry zone."
-            )
-
-        if not all(
-            target < entry_low for target in targets
-        ):
-            raise ValueError(
-                "All SHORT take-profit targets must be below the entry zone."
-            )
-
-        if not (
-            targets[0] >= targets[1] >= targets[2]
-        ):
-            raise ValueError(
-                "SHORT trade_setup targets must be ordered TP1 >= TP2 >= TP3."
-            )
-
     for field_name in (
         "confirmation_condition",
         "invalidation_condition",
@@ -657,6 +522,95 @@ def validate_trade_setup(trade_setup, decision):
             raise ValueError(
                 f"trade_setup.{field_name} must be a non-empty string."
             )
+
+    trade_numeric_fields = [
+        "entry_zone_low",
+        "entry_zone_high",
+        "stop_loss",
+        *PLAN_TARGET_FIELDS,
+        "risk_reward_ratio",
+    ]
+
+    if direction == "NONE":
+        for field_name in trade_numeric_fields:
+            if trade_setup.get(field_name) is not None:
+                raise ValueError(
+                    f"trade_setup.{field_name} must be null "
+                    "when direction is NONE."
+                )
+
+        return True
+
+    values = {}
+
+    for field_name in trade_numeric_fields:
+        values[field_name] = safe_float(
+            trade_setup.get(field_name),
+            f"trade_setup.{field_name}",
+        )
+
+    entry_low = values["entry_zone_low"]
+    entry_high = values["entry_zone_high"]
+    stop_loss = values["stop_loss"]
+
+    targets = [
+        values[field_name]
+        for field_name in PLAN_TARGET_FIELDS
+    ]
+
+    rr_ratio = values["risk_reward_ratio"]
+
+    if entry_low > entry_high:
+        raise ValueError(
+            "trade_setup.entry_zone_low cannot exceed entry_zone_high."
+        )
+
+    if rr_ratio < 0:
+        raise ValueError(
+            "trade_setup.risk_reward_ratio cannot be negative."
+        )
+
+    if direction == "LONG":
+        if stop_loss >= entry_low:
+            raise ValueError(
+                "LONG trade_setup stop_loss must be below entry."
+            )
+
+        if not all(
+            target > entry_high for target in targets
+        ):
+            raise ValueError(
+                "LONG trade_setup targets must be above entry."
+            )
+
+        if not (
+            targets[0] <= targets[1] <= targets[2]
+        ):
+            raise ValueError(
+                "LONG trade_setup targets must be ordered TP1 <= TP2 <= TP3."
+            )
+
+    elif direction == "SHORT":
+        if stop_loss <= entry_high:
+            raise ValueError(
+                "SHORT trade_setup stop_loss must be above entry."
+            )
+
+        if not all(
+            target < entry_low for target in targets
+        ):
+            raise ValueError(
+                "SHORT trade_setup targets must be below entry."
+            )
+
+        if not (
+            targets[0] >= targets[1] >= targets[2]
+        ):
+            raise ValueError(
+                "SHORT trade_setup targets must be ordered TP1 >= TP2 >= TP3."
+            )
+
+    return True
 
 
 def validate_vision_analysis(analysis):
@@ -732,7 +686,10 @@ def validate_vision_analysis(analysis):
             allow_none=True,
         )
 
-    for field_name in ("key_supports", "key_resistances"):
+    for field_name in (
+        "key_supports",
+        "key_resistances",
+    ):
         if field_name in analysis:
             values = analysis[field_name]
 
@@ -758,6 +715,18 @@ def validate_vision_analysis(analysis):
         "bearish_plan",
         "SHORT",
     )
+
+    if decision == "LONG":
+        if analysis["bullish_plan"]["setup_type"] == "NONE":
+            raise ValueError(
+                "LONG decision requires an active bullish_plan."
+            )
+
+    if decision == "SHORT":
+        if analysis["bearish_plan"]["setup_type"] == "NONE":
+            raise ValueError(
+                "SHORT decision requires an active bearish_plan."
+            )
 
     validate_trade_setup(
         analysis["trade_setup"],
@@ -857,7 +826,10 @@ def run_vision_analysis(market_context):
             raw_content,
             encoding="utf-8",
         )
-        print(f"Raw response saved: {VISION_RAW_FILE}")
+
+        print(
+            f"Raw response saved: {VISION_RAW_FILE}"
+        )
 
     if result.get("status") != "success":
         raise RuntimeError(
