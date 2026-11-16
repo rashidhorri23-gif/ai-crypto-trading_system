@@ -1,6 +1,7 @@
 
 import sys
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,29 +28,57 @@ DATA_FILE = (
 
 OUTPUT_DIR = ROOT_DIR / "Reports"
 
-CHART_FILE = (
-    OUTPUT_DIR
-    / "BTC_4H_Vision_Chart.png"
-)
-
-CONTEXT_FILE = (
-    OUTPUT_DIR
-    / "BTC_4H_Market_Context.txt"
-)
-
-VISION_REPORT_FILE = (
-    OUTPUT_DIR
-    / "BTC_4H_Vision_Report.json"
-)
-
-VISION_RAW_FILE = (
-    OUTPUT_DIR
-    / "BTC_4H_Vision_Raw.txt"
-)
+CHART_FILE = OUTPUT_DIR / "BTC_4H_Vision_Chart.png"
+CONTEXT_FILE = OUTPUT_DIR / "BTC_4H_Market_Context.txt"
+VISION_REPORT_FILE = OUTPUT_DIR / "BTC_4H_Vision_Report.json"
+VISION_RAW_FILE = OUTPUT_DIR / "BTC_4H_Vision_Raw.txt"
 
 CANDLE_INTERVAL_MS = 4 * 60 * 60 * 1000
 MAX_CANDLES = 120
 MAX_DATA_AGE_HOURS = 8
+
+PLAN_ENTRY_TYPES = (
+    "breakout_entry",
+    "retest_entry",
+)
+
+PLAN_TARGET_FIELDS = (
+    "take_profit_1",
+    "take_profit_2",
+    "take_profit_3",
+)
+
+PLAN_RR_FIELDS = (
+    "risk_reward_to_tp1",
+    "risk_reward_to_tp2",
+    "risk_reward_to_tp3",
+)
+
+
+def safe_float(value, field_name, allow_none=False):
+    """Validate and convert a finite numeric value."""
+
+    if value is None and allow_none:
+        return None
+
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{field_name} must be a numeric value, not a boolean."
+        )
+
+    if not isinstance(value, (int, float)):
+        raise ValueError(
+            f"{field_name} must be numeric."
+        )
+
+    number = float(value)
+
+    if not math.isfinite(number):
+        raise ValueError(
+            f"{field_name} must be finite."
+        )
+
+    return number
 
 
 def validate_candle_intervals(df):
@@ -338,6 +367,448 @@ def build_market_context(df, freshness):
     return context
 
 
+def validate_entry_candidate(candidate, field_name):
+    """Validate one breakout or retest entry candidate."""
+
+    if candidate is None:
+        return None
+
+    if not isinstance(candidate, dict):
+        raise ValueError(
+            f"{field_name} must be an object or null."
+        )
+
+    low = safe_float(
+        candidate.get("entry_zone_low"),
+        f"{field_name}.entry_zone_low",
+    )
+
+    high = safe_float(
+        candidate.get("entry_zone_high"),
+        f"{field_name}.entry_zone_high",
+    )
+
+    if low > high:
+        raise ValueError(
+            f"{field_name}: entry_zone_low cannot exceed entry_zone_high."
+        )
+
+    confirmation = candidate.get(
+        "confirmation_condition"
+    )
+
+    if not isinstance(confirmation, str) or not confirmation.strip():
+        raise ValueError(
+            f"{field_name}.confirmation_condition must be a non-empty string."
+        )
+
+    return {
+        "low": low,
+        "high": high,
+    }
+
+
+def validate_plan(plan, plan_name, direction):
+    """Validate a conditional bullish or bearish trading plan."""
+
+    if not isinstance(plan, dict):
+        raise ValueError(
+            f"{plan_name} must be a JSON object."
+        )
+
+    status = plan.get("status")
+
+    if status != "CONDITIONAL":
+        raise ValueError(
+            f"{plan_name}.status must be CONDITIONAL."
+        )
+
+    entry_candidates = []
+
+    for entry_type in PLAN_ENTRY_TYPES:
+        candidate = validate_entry_candidate(
+            plan.get(entry_type),
+            f"{plan_name}.{entry_type}",
+        )
+
+        if candidate is not None:
+            entry_candidates.append(candidate)
+
+    if not entry_candidates:
+        raise ValueError(
+            f"{plan_name} must contain at least one valid entry candidate."
+        )
+
+    stop_loss = safe_float(
+        plan.get("stop_loss"),
+        f"{plan_name}.stop_loss",
+    )
+
+    targets = {}
+
+    for field_name in PLAN_TARGET_FIELDS:
+        targets[field_name] = safe_float(
+            plan.get(field_name),
+            f"{plan_name}.{field_name}",
+        )
+
+    rr_values = {}
+
+    for field_name in PLAN_RR_FIELDS:
+        value = safe_float(
+            plan.get(field_name),
+            f"{plan_name}.{field_name}",
+        )
+
+        if value < 0:
+            raise ValueError(
+                f"{plan_name}.{field_name} cannot be negative."
+            )
+
+        rr_values[field_name] = value
+
+    activation = plan.get("activation_condition")
+    invalidation = plan.get("invalidation_condition")
+
+    if not isinstance(activation, str) or not activation.strip():
+        raise ValueError(
+            f"{plan_name}.activation_condition must be a non-empty string."
+        )
+
+    if not isinstance(invalidation, str) or not invalidation.strip():
+        raise ValueError(
+            f"{plan_name}.invalidation_condition must be a non-empty string."
+        )
+
+    overall_entry_low = min(
+        item["low"] for item in entry_candidates
+    )
+
+    overall_entry_high = max(
+        item["high"] for item in entry_candidates
+    )
+
+    if direction == "LONG":
+        if stop_loss >= overall_entry_low:
+            raise ValueError(
+                f"{plan_name}: LONG stop_loss must be below the entry zone."
+            )
+
+        for field_name, target in targets.items():
+            if target <= overall_entry_high:
+                raise ValueError(
+                    f"{plan_name}: {field_name} must be above the LONG entry zone."
+                )
+
+        if not (
+            targets["take_profit_1"]
+            <= targets["take_profit_2"]
+            <= targets["take_profit_3"]
+        ):
+            raise ValueError(
+                f"{plan_name}: LONG targets must be ordered TP1 <= TP2 <= TP3."
+            )
+
+    elif direction == "SHORT":
+        if stop_loss <= overall_entry_high:
+            raise ValueError(
+                f"{plan_name}: SHORT stop_loss must be above the entry zone."
+            )
+
+        for field_name, target in targets.items():
+            if target >= overall_entry_low:
+                raise ValueError(
+                    f"{plan_name}: {field_name} must be below the SHORT entry zone."
+                )
+
+        if not (
+            targets["take_profit_1"]
+            >= targets["take_profit_2"]
+            >= targets["take_profit_3"]
+        ):
+            raise ValueError(
+                f"{plan_name}: SHORT targets must be ordered TP1 >= TP2 >= TP3."
+            )
+
+    else:
+        raise ValueError(
+            f"Unsupported plan direction: {direction}"
+        )
+
+    return True
+
+
+def validate_trade_setup(trade_setup, decision):
+    """Validate the final selected trade setup."""
+
+    if not isinstance(trade_setup, dict):
+        raise ValueError(
+            "trade_setup must be a JSON object."
+        )
+
+    direction = trade_setup.get("direction")
+
+    if direction not in ("LONG", "SHORT", "NONE"):
+        raise ValueError(
+            "trade_setup.direction must be LONG, SHORT, or NONE."
+        )
+
+    expected_direction = {
+        "LONG": "LONG",
+        "SHORT": "SHORT",
+        "WAIT": "NONE",
+    }[decision]
+
+    if direction != expected_direction:
+        raise ValueError(
+            f"Decision {decision} requires trade_setup.direction "
+            f"{expected_direction}, received {direction}."
+        )
+
+    if direction == "NONE":
+        return
+
+    entry_low = safe_float(
+        trade_setup.get("entry_zone_low"),
+        "trade_setup.entry_zone_low",
+    )
+
+    entry_high = safe_float(
+        trade_setup.get("entry_zone_high"),
+        "trade_setup.entry_zone_high",
+    )
+
+    stop_loss = safe_float(
+        trade_setup.get("stop_loss"),
+        "trade_setup.stop_loss",
+    )
+
+    if entry_low > entry_high:
+        raise ValueError(
+            "trade_setup.entry_zone_low cannot exceed entry_zone_high."
+        )
+
+    targets = []
+
+    for field_name in PLAN_TARGET_FIELDS:
+        targets.append(
+            safe_float(
+                trade_setup.get(field_name),
+                f"trade_setup.{field_name}",
+            )
+        )
+
+    rr_ratio = safe_float(
+        trade_setup.get("risk_reward_ratio"),
+        "trade_setup.risk_reward_ratio",
+    )
+
+    if rr_ratio < 0:
+        raise ValueError(
+            "trade_setup.risk_reward_ratio cannot be negative."
+        )
+
+    if direction == "LONG":
+        if stop_loss >= entry_low:
+            raise ValueError(
+                "LONG trade_setup stop_loss must be below the entry zone."
+            )
+
+        if not all(
+            target > entry_high for target in targets
+        ):
+            raise ValueError(
+                "All LONG take-profit targets must be above the entry zone."
+            )
+
+        if not (
+            targets[0] <= targets[1] <= targets[2]
+        ):
+            raise ValueError(
+                "LONG trade_setup targets must be ordered TP1 <= TP2 <= TP3."
+            )
+
+    if direction == "SHORT":
+        if stop_loss <= entry_high:
+            raise ValueError(
+                "SHORT trade_setup stop_loss must be above the entry zone."
+            )
+
+        if not all(
+            target < entry_low for target in targets
+        ):
+            raise ValueError(
+                "All SHORT take-profit targets must be below the entry zone."
+            )
+
+        if not (
+            targets[0] >= targets[1] >= targets[2]
+        ):
+            raise ValueError(
+                "SHORT trade_setup targets must be ordered TP1 >= TP2 >= TP3."
+            )
+
+    for field_name in (
+        "confirmation_condition",
+        "invalidation_condition",
+    ):
+        value = trade_setup.get(field_name)
+
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"trade_setup.{field_name} must be a non-empty string."
+            )
+
+
+def validate_vision_analysis(analysis):
+    """Validate the complete vision model response."""
+
+    if not isinstance(analysis, dict):
+        raise ValueError(
+            "Vision response must be a JSON object."
+        )
+
+    required_fields = [
+        "symbol",
+        "timeframe",
+        "market_bias",
+        "confidence",
+        "decision",
+        "bullish_plan",
+        "bearish_plan",
+        "trade_setup",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in analysis
+    ]
+
+    if missing_fields:
+        raise ValueError(
+            f"Vision response is missing fields: {missing_fields}"
+        )
+
+    if analysis["symbol"] != "BTC-USDT":
+        raise ValueError(
+            "Vision model returned an unexpected symbol."
+        )
+
+    if analysis["timeframe"] != "4H":
+        raise ValueError(
+            "Vision model returned an unexpected timeframe."
+        )
+
+    if analysis["market_bias"] not in (
+        "BULLISH",
+        "BEARISH",
+        "SIDEWAYS",
+    ):
+        raise ValueError(
+            "Invalid market_bias. Expected BULLISH, BEARISH, or SIDEWAYS."
+        )
+
+    decision = analysis["decision"]
+
+    if decision not in ("LONG", "SHORT", "WAIT"):
+        raise ValueError(
+            "Invalid decision. Expected LONG, SHORT, or WAIT."
+        )
+
+    confidence = safe_float(
+        analysis["confidence"],
+        "confidence",
+    )
+
+    if not 0 <= confidence <= 100:
+        raise ValueError(
+            "Confidence must be between 0 and 100."
+        )
+
+    if "current_price" in analysis:
+        safe_float(
+            analysis["current_price"],
+            "current_price",
+            allow_none=True,
+        )
+
+    for field_name in ("key_supports", "key_resistances"):
+        if field_name in analysis:
+            values = analysis[field_name]
+
+            if not isinstance(values, list):
+                raise ValueError(
+                    f"{field_name} must be a JSON array."
+                )
+
+            for index, value in enumerate(values):
+                safe_float(
+                    value,
+                    f"{field_name}[{index}]",
+                )
+
+    validate_plan(
+        analysis["bullish_plan"],
+        "bullish_plan",
+        "LONG",
+    )
+
+    validate_plan(
+        analysis["bearish_plan"],
+        "bearish_plan",
+        "SHORT",
+    )
+
+    validate_trade_setup(
+        analysis["trade_setup"],
+        decision,
+    )
+
+    return analysis
+
+
+def extract_json_object(raw_content):
+    """Extract one complete JSON object from the model response."""
+
+    cleaned_content = raw_content.strip()
+
+    if cleaned_content.startswith("```"):
+        lines = cleaned_content.splitlines()
+
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        cleaned_content = "\n".join(lines).strip()
+
+    start_index = cleaned_content.find("{")
+
+    if start_index < 0:
+        raise ValueError(
+            "No JSON object found in model response."
+        )
+
+    decoder = json.JSONDecoder()
+
+    analysis, end_index = decoder.raw_decode(
+        cleaned_content[start_index:]
+    )
+
+    remaining_text = (
+        cleaned_content[start_index + end_index:]
+    ).strip()
+
+    if remaining_text:
+        raise ValueError(
+            "Unexpected text found after the JSON object."
+        )
+
+    return analysis
+
+
 def run_vision_analysis(market_context):
     """Send the BTC chart and market context to a vision model."""
 
@@ -350,6 +821,11 @@ def run_vision_analysis(market_context):
         raise RuntimeError(
             "Vision analysis blocked because market data is stale."
         )
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     context_text = json.dumps(
         market_context,
@@ -375,13 +851,20 @@ def run_vision_analysis(market_context):
             "Invalid response from vision provider."
         )
 
+    raw_content = result.get("content")
+
+    if isinstance(raw_content, str) and raw_content.strip():
+        VISION_RAW_FILE.write_text(
+            raw_content,
+            encoding="utf-8",
+        )
+        print(f"Raw response saved: {VISION_RAW_FILE}")
+
     if result.get("status") != "success":
         raise RuntimeError(
             "Vision analysis failed: "
             + str(result.get("error"))
         )
-
-    raw_content = result.get("content")
 
     if (
         not isinstance(raw_content, str)
@@ -391,135 +874,19 @@ def run_vision_analysis(market_context):
             "Vision model returned empty content."
         )
 
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    VISION_RAW_FILE.write_text(
-        raw_content,
-        encoding="utf-8",
-    )
-
-    cleaned_content = raw_content.strip()
-
-    if cleaned_content.startswith("```"):
-        lines = cleaned_content.splitlines()
-
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-
-        cleaned_content = "\n".join(lines).strip()
-
     try:
-        decoder = json.JSONDecoder()
+        analysis = extract_json_object(
+            raw_content
+        )
 
-        start_index = cleaned_content.find("{")
-
-        if start_index < 0:
-            raise ValueError(
-                "No JSON object found in model response."
-            )
-
-        analysis, _ = decoder.raw_decode(
-            cleaned_content[start_index:]
+        validate_vision_analysis(
+            analysis
         )
 
     except (json.JSONDecodeError, ValueError) as error:
         raise RuntimeError(
-            f"Vision model returned invalid JSON: {error}"
-        )
-
-    if not isinstance(analysis, dict):
-        raise RuntimeError(
-            "Vision response must be a JSON object."
-        )
-
-    required_fields = [
-        "symbol",
-        "timeframe",
-        "market_bias",
-        "confidence",
-        "decision",
-        "trade_setup",
-    ]
-
-    missing_fields = [
-        field
-        for field in required_fields
-        if field not in analysis
-    ]
-
-    if missing_fields:
-        raise RuntimeError(
-            f"Vision response is missing fields: {missing_fields}"
-        )
-
-    if analysis["symbol"] != "BTC-USDT":
-        raise RuntimeError(
-            "Vision model returned an unexpected symbol."
-        )
-
-    if analysis["timeframe"] != "4H":
-        raise RuntimeError(
-            "Vision model returned an unexpected timeframe."
-        )
-
-    if analysis["decision"] not in [
-        "LONG",
-        "SHORT",
-        "WAIT",
-    ]:
-        raise RuntimeError(
-            "Invalid trading decision returned by vision model."
-        )
-
-    if analysis["market_bias"] not in [
-        "BULLISH",
-        "BEARISH",
-        "SIDEWAYS",
-    ]:
-        raise RuntimeError(
-            "Invalid market bias returned by vision model."
-        )
-
-    confidence = analysis["confidence"]
-
-    if (
-        isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not 0 <= confidence <= 100
-    ):
-        raise RuntimeError(
-            "Confidence must be a number between 0 and 100."
-        )
-
-    trade_setup = analysis["trade_setup"]
-
-    if not isinstance(trade_setup, dict):
-        raise RuntimeError(
-            "Invalid trade_setup structure."
-        )
-
-    if trade_setup.get("direction") not in [
-        "LONG",
-        "SHORT",
-        "NONE",
-    ]:
-        raise RuntimeError(
-            "Invalid trade setup direction."
-        )
-
-    if (
-        analysis["decision"] == "WAIT"
-        and trade_setup["direction"] != "NONE"
-    ):
-        raise RuntimeError(
-            "WAIT decision must have trade_setup direction NONE."
-        )
+            f"Vision model returned invalid analysis: {error}"
+        ) from error
 
     VISION_REPORT_FILE.write_text(
         json.dumps(
