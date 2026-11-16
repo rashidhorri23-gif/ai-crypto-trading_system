@@ -27,6 +27,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Update BTC 4H Data From OKX
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
+
       - name: Run BTC 4H Analysis Preparation
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
