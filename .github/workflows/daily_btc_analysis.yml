@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   btc-analysis:
@@ -34,6 +34,20 @@ jobs:
       - name: Run BTC 4H Analysis Preparation
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
+
+      - name: Save Updated BTC Archive
+        run: |
+          git add Data/Archive/BTC_USDT_SPOT_4H.csv
+
+          if git diff --cached --quiet; then
+            echo "No archive changes to commit."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git commit -m "Update BTC 4H market data"
+            git push
+          fi
 
       - name: Upload BTC Analysis Artifacts
         if: always()
