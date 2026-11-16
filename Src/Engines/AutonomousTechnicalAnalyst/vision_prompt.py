@@ -4,23 +4,23 @@ import json
 
 def build_btc_4h_prompt(market_context):
     """
-    Build a structured vision-analysis prompt for BTC USDT 4H.
+    Build the BTC 4H vision analysis prompt.
     """
 
-    if isinstance(market_context, dict):
-        context_text = json.dumps(
-            market_context,
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        )
+    if isinstance(market_context, str):
+        try:
+            context = json.loads(market_context)
+        except json.JSONDecodeError:
+            context = {"raw_context": market_context}
+    elif isinstance(market_context, dict):
+        context = market_context
     else:
-        context_text = str(market_context)
+        context = {"raw_context": str(market_context)}
 
-    output_schema = {
+    schema = {
         "symbol": "BTC-USDT",
         "timeframe": "4H",
-        "market_bias": "BULLISH | BEARISH | NEUTRAL",
+        "market_bias": "BULLISH | BEARISH | SIDEWAYS",
         "confidence": 0,
         "decision": "LONG | SHORT | WAIT",
         "current_price": None,
@@ -76,77 +76,71 @@ def build_btc_4h_prompt(market_context):
     }
 
     prompt = f"""
-You are a professional cryptocurrency market structure analyst
-specialized in Smart Money Concepts (SMC) and price action.
+You are a professional BTC cryptocurrency market analyst
+specializing in Smart Money Concepts, market structure,
+price action and risk management.
 
-Your task is to analyze the supplied BTC-USDT 4H candlestick chart
-together with the market context below.
+Analyze the supplied BTC-USDT 4H candlestick chart
+and numerical market context.
 
 MARKET CONTEXT:
-{context_text}
+{json.dumps(context, indent=2, ensure_ascii=False)}
 
-ANALYSIS REQUIREMENTS:
+ANALYSIS INSTRUCTIONS:
 
-1. MARKET STRUCTURE
-- Identify the overall bullish, bearish, or neutral bias.
-- Analyze external and internal market structure separately.
-- Identify higher highs, higher lows, lower highs and lower lows.
-- Identify confirmed BOS and CHOCH only.
-- Do not invent structure breaks.
+1. Analyze external and internal market structure separately.
+2. Identify confirmed BOS and CHOCH only.
+3. Identify meaningful support and resistance zones.
+4. Evaluate bullish and bearish scenarios independently.
+5. Do not allow the current bearish or bullish bias to suppress
+   the opposite conditional scenario.
+6. Evaluate breakout and retest entries.
+7. Provide entry zones, stop loss and three targets when
+   technically justified.
+8. Calculate risk/reward ratios using the proposed entry
+   and stop loss.
+9. Use null for prices that cannot be reliably established.
+10. Never invent prices or claim that an unfinished candle
+    is confirmed.
+11. Oversold RSI alone is not a bullish reversal signal.
+12. EMA alignment alone is not a confirmed trade entry.
 
-2. SUPPORT AND RESISTANCE
-- Identify important visible support and resistance zones.
-- Use actual chart prices and supplied market context.
-- Do not create false precision.
+BULLISH PLAN:
+Evaluate a possible bullish breakout or retest.
+Specify the activation and invalidation conditions.
+If no valid setup exists, use setup_type NONE.
 
-3. BULLISH SCENARIO
-- Independently evaluate a possible bullish setup.
-- Consider breakout and retest opportunities.
-- Define conditional entry, stop loss and three targets.
-- Specify activation and invalidation conditions.
-- If no valid bullish setup exists, use NONE and null prices.
+BEARISH PLAN:
+Evaluate a possible bearish breakdown or retest.
+Specify the activation and invalidation conditions.
+If no valid setup exists, use setup_type NONE.
 
-4. BEARISH SCENARIO
-- Independently evaluate a possible bearish setup.
-- Consider breakdown and retest opportunities.
-- Define conditional entry, stop loss and three targets.
-- Specify activation and invalidation conditions.
-- If no valid bearish setup exists, use NONE and null prices.
+FINAL DECISION:
+LONG means a sufficiently confirmed bullish trade.
+SHORT means a sufficiently confirmed bearish trade.
+WAIT means neither setup is sufficiently confirmed.
 
-5. TRADE DECISION
-- Choose LONG only if a bullish setup is sufficiently confirmed.
-- Choose SHORT only if a bearish setup is sufficiently confirmed.
-- Otherwise choose WAIT.
-- Never force a trade.
-- WAIT requires trade_setup.direction = NONE.
-- Do not confuse a conditional scenario with an active trade.
+If decision is WAIT, trade_setup.direction MUST be NONE.
 
-6. RISK MANAGEMENT
-- Entry must be a realistic price zone.
-- Stop loss must invalidate the setup.
-- Targets must follow visible market structure.
-- Calculate risk/reward ratios from the proposed entry and stop.
-- Use null when a value cannot be reliably determined.
+The bullish_plan and bearish_plan are conditional scenarios.
+They are not active trades unless their activation conditions
+are satisfied.
 
-7. ACCURACY
-- Never invent chart values.
-- Do not assume an unfinished candle is confirmed.
-- Distinguish observed facts from possible scenarios.
-- Do not treat oversold RSI alone as a bullish reversal.
-- Do not treat an EMA crossover alone as confirmation.
-
-OUTPUT RULES:
-- Return exactly one valid JSON object.
-- Do not use Markdown or code fences.
-- Include every key in the required schema.
-- Use numeric values for prices and confidence.
+OUTPUT REQUIREMENTS:
+- Return one complete JSON object only.
+- No Markdown or code fences.
+- Include all keys in the schema.
+- Use BULLISH, BEARISH or SIDEWAYS for market_bias.
+- Use LONG, SHORT or WAIT for decision.
+- Use LONG, SHORT or NONE for trade_setup.direction.
 - Confidence must be between 0 and 100.
-- Use null for unavailable numeric values.
-- Keep descriptions concise to avoid response truncation.
-- Do not include additional text outside the JSON object.
+- Numeric prices must be numbers or null.
+- Keep descriptions concise.
+- Do not omit closing braces or quotation marks.
+- Do not add text outside the JSON object.
 
-REQUIRED JSON STRUCTURE:
-{json.dumps(output_schema, ensure_ascii=False, indent=2)}
+REQUIRED JSON SCHEMA:
+{json.dumps(schema, indent=2, ensure_ascii=False)}
 """
 
     return prompt.strip()
