@@ -1,19 +1,19 @@
 
 import sys
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
 
-import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.patches import Rectangle
 
-from .market_features import (
-    prepare_market_features,
-)
+from .market_features import prepare_market_features
+from .vision_provider import ask_openrouter_vision
+from .vision_prompt import build_btc_4h_prompt
 
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -37,6 +37,16 @@ CONTEXT_FILE = (
     / "BTC_4H_Market_Context.txt"
 )
 
+VISION_REPORT_FILE = (
+    OUTPUT_DIR
+    / "BTC_4H_Vision_Report.json"
+)
+
+VISION_RAW_FILE = (
+    OUTPUT_DIR
+    / "BTC_4H_Vision_Raw.txt"
+)
+
 CANDLE_INTERVAL_MS = 4 * 60 * 60 * 1000
 MAX_CANDLES = 120
 MAX_DATA_AGE_HOURS = 8
@@ -53,8 +63,7 @@ def validate_candle_intervals(df):
 
     if not invalid.empty:
         raise ValueError(
-            f"Invalid 4H candle intervals found: "
-            f"{len(invalid)}"
+            f"Invalid 4H candle intervals found: {len(invalid)}"
         )
 
 
@@ -106,12 +115,8 @@ def check_data_freshness(df, now):
             0 <= age_hours <= MAX_DATA_AGE_HOURS
         ),
         "age_hours": round(age_hours, 2),
-        "latest_open_time": (
-            latest_open_time.isoformat()
-        ),
-        "latest_close_time": (
-            latest_close_time.isoformat()
-        ),
+        "latest_open_time": latest_open_time.isoformat(),
+        "latest_close_time": latest_close_time.isoformat(),
     }
 
 
@@ -183,111 +188,111 @@ def generate_chart(df):
         figsize=(18, 10)
     )
 
-    draw_candlesticks(
-        ax,
-        chart_data,
-    )
-
-    ax.plot(
-        chart_data.index,
-        chart_data["ema_20"],
-        label="EMA 20",
-        linewidth=1.2,
-    )
-
-    ax.plot(
-        chart_data.index,
-        chart_data["ema_50"],
-        label="EMA 50",
-        linewidth=1.2,
-    )
-
-    ax.plot(
-        chart_data.index,
-        chart_data["ema_200"],
-        label="EMA 200",
-        linewidth=1.2,
-    )
-
-    latest = chart_data.iloc[-1]
-
-    if pd.notna(latest["support"]):
-        ax.axhline(
-            latest["support"],
-            linestyle="--",
-            linewidth=1,
-            label="Latest Support",
+    try:
+        draw_candlesticks(
+            ax,
+            chart_data,
         )
 
-    if pd.notna(latest["resistance"]):
-        ax.axhline(
-            latest["resistance"],
-            linestyle="--",
-            linewidth=1,
-            label="Latest Resistance",
+        ax.plot(
+            chart_data.index,
+            chart_data["ema_20"],
+            label="EMA 20",
+            linewidth=1.2,
         )
 
-    tick_positions = list(
-        range(
-            0,
-            len(chart_data),
-            max(1, len(chart_data) // 12),
+        ax.plot(
+            chart_data.index,
+            chart_data["ema_50"],
+            label="EMA 50",
+            linewidth=1.2,
         )
-    )
 
-    tick_labels = [
-        chart_data.iloc[index][
-            "timestamp_utc"
-        ].strftime("%m-%d %H:%M")
-        for index in tick_positions
-    ]
+        ax.plot(
+            chart_data.index,
+            chart_data["ema_200"],
+            label="EMA 200",
+            linewidth=1.2,
+        )
 
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels(
-        tick_labels,
-        rotation=35,
-        ha="right",
-    )
+        latest = chart_data.iloc[-1]
 
-    ax.set_title(
-        "BTC-USDT | 4H Market Structure",
-        fontsize=16,
-    )
+        if pd.notna(latest["support"]):
+            ax.axhline(
+                latest["support"],
+                linestyle="--",
+                linewidth=1,
+                label="Latest Support",
+            )
 
-    ax.set_ylabel("Price (USDT)")
-    ax.set_xlabel("UTC Time")
+        if pd.notna(latest["resistance"]):
+            ax.axhline(
+                latest["resistance"],
+                linestyle="--",
+                linewidth=1,
+                label="Latest Resistance",
+            )
 
-    ax.grid(
-        True,
-        alpha=0.25,
-    )
+        tick_positions = list(
+            range(
+                0,
+                len(chart_data),
+                max(1, len(chart_data) // 12),
+            )
+        )
 
-    ax.legend(
-        loc="upper left",
-    )
+        tick_labels = [
+            chart_data.iloc[index][
+                "timestamp_utc"
+            ].strftime("%m-%d %H:%M")
+            for index in tick_positions
+        ]
 
-    fig.tight_layout()
+        ax.set_xticks(tick_positions)
 
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+        ax.set_xticklabels(
+            tick_labels,
+            rotation=35,
+            ha="right",
+        )
 
-    fig.savefig(
-        CHART_FILE,
-        dpi=180,
-        bbox_inches="tight",
-    )
+        ax.set_title(
+            "BTC-USDT | 4H Market Structure",
+            fontsize=16,
+        )
 
-    plt.close(fig)
+        ax.set_ylabel("Price (USDT)")
+        ax.set_xlabel("UTC Time")
+
+        ax.grid(
+            True,
+            alpha=0.25,
+        )
+
+        ax.legend(
+            loc="upper left",
+        )
+
+        fig.tight_layout()
+
+        OUTPUT_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        fig.savefig(
+            CHART_FILE,
+            dpi=180,
+            bbox_inches="tight",
+        )
+
+    finally:
+        plt.close(fig)
 
     return chart_data
 
 
-def build_market_context(
-    df,
-    freshness,
-):
+def build_market_context(df, freshness):
     """Build numerical context for the vision model."""
 
     latest = df.iloc[-1]
@@ -302,17 +307,11 @@ def build_market_context(
         "symbol": "BTC-USDT",
         "timeframe": "4H",
         "source": "OKX",
-        "latest_candle_open_utc": (
-            freshness["latest_open_time"]
-        ),
-        "latest_candle_close_utc": (
-            freshness["latest_close_time"]
-        ),
+        "latest_candle_open_utc": freshness["latest_open_time"],
+        "latest_candle_close_utc": freshness["latest_close_time"],
         "data_age_hours": freshness["age_hours"],
         "data_is_fresh": freshness["is_fresh"],
-        "current_price": safe_number(
-            latest["close"]
-        ),
+        "current_price": safe_number(latest["close"]),
         "open": safe_number(latest["open"]),
         "high": safe_number(latest["high"]),
         "low": safe_number(latest["low"]),
@@ -326,35 +325,231 @@ def build_market_context(
         "adx_14": safe_number(latest["adx_14"]),
         "plus_di": safe_number(latest["plus_di"]),
         "minus_di": safe_number(latest["minus_di"]),
-        "relative_volume": safe_number(
-            latest["relative_volume"]
-        ),
-        "market_structure": str(
-            latest["market_structure"]
-        ),
-        "ema_trend": str(
-            latest["ema_trend"]
-        ),
-        "support": safe_number(
-            latest["support"]
-        ),
-        "resistance": safe_number(
-            latest["resistance"]
-        ),
-        "bullish_bos": bool(
-            latest["bos_bullish"]
-        ),
-        "bearish_bos": bool(
-            latest["bos_bearish"]
-        ),
+        "relative_volume": safe_number(latest["relative_volume"]),
+        "market_structure": str(latest["market_structure"]),
+        "ema_trend": str(latest["ema_trend"]),
+        "support": safe_number(latest["support"]),
+        "resistance": safe_number(latest["resistance"]),
+        "bullish_bos": bool(latest["bos_bullish"]),
+        "bearish_bos": bool(latest["bos_bearish"]),
         "closed_candle_count": len(df),
     }
 
     return context
 
 
+def run_vision_analysis(market_context):
+    """Send the BTC chart and market context to a vision model."""
+
+    if not CHART_FILE.is_file():
+        raise FileNotFoundError(
+            f"Vision chart not found: {CHART_FILE}"
+        )
+
+    if not market_context.get("data_is_fresh"):
+        raise RuntimeError(
+            "Vision analysis blocked because market data is stale."
+        )
+
+    context_text = json.dumps(
+        market_context,
+        indent=2,
+        ensure_ascii=False,
+    )
+
+    prompt = build_btc_4h_prompt(
+        context_text
+    )
+
+    print("=" * 60)
+    print("STARTING BTC 4H VISION ANALYSIS")
+    print("=" * 60)
+
+    result = ask_openrouter_vision(
+        image_path=CHART_FILE,
+        prompt=prompt,
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "Invalid response from vision provider."
+        )
+
+    if result.get("status") != "success":
+        raise RuntimeError(
+            "Vision analysis failed: "
+            + str(result.get("error"))
+        )
+
+    raw_content = result.get("content")
+
+    if (
+        not isinstance(raw_content, str)
+        or not raw_content.strip()
+    ):
+        raise RuntimeError(
+            "Vision model returned empty content."
+        )
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    VISION_RAW_FILE.write_text(
+        raw_content,
+        encoding="utf-8",
+    )
+
+    cleaned_content = raw_content.strip()
+
+    if cleaned_content.startswith("```"):
+        lines = cleaned_content.splitlines()
+
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        cleaned_content = "\n".join(lines).strip()
+
+    try:
+        decoder = json.JSONDecoder()
+
+        start_index = cleaned_content.find("{")
+
+        if start_index < 0:
+            raise ValueError(
+                "No JSON object found in model response."
+            )
+
+        analysis, _ = decoder.raw_decode(
+            cleaned_content[start_index:]
+        )
+
+    except (json.JSONDecodeError, ValueError) as error:
+        raise RuntimeError(
+            f"Vision model returned invalid JSON: {error}"
+        )
+
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "Vision response must be a JSON object."
+        )
+
+    required_fields = [
+        "symbol",
+        "timeframe",
+        "market_bias",
+        "confidence",
+        "decision",
+        "trade_setup",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in analysis
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            f"Vision response is missing fields: {missing_fields}"
+        )
+
+    if analysis["symbol"] != "BTC-USDT":
+        raise RuntimeError(
+            "Vision model returned an unexpected symbol."
+        )
+
+    if analysis["timeframe"] != "4H":
+        raise RuntimeError(
+            "Vision model returned an unexpected timeframe."
+        )
+
+    if analysis["decision"] not in [
+        "LONG",
+        "SHORT",
+        "WAIT",
+    ]:
+        raise RuntimeError(
+            "Invalid trading decision returned by vision model."
+        )
+
+    if analysis["market_bias"] not in [
+        "BULLISH",
+        "BEARISH",
+        "SIDEWAYS",
+    ]:
+        raise RuntimeError(
+            "Invalid market bias returned by vision model."
+        )
+
+    confidence = analysis["confidence"]
+
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 100
+    ):
+        raise RuntimeError(
+            "Confidence must be a number between 0 and 100."
+        )
+
+    trade_setup = analysis["trade_setup"]
+
+    if not isinstance(trade_setup, dict):
+        raise RuntimeError(
+            "Invalid trade_setup structure."
+        )
+
+    if trade_setup.get("direction") not in [
+        "LONG",
+        "SHORT",
+        "NONE",
+    ]:
+        raise RuntimeError(
+            "Invalid trade setup direction."
+        )
+
+    if (
+        analysis["decision"] == "WAIT"
+        and trade_setup["direction"] != "NONE"
+    ):
+        raise RuntimeError(
+            "WAIT decision must have trade_setup direction NONE."
+        )
+
+    VISION_REPORT_FILE.write_text(
+        json.dumps(
+            analysis,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        ),
+        encoding="utf-8",
+    )
+
+    print(f"Vision model: {result.get('model')}")
+    print(f"Market bias: {analysis['market_bias']}")
+    print(f"Decision: {analysis['decision']}")
+    print(f"Confidence: {analysis['confidence']}")
+    print(f"JSON report: {VISION_REPORT_FILE}")
+    print(f"Raw response: {VISION_RAW_FILE}")
+    print("VISION ANALYSIS COMPLETED.")
+    print("=" * 60)
+
+    return {
+        "model": result.get("model"),
+        "analysis": analysis,
+        "report_path": str(VISION_REPORT_FILE),
+        "raw_path": str(VISION_RAW_FILE),
+    }
+
+
 def run_daily_btc_analysis():
-    """Prepare BTC 4H chart and numerical market context."""
+    """Prepare BTC 4H chart, context, and vision analysis."""
 
     if not DATA_FILE.is_file():
         raise FileNotFoundError(
@@ -392,7 +587,7 @@ def run_daily_btc_analysis():
         now,
     )
 
-    chart_data = generate_chart(
+    generate_chart(
         closed_data
     )
 
@@ -400,8 +595,6 @@ def run_daily_btc_analysis():
         closed_data,
         freshness,
     )
-
-    import json
 
     OUTPUT_DIR.mkdir(
         parents=True,
@@ -418,51 +611,31 @@ def run_daily_btc_analysis():
     )
 
     print("=" * 60)
-    print("BTC 4H DAILY ANALYSIS PREPARATION")
+    print("BTC 4H DAILY ANALYSIS")
     print("=" * 60)
 
-    print(
-        f"Closed candles: {len(closed_data)}"
-    )
+    print(f"Closed candles: {len(closed_data)}")
+    print(f"Latest close: {context['current_price']}")
+    print(f"EMA trend: {context['ema_trend']}")
+    print(f"Market structure: {context['market_structure']}")
+    print(f"Data age hours: {freshness['age_hours']}")
+    print(f"Data fresh: {freshness['is_fresh']}")
+    print(f"Chart: {CHART_FILE}")
+    print(f"Context: {CONTEXT_FILE}")
 
-    print(
-        f"Latest close: {context['current_price']}"
-    )
-
-    print(
-        f"EMA trend: {context['ema_trend']}"
-    )
-
-    print(
-        f"Market structure: "
-        f"{context['market_structure']}"
-    )
-
-    print(
-        f"Data age hours: {freshness['age_hours']}"
-    )
-
-    print(
-        f"Data fresh: {freshness['is_fresh']}"
-    )
-
-    print(
-        f"Chart: {CHART_FILE}"
-    )
-
-    print(
-        f"Context: {CONTEXT_FILE}"
-    )
+    vision_result = None
 
     if not freshness["is_fresh"]:
         print(
             "WARNING: Data is stale. "
-            "Vision analysis must not be started."
+            "Vision analysis will not be started."
         )
 
     else:
-        print(
-            "DATA VALIDATION PASSED."
+        print("DATA VALIDATION PASSED.")
+
+        vision_result = run_vision_analysis(
+            context
         )
 
     print("=" * 60)
@@ -475,6 +648,12 @@ def run_daily_btc_analysis():
         ),
         "chart_path": str(CHART_FILE),
         "context_path": str(CONTEXT_FILE),
+        "vision_report_path": (
+            str(VISION_REPORT_FILE)
+            if vision_result
+            else None
+        ),
+        "vision_result": vision_result,
         "market_context": context,
     }
 
