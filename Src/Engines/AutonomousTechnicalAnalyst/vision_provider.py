@@ -12,6 +12,13 @@ from pathlib import Path
 from .config import Config
 
 
+BLOCKED_MODEL_IDS = {
+    "thinkingmachines/inkling-2-small:free",
+}
+
+KNOWN_WORKING_MODEL = "nvidia/nemotron-3.5-super-vl:free"
+
+
 def _read_error_body(error):
     try:
         return error.read().decode(
@@ -49,8 +56,8 @@ def _request_json(url, method="GET", payload=None):
         )
 
 
-def discover_free_vision_models(limit=10):
-    """Discover free models that accept images and return text."""
+def discover_free_vision_models(limit=20):
+    """Discover free vision models that accept images and return text."""
 
     if not Config.OPENROUTER_API_KEY:
         return {
@@ -77,6 +84,13 @@ def discover_free_vision_models(limit=10):
 
         for item in data.get("data", []):
             model_id = item.get("id", "")
+
+            if not model_id:
+                continue
+
+            if model_id in BLOCKED_MODEL_IDS:
+                continue
+
             architecture = item.get("architecture", {})
             pricing = item.get("pricing", {})
 
@@ -122,8 +136,13 @@ def discover_free_vision_models(limit=10):
                 ),
             })
 
-            if len(discovered) >= limit:
-                break
+        discovered.sort(
+            key=lambda item: (
+                item["id"] != KNOWN_WORKING_MODEL
+            )
+        )
+
+        discovered = discovered[:limit]
 
         return {
             "status": "success",
@@ -152,7 +171,7 @@ def discover_free_vision_models(limit=10):
 def build_vision_model_priority():
     """Build the priority list for vision-capable models."""
 
-    discovered = discover_free_vision_models(limit=10)
+    discovered = discover_free_vision_models(limit=20)
 
     if discovered["status"] != "success":
         return {
@@ -172,6 +191,16 @@ def build_vision_model_priority():
     ).strip()
 
     if preferred:
+        if preferred in BLOCKED_MODEL_IDS:
+            return {
+                "status": "error",
+                "models": [],
+                "error": (
+                    "Configured vision model is blocked: "
+                    + preferred
+                ),
+            }
+
         if preferred not in models:
             return {
                 "status": "error",
@@ -298,7 +327,19 @@ def ask_openrouter_vision(
         }
 
     if model_override:
+        if model_override in BLOCKED_MODEL_IDS:
+            return {
+                "status": "error",
+                "model": None,
+                "content": None,
+                "error": (
+                    "Requested model is blocked: "
+                    + model_override
+                ),
+            }
+
         models = [model_override]
+
     else:
         priority = build_vision_model_priority()
 
@@ -325,7 +366,7 @@ def ask_openrouter_vision(
         + "/chat/completions"
     )
 
-    last_error = None
+    model_errors = []
 
     for model_id in models:
         payload = {
@@ -375,26 +416,30 @@ def ask_openrouter_vision(
         except urllib.error.HTTPError as error:
             error_body = _read_error_body(error)
 
-            last_error = (
+            model_error = (
                 f"Model {model_id}: "
                 f"HTTP {error.code}: {error_body}"
             )
 
-            if error.code not in (
-                400, 404, 408, 429,
-                500, 502, 503, 504,
-            ):
-                break
+            model_errors.append(model_error)
+
+            continue
 
         except Exception as error:
-            last_error = (
+            model_error = (
                 f"Model {model_id}: "
                 f"{type(error).__name__}: {error}"
             )
+
+            model_errors.append(model_error)
+
+            continue
 
     return {
         "status": "error",
         "model": None,
         "content": None,
-        "error": last_error or "All vision models failed.",
+        "error": "\n".join(model_errors)
+        if model_errors
+        else "All vision models failed.",
     }
