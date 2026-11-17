@@ -21,16 +21,13 @@ INSTRUMENT = "BTC-USDT"
 FOUR_HOURS_SECONDS = 4 * 60 * 60
 FIVE_MINUTES_SECONDS = 5 * 60
 
-CANDLE_LIMIT_4H = 100
+CANDLE_LIMIT_4H = 300
 CANDLE_LIMIT_5M = 300
+MAX_HISTORY_PAGES = 20
 
 DIRECTIONS = {
-    "LONG": {
-        "plan_key": "bullish_plan",
-    },
-    "SHORT": {
-        "plan_key": "bearish_plan",
-    },
+    "LONG": {"plan_key": "bullish_plan"},
+    "SHORT": {"plan_key": "bearish_plan"},
 }
 
 
@@ -52,7 +49,6 @@ def load_json(path):
 
 def save_json(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-
     temporary_path = path.with_suffix(".tmp")
 
     with temporary_path.open("w", encoding="utf-8") as file:
@@ -61,29 +57,10 @@ def save_json(path, data):
     temporary_path.replace(path)
 
 
-def fetch_candles(bar, limit):
-    params = urllib.parse.urlencode({
-        "instId": INSTRUMENT,
-        "bar": bar,
-        "limit": str(limit),
-    })
-
-    url = f"{OKX_BASE_URL}/api/v5/market/candles?{params}"
-
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "BTC-Signal-Monitor/1.0"},
-    )
-
-    with urllib.request.urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-
-    if payload.get("code") != "0":
-        raise RuntimeError(f"OKX API error: {payload}")
-
+def parse_candle_rows(rows, bar):
     candles = []
 
-    for row in payload.get("data", []):
+    for row in rows:
         if len(row) < 9:
             continue
 
@@ -129,20 +106,161 @@ def fetch_candles(bar, limit):
 
         candles.append(candle)
 
-    candles.sort(key=lambda item: item["timestamp"])
-
-    unique_candles = {
+    unique = {
         candle["timestamp"]: candle
         for candle in candles
     }
 
-    candles = list(unique_candles.values())
-    candles.sort(key=lambda item: item["timestamp"])
+    result = list(unique.values())
+    result.sort(key=lambda item: item["timestamp"])
 
-    if not candles:
+    if not result:
         raise RuntimeError(f"No confirmed candles returned for {bar}")
 
-    return candles
+    return result
+
+
+def request_candle_page(bar, limit, after=None, history=False):
+    endpoint = (
+        "/api/v5/market/history-candles"
+        if history
+        else "/api/v5/market/candles"
+    )
+
+    params = {
+        "instId": INSTRUMENT,
+        "bar": bar,
+        "limit": str(limit),
+    }
+
+    if after is not None:
+        params["after"] = str(after)
+
+    url = (
+        f"{OKX_BASE_URL}{endpoint}?"
+        f"{urllib.parse.urlencode(params)}"
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BTC-Signal-Monitor/2.0"},
+    )
+
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    if payload.get("code") != "0":
+        raise RuntimeError(f"OKX API error: {payload}")
+
+    return parse_candle_rows(payload.get("data", []), bar)
+
+
+def fetch_candles(bar, limit):
+    return request_candle_page(
+        bar=bar,
+        limit=limit,
+        history=False,
+    )
+
+
+def has_regular_interval(candles, interval):
+    if len(candles) < 2:
+        return False
+
+    differences = [
+        candles[index]["timestamp"] - candles[index - 1]["timestamp"]
+        for index in range(1, len(candles))
+    ]
+
+    return all(value == interval for value in differences)
+
+
+def fetch_candles_since(bar, initial_candles, last_processed, interval):
+    if last_processed is None:
+        return initial_candles
+
+    candles_by_timestamp = {
+        candle["timestamp"]: candle
+        for candle in initial_candles
+    }
+
+    oldest_timestamp = min(candles_by_timestamp)
+
+    if oldest_timestamp <= last_processed + interval:
+        return sorted(
+            candles_by_timestamp.values(),
+            key=lambda item: item["timestamp"],
+        )
+
+    if not has_regular_interval(initial_candles, interval):
+        raise RuntimeError(
+            "Candle interval is irregular. "
+            "History recovery stopped to avoid skipping data."
+        )
+
+    log(
+        "A historical candle gap was detected. "
+        "Starting OKX history recovery."
+    )
+
+    pages = 0
+
+    while oldest_timestamp > last_processed + interval:
+        if pages >= MAX_HISTORY_PAGES:
+            raise RuntimeError(
+                "History recovery exceeded the page limit. "
+                "Checkpoint will not advance."
+            )
+
+        older_candles = request_candle_page(
+            bar=bar,
+            limit=300,
+            after=oldest_timestamp * 1000,
+            history=True,
+        )
+
+        older_candles = [
+            candle
+            for candle in older_candles
+            if candle["timestamp"] < oldest_timestamp
+        ]
+
+        if not older_candles:
+            raise RuntimeError(
+                "OKX history recovery returned no older candles. "
+                "Checkpoint will not advance."
+            )
+
+        previous_oldest = oldest_timestamp
+
+        for candle in older_candles:
+            candles_by_timestamp[candle["timestamp"]] = candle
+
+        oldest_timestamp = min(candles_by_timestamp)
+        pages += 1
+
+        if oldest_timestamp >= previous_oldest:
+            raise RuntimeError(
+                "History pagination made no progress. "
+                "Checkpoint will not advance."
+            )
+
+        log(
+            f"History page {pages} recovered. "
+            f"Oldest candle: {oldest_timestamp}"
+        )
+
+    recovered = sorted(
+        candles_by_timestamp.values(),
+        key=lambda item: item["timestamp"],
+    )
+
+    log(
+        f"History recovery completed. "
+        f"Total available candles: {len(recovered)}"
+    )
+
+    return recovered
 
 
 def make_fingerprint(direction, plan):
@@ -251,7 +369,6 @@ def load_state():
 
 def initialize_scenario(direction, plan, latest_4h, state):
     fingerprint = make_fingerprint(direction, plan)
-
     previous = state["scenarios"].get(direction)
 
     if previous and previous.get("fingerprint") == fingerprint:
@@ -323,11 +440,11 @@ def find_breakout(direction, plan, scenario, candles_4h):
     return None
 
 
-def check_invalidation(direction, plan, scenario, latest_4h):
+def check_invalidation(direction, plan, scenario, candle_4h):
     if scenario.get("breakout_timestamp") is None:
         return False
 
-    close = latest_4h["close"]
+    close = candle_4h["close"]
     stop_loss = float(plan["stop_loss"])
 
     if direction == "LONG" and close < stop_loss:
@@ -337,6 +454,27 @@ def check_invalidation(direction, plan, scenario, latest_4h):
         return True
 
     return False
+
+
+def find_invalidation(direction, plan, scenario, candles_4h):
+    breakout_timestamp = scenario.get("breakout_timestamp")
+
+    if breakout_timestamp is None:
+        return None
+
+    for candle in candles_4h:
+        if candle["timestamp"] < breakout_timestamp:
+            continue
+
+        if check_invalidation(
+            direction,
+            plan,
+            scenario,
+            candle,
+        ):
+            return candle
+
+    return None
 
 
 def find_retest(direction, plan, breakout_timestamp, candles_5m):
@@ -460,6 +598,17 @@ def process_scenario(
         log(f"{direction}: scenario is invalidated.")
         return
 
+    reference_timestamp = scenario.get("breakout_timestamp")
+
+    if reference_timestamp is None:
+        reference_timestamp = scenario["baseline_4h_timestamp"]
+
+    if reference_timestamp < candles_4h[0]["timestamp"]:
+        raise RuntimeError(
+            f"{direction}: available 4H history does not cover "
+            "the active scenario. A new AI scenario is required."
+        )
+
     breakout_timestamp = find_breakout(
         direction,
         plan,
@@ -471,16 +620,21 @@ def process_scenario(
         log(f"{direction}: waiting for 4H breakout.")
         return
 
-    if check_invalidation(
+    invalidation_candle = find_invalidation(
         direction,
         plan,
         scenario,
-        candles_4h[-1],
-    ):
+        candles_4h,
+    )
+
+    if invalidation_candle is not None:
         scenario["invalidated"] = True
         scenario["pending_retest"] = None
 
-        log(f"{direction}: scenario invalidated by 4H close.")
+        log(
+            f"{direction}: scenario invalidated by historical "
+            f"4H close at {invalidation_candle['close']:.2f}."
+        )
 
         return
 
@@ -542,20 +696,21 @@ def main():
         CANDLE_LIMIT_4H,
     )
 
-    candles_5m = fetch_candles(
+    latest_5m_candles = fetch_candles(
         "5m",
         CANDLE_LIMIT_5M,
     )
 
     log(
         f"Loaded {len(candles_4h)} confirmed 4H candles "
-        f"and {len(candles_5m)} confirmed 5M candles."
+        f"and {len(latest_5m_candles)} confirmed 5M candles."
     )
 
-    latest_5m_timestamp = candles_5m[-1]["timestamp"]
+    latest_5m_timestamp = latest_5m_candles[-1]["timestamp"]
     last_processed = state["last_processed_5m_timestamp"]
 
     if last_processed is None:
+        candles_5m = latest_5m_candles
         new_candles_5m = []
 
         log(
@@ -564,13 +719,12 @@ def main():
         )
 
     else:
-        earliest_available = candles_5m[0]["timestamp"]
-
-        if last_processed < earliest_available:
-            log(
-                "WARNING: Some 5M candles may be outside "
-                "the available OKX history window."
-            )
+        candles_5m = fetch_candles_since(
+            "5m",
+            latest_5m_candles,
+            last_processed,
+            FIVE_MINUTES_SECONDS,
+        )
 
         new_candles_5m = [
             candle
@@ -612,7 +766,6 @@ def main():
 
     if processing_successful:
         state["last_processed_5m_timestamp"] = latest_5m_timestamp
-
         log("All scenarios processed successfully.")
 
     else:
