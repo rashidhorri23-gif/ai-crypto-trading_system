@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "scenarios": {
+    "LONG": {
+      "fingerprint": "d8d6872a07258145749df353e06e1ac3ab35a95076f141a3e21adc48b0032c33",
+      "baseline_4h_timestamp": 1794873600,
+      "breakout_timestamp": null,
+      "pending_retest": null,
+      "alert_sent": false,
+      "invalidated": false,
+      "created_at": "2026-11-17T07:07:31.106817+00:00"
+    },
+    "SHORT": {
+      "fingerprint": "361e41033e37534dbc39ffac3457099f6414f836a916c525b521f080547b12ab",
+      "baseline_4h_timestamp": 1794873600,
+      "breakout_timestamp": null,
+      "pending_retest": null,
+      "alert_sent": false,
+      "invalidated": false,
+      "created_at": "2026-11-17T07:07:31.106886+00:00"
+    }
+  },
+  "sent_fingerprints": [],
+  "last_processed_5m_timestamp": 1794898800
+}
