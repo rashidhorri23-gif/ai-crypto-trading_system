@@ -1,6 +1,7 @@
 
 import hashlib
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -86,19 +87,48 @@ def fetch_candles(bar, limit):
         if len(row) < 9:
             continue
 
-        candle = {
-            "timestamp": int(row[0]) // 1000,
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": float(row[5]),
-            "confirm": str(row[8]),
-        }
+        try:
+            candle = {
+                "timestamp": int(row[0]) // 1000,
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": float(row[5]),
+                "confirm": str(row[8]),
+            }
+        except (TypeError, ValueError):
+            continue
 
-        if candle["confirm"] == "1":
-            candles.append(candle)
+        if candle["confirm"] != "1":
+            continue
 
+        prices = [
+            candle["open"],
+            candle["high"],
+            candle["low"],
+            candle["close"],
+        ]
+
+        if not all(math.isfinite(price) and price > 0 for price in prices):
+            continue
+
+        if candle["high"] < max(candle["open"], candle["close"], candle["low"]):
+            continue
+
+        if candle["low"] > min(candle["open"], candle["close"], candle["high"]):
+            continue
+
+        candles.append(candle)
+
+    candles.sort(key=lambda item: item["timestamp"])
+
+    unique_candles = {
+        candle["timestamp"]: candle
+        for candle in candles
+    }
+
+    candles = list(unique_candles.values())
     candles.sort(key=lambda item: item["timestamp"])
 
     if not candles:
@@ -126,7 +156,13 @@ def make_fingerprint(direction, plan):
     ).hexdigest()
 
 
-def validate_plan(plan):
+def validate_plan(direction, plan):
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Invalid direction: {direction}")
+
+    if not isinstance(plan, dict):
+        raise ValueError("Plan must be a JSON object.")
+
     required_fields = [
         "entry_zone_low",
         "entry_zone_high",
@@ -139,15 +175,40 @@ def validate_plan(plan):
     for field in required_fields:
         value = plan.get(field)
 
-        if not isinstance(value, (int, float)) or value <= 0:
-            raise ValueError(f"Invalid plan field: {field}")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"Invalid numeric value: {field}")
 
-    if plan["entry_zone_low"] > plan["entry_zone_high"]:
-        raise ValueError("Invalid entry zone.")
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"Invalid positive finite value: {field}")
 
-    if plan["stop_loss"] <= plan["entry_zone_low"] and plan["stop_loss"] <= plan["entry_zone_high"]:
-        if plan["take_profit_1"] <= plan["stop_loss"]:
-            raise ValueError("Invalid LONG stop-loss or target configuration.")
+    low = float(plan["entry_zone_low"])
+    high = float(plan["entry_zone_high"])
+    stop = float(plan["stop_loss"])
+
+    tp1 = float(plan["take_profit_1"])
+    tp2 = float(plan["take_profit_2"])
+    tp3 = float(plan["take_profit_3"])
+
+    if low >= high:
+        raise ValueError("Entry zone low must be below entry zone high.")
+
+    if direction == "LONG":
+        if not stop < low:
+            raise ValueError("LONG stop-loss must be below the entry zone.")
+
+        if not high < tp1 < tp2 < tp3:
+            raise ValueError(
+                "LONG targets must be above the entry zone and ascending."
+            )
+
+    elif direction == "SHORT":
+        if not stop > high:
+            raise ValueError("SHORT stop-loss must be above the entry zone.")
+
+        if not low > tp1 > tp2 > tp3:
+            raise ValueError(
+                "SHORT targets must be below the entry zone and descending."
+            )
 
     return True
 
@@ -163,10 +224,19 @@ def load_state():
 
     state = load_json(STATE_FILE)
 
+    if not isinstance(state, dict):
+        raise ValueError("Monitor state must be a JSON object.")
+
     state.setdefault("version", 1)
     state.setdefault("scenarios", {})
     state.setdefault("sent_fingerprints", [])
     state.setdefault("last_processed_5m_timestamp", None)
+
+    if not isinstance(state["scenarios"], dict):
+        raise ValueError("Invalid scenarios state.")
+
+    if not isinstance(state["sent_fingerprints"], list):
+        raise ValueError("Invalid sent fingerprints state.")
 
     return state
 
@@ -365,7 +435,7 @@ def process_scenario(
     candles_4h,
     new_candles_5m,
 ):
-    validate_plan(plan)
+    validate_plan(direction, plan)
 
     scenario = initialize_scenario(
         direction,
@@ -427,7 +497,13 @@ def process_scenario(
     log(f"{direction}: retest confirmed.")
     log(message)
 
-    if send_telegram(message):
+    try:
+        sent = send_telegram(message)
+    except Exception as error:
+        log(f"{direction}: Telegram delivery error: {error}")
+        sent = False
+
+    if sent:
         scenario["alert_sent"] = True
         scenario["pending_retest"] = None
 
@@ -503,13 +579,16 @@ def main():
             log(f"{direction}: plan is missing.")
             continue
 
-        process_scenario(
-            direction,
-            plan,
-            state,
-            candles_4h,
-            new_candles_5m,
-        )
+        try:
+            process_scenario(
+                direction,
+                plan,
+                state,
+                candles_4h,
+                new_candles_5m,
+            )
+        except Exception as error:
+            log(f"{direction}: scenario processing error: {error}")
 
     state["last_processed_5m_timestamp"] = latest_5m_timestamp
 
