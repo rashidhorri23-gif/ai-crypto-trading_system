@@ -51,6 +51,28 @@ jobs:
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
 
+      - name: Publish Current BTC Signal
+        run: |
+          if [ ! -f Reports/BTC_4H_Vision_Report.json ]; then
+            echo "BTC vision report was not generated."
+            exit 1
+          fi
+
+          mkdir -p Data/Signals
+          cp Reports/BTC_4H_Vision_Report.json Data/Signals/current_btc_signal.json
+
+          git add Data/Signals/current_btc_signal.json
+
+          if git diff --cached --quiet; then
+            echo "No signal report changes to commit."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git commit -m "Publish latest BTC trading scenarios"
+            git push
+          fi
+
       - name: Upload BTC Analysis Artifacts
         if: always()
         uses: actions/upload-artifact@v4
