@@ -1,0 +1,30 @@
+
+name: BTC Monitor Unit Tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "test_btc_signal_monitor.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/monitor_btc_signal.py"
+      - ".github/workflows/test_btc_monitor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run BTC Monitor Tests
+        run: |
+          python -m unittest test_btc_signal_monitor -v
