@@ -255,6 +255,39 @@ def _extract_text(response):
     )
 
 
+def _validate_json_response(content):
+    """Reject incomplete or invalid JSON responses."""
+
+    cleaned = content.strip()
+
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "AI returned incomplete or invalid JSON: "
+            f"{error.msg} at line {error.lineno}, "
+            f"column {error.colno}."
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "AI response JSON must be an object."
+        )
+
+    return True
+
+
 def ask_openrouter_vision(
     image_path,
     prompt,
@@ -389,7 +422,7 @@ def ask_openrouter_vision(
                 }
             ],
             "max_tokens": Config.MAX_OUTPUT_TOKENS,
-            "temperature": 0.2,
+            "temperature": 0.1,
         }
 
         try:
@@ -399,12 +432,36 @@ def ask_openrouter_vision(
                 payload=payload,
             )
 
+            choices = response.get("choices", [])
+
+            if not choices:
+                raise ValueError(
+                    "The AI response contains no choices."
+                )
+
+            finish_reason = choices[0].get(
+                "finish_reason"
+            )
+
+            if finish_reason == "length":
+                raise ValueError(
+                    "Model output was truncated because "
+                    "the maximum token limit was reached."
+                )
+
+            if finish_reason == "content_filter":
+                raise ValueError(
+                    "Model output was stopped by a content filter."
+                )
+
             content = _extract_text(response)
 
             if not content:
                 raise ValueError(
                     "The AI returned an empty response."
                 )
+
+            _validate_json_response(content)
 
             return {
                 "status": "success",
@@ -422,7 +479,6 @@ def ask_openrouter_vision(
             )
 
             model_errors.append(model_error)
-
             continue
 
         except Exception as error:
@@ -432,7 +488,6 @@ def ask_openrouter_vision(
             )
 
             model_errors.append(model_error)
-
             continue
 
     return {
