@@ -69,24 +69,29 @@ class TestPlanValidation(unittest.TestCase):
 
 class TestBreakoutDetection(unittest.TestCase):
 
-    def test_long_breakout_after_baseline(self):
+    def test_long_activation_after_sweep_and_reclaim(self):
         scenario = {
             "baseline_4h_timestamp": 0,
+            "sweep_timestamp": None,
             "breakout_timestamp": None,
         }
 
         candles = [
             make_candle(0, 98, 101, 97, 99),
-            make_candle(14400, 99, 108, 98, 106),
+            make_candle(14400, 99, 102, 98, 100),
+            make_candle(28800, 104, 108, 103, 106),
         ]
 
-        result = monitor.find_breakout(
-            "LONG", VALID_LONG_PLAN, scenario, candles
+        result = monitor.find_long_activation(
+            VALID_LONG_PLAN,
+            scenario,
+            candles,
         )
 
-        self.assertEqual(result, 28800)
+        self.assertEqual(result, 43200)
+        self.assertEqual(scenario["sweep_timestamp"], 14400)
 
-    def test_short_breakout_after_baseline(self):
+    def test_short_breakdown_after_baseline(self):
         scenario = {
             "baseline_4h_timestamp": 0,
             "breakout_timestamp": None,
@@ -94,18 +99,21 @@ class TestBreakoutDetection(unittest.TestCase):
 
         candles = [
             make_candle(0, 102, 103, 99, 101),
-            make_candle(14400, 101, 102, 92, 94),
+            make_candle(14400, 99, 101, 92, 94),
         ]
 
-        result = monitor.find_breakout(
-            "SHORT", VALID_SHORT_PLAN, scenario, candles
+        result = monitor.find_short_breakdown(
+            VALID_SHORT_PLAN,
+            scenario,
+            candles,
         )
 
         self.assertEqual(result, 28800)
 
-    def test_old_candle_cannot_trigger_breakout(self):
+    def test_old_candle_cannot_trigger_long_activation(self):
         scenario = {
             "baseline_4h_timestamp": 14400,
+            "sweep_timestamp": None,
             "breakout_timestamp": None,
         }
 
@@ -114,8 +122,10 @@ class TestBreakoutDetection(unittest.TestCase):
             make_candle(14400, 99, 104, 98, 103),
         ]
 
-        result = monitor.find_breakout(
-            "LONG", VALID_LONG_PLAN, scenario, candles
+        result = monitor.find_long_activation(
+            VALID_LONG_PLAN,
+            scenario,
+            candles,
         )
 
         self.assertIsNone(result)
@@ -124,39 +134,51 @@ class TestBreakoutDetection(unittest.TestCase):
 class TestRetestDetection(unittest.TestCase):
 
     def test_long_retest_confirmation(self):
-        candle = make_candle(28800, 102, 106, 99, 104)
+        candle = make_candle(28800, 104, 107, 103, 106)
 
         result = monitor.find_retest(
-            "LONG", VALID_LONG_PLAN, 28800, [candle]
+            "LONG",
+            VALID_LONG_PLAN,
+            28800,
+            [candle],
         )
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 104)
+        self.assertEqual(result["close"], 106)
 
     def test_short_retest_confirmation(self):
-        candle = make_candle(28800, 99, 101, 94, 96)
+        candle = make_candle(28800, 99, 101, 93, 94)
 
         result = monitor.find_retest(
-            "SHORT", VALID_SHORT_PLAN, 28800, [candle]
+            "SHORT",
+            VALID_SHORT_PLAN,
+            28800,
+            [candle],
         )
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 96)
+        self.assertEqual(result["close"], 94)
 
     def test_retest_before_breakout_close_is_rejected(self):
-        candle = make_candle(28500, 102, 106, 99, 104)
+        candle = make_candle(28500, 104, 107, 103, 106)
 
         result = monitor.find_retest(
-            "LONG", VALID_LONG_PLAN, 28800, [candle]
+            "LONG",
+            VALID_LONG_PLAN,
+            28800,
+            [candle],
         )
 
         self.assertIsNone(result)
 
     def test_wrong_candle_direction_is_rejected(self):
-        candle = make_candle(28800, 104, 106, 99, 102)
+        candle = make_candle(28800, 106, 107, 102, 103)
 
         result = monitor.find_retest(
-            "LONG", VALID_LONG_PLAN, 28800, [candle]
+            "LONG",
+            VALID_LONG_PLAN,
+            28800,
+            [candle],
         )
 
         self.assertIsNone(result)
@@ -166,12 +188,14 @@ class TestScenarioState(unittest.TestCase):
 
     def test_same_fingerprint_keeps_existing_scenario(self):
         fingerprint = monitor.make_fingerprint(
-            "LONG", VALID_LONG_PLAN
+            "LONG",
+            VALID_LONG_PLAN,
         )
 
         existing = {
             "fingerprint": fingerprint,
             "baseline_4h_timestamp": 100,
+            "sweep_timestamp": None,
             "breakout_timestamp": 200,
             "pending_retest": None,
             "alert_sent": False,
@@ -187,7 +211,10 @@ class TestScenarioState(unittest.TestCase):
         latest_4h = make_candle(500, 100, 106, 99, 104)
 
         result = monitor.initialize_scenario(
-            "LONG", VALID_LONG_PLAN, latest_4h, state
+            "LONG",
+            VALID_LONG_PLAN,
+            latest_4h,
+            state,
         )
 
         self.assertIs(result, existing)
@@ -195,7 +222,8 @@ class TestScenarioState(unittest.TestCase):
 
     def test_previously_sent_fingerprint_is_not_reactivated(self):
         fingerprint = monitor.make_fingerprint(
-            "LONG", VALID_LONG_PLAN
+            "LONG",
+            VALID_LONG_PLAN,
         )
 
         state = {
@@ -206,7 +234,10 @@ class TestScenarioState(unittest.TestCase):
         latest_4h = make_candle(500, 100, 106, 99, 104)
 
         result = monitor.initialize_scenario(
-            "LONG", VALID_LONG_PLAN, latest_4h, state
+            "LONG",
+            VALID_LONG_PLAN,
+            latest_4h,
+            state,
         )
 
         self.assertTrue(result["alert_sent"])
@@ -215,31 +246,52 @@ class TestScenarioState(unittest.TestCase):
 class TestInvalidation(unittest.TestCase):
 
     def test_long_scenario_invalidation(self):
-        scenario = {"breakout_timestamp": 28800}
-        latest_4h = make_candle(28800, 96, 98, 90, 93)
+        scenario = {
+            "sweep_timestamp": 14400,
+            "breakout_timestamp": 28800,
+        }
 
-        result = monitor.check_invalidation(
-            "LONG", VALID_LONG_PLAN, scenario, latest_4h
+        candles = [
+            make_candle(14400, 99, 102, 98, 100),
+            make_candle(28800, 96, 98, 90, 93),
+        ]
+
+        result = monitor.find_invalidation(
+            "LONG",
+            VALID_LONG_PLAN,
+            scenario,
+            candles,
         )
 
-        self.assertTrue(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["close"], 93)
 
     def test_short_scenario_invalidation(self):
-        scenario = {"breakout_timestamp": 28800}
-        latest_4h = make_candle(28800, 104, 110, 103, 107)
+        scenario = {
+            "breakout_timestamp": 28800,
+        }
 
-        result = monitor.check_invalidation(
-            "SHORT", VALID_SHORT_PLAN, scenario, latest_4h
+        candles = [
+            make_candle(28800, 104, 110, 103, 107),
+        ]
+
+        result = monitor.find_invalidation(
+            "SHORT",
+            VALID_SHORT_PLAN,
+            scenario,
+            candles,
         )
 
-        self.assertTrue(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["close"], 107)
 
 
 class TestDuplicateAlertPrevention(unittest.TestCase):
 
     def test_alert_is_sent_only_once(self):
         fingerprint = monitor.make_fingerprint(
-            "LONG", VALID_LONG_PLAN
+            "LONG",
+            VALID_LONG_PLAN,
         )
 
         state = {
@@ -248,6 +300,7 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
                 "LONG": {
                     "fingerprint": fingerprint,
                     "baseline_4h_timestamp": 0,
+                    "sweep_timestamp": None,
                     "breakout_timestamp": None,
                     "pending_retest": None,
                     "alert_sent": False,
@@ -261,11 +314,12 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
 
         candles_4h = [
             make_candle(0, 98, 101, 97, 99),
-            make_candle(14400, 99, 108, 98, 106),
+            make_candle(14400, 99, 102, 98, 100),
+            make_candle(28800, 104, 108, 103, 106),
         ]
 
         candles_5m = [
-            make_candle(28800, 102, 106, 99, 104),
+            make_candle(43200, 104, 107, 103, 106),
         ]
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -273,7 +327,9 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
 
             with patch.object(monitor, "STATE_FILE", state_file):
                 with patch.object(
-                    monitor, "send_telegram", return_value=True
+                    monitor,
+                    "send_telegram",
+                    return_value=True,
                 ) as telegram_mock:
 
                     monitor.process_scenario(
@@ -349,10 +405,14 @@ class TestCheckpointProtection(unittest.TestCase):
         with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
             with patch.object(monitor, "STATE_FILE", self.state_file):
                 with patch.object(
-                    monitor, "load_json", return_value=self.signal
+                    monitor,
+                    "load_json",
+                    return_value=self.signal,
                 ):
                     with patch.object(
-                        monitor, "load_state", return_value=self.state
+                        monitor,
+                        "load_state",
+                        return_value=self.state,
                     ):
                         with patch.object(
                             monitor,
@@ -389,10 +449,14 @@ class TestCheckpointProtection(unittest.TestCase):
         with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
             with patch.object(monitor, "STATE_FILE", self.state_file):
                 with patch.object(
-                    monitor, "load_json", return_value=self.signal
+                    monitor,
+                    "load_json",
+                    return_value=self.signal,
                 ):
                     with patch.object(
-                        monitor, "load_state", return_value=self.state
+                        monitor,
+                        "load_state",
+                        return_value=self.state,
                     ):
                         with patch.object(
                             monitor,
