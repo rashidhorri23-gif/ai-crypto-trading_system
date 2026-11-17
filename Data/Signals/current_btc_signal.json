@@ -2,51 +2,53 @@
   "symbol": "BTC-USDT",
   "timeframe": "4H",
   "market_bias": "BEARISH",
-  "confidence": 72,
+  "confidence": 70,
   "decision": "WAIT",
-  "current_price": 64735.2,
-  "structure_summary": "BTC-USDT remains in a broader 4H downtrend, trading below EMA20, EMA50, and EMA200. Price is currently consolidating near the lows between support at 63910 and resistance at 65687. The latest candle is bearish and closed in the lower half of the recent range. No confirmed bullish BOS is present, and the context shows no confirmed bearish BOS, so immediate entry is not justified.",
-  "external_structure": "Bearish external structure: a sustained sequence of lower highs and lower lows from the ~82,000 area, with price well below EMA20 (65872), EMA50 (68969), and EMA200 (75524). ADX at 56.8 with -DI above +DI supports trend continuation bias.",
-  "internal_structure": "Internal structure is a short-term consolidation/range near the lows, roughly between 63910 support and 65687 resistance. Recent candles show choppy price action and a long lower wick near support, but no confirmed internal CHOCH or bullish BOS. The latest 4H candle is bearish and remains inside the range.",
+  "current_price": 64991.2,
+  "structure_summary": "4H remains in a broad bearish trend from ~81k to ~64k, but price is currently consolidating between 63910 support and 65687 resistance. The latest candle shows a bullish rejection from 64078, yet price is still below EMA20 and no confirmed BOS/CHOCH has occurred.",
+  "external_structure": "Bearish external structure: series of lower highs and lower lows, price below EMA20/50/200, ADX 55.9 with -DI 25.1 > +DI 9.5 confirming strong bearish momentum.",
+  "internal_structure": "Internal structure is neutral/consolidating: price is ranging between 63910 support and 65687 resistance after a sharp selloff. No confirmed bullish or bearish BOS/CHOCH on the 4H timeframe.",
   "key_supports": [
     63910,
-    63000
+    63000,
+    62000
   ],
   "key_resistances": [
     65687,
-    65872,
-    67000,
-    68969
+    65788,
+    66500,
+    67500,
+    68813
   ],
-  "bullish_scenario": "A bullish reversal would require a liquidity sweep below 63910, ideally into the 63000 area, followed by a strong 4H reclaim of 64300 and a close back above 65687-65872. That would indicate absorption and shift short-term structure bullish. Without reclaiming 65687 and EMA20, any bounce is likely corrective within the broader downtrend.",
-  "bearish_scenario": "The bearish trend remains intact while price stays below 65687-65872. A confirmed 4H close below 63910 would signal breakdown continuation, and a failed retest of 63910-64300 would open the path toward 63000, 62000, and 61000. Rejection from the 65687 resistance area would also support bearish continuation.",
+  "bullish_scenario": "A 4H close above 65687-65788 would confirm a bullish CHOCH/BOS out of the recent range and open a retest long toward 66500, 67500, and the EMA50 near 68800. The setup requires a breakout and successful retest; failure to hold above 64800 would invalidate.",
+  "bearish_scenario": "Rejection at 65400-65687 resistance, or a 4H close below 63910 support, would favor bearish continuation toward 63000, 62000, and possibly 61000. A reclaim above 66000 would invalidate the short bias.",
   "bullish_plan": {
     "setup_type": "RETEST",
-    "entry_zone_low": 63910,
-    "entry_zone_high": 64300,
-    "stop_loss": 63000,
-    "take_profit_1": 65687,
-    "take_profit_2": 67000,
-    "take_profit_3": 68000,
-    "risk_reward_tp1": 1.43,
-    "risk_reward_tp2": 2.62,
-    "risk_reward_tp3": 3.52,
-    "activation_condition": "Wait for a 4H candle to sweep below 63910, preferably into 63000, then close back above 64300. Enter only after a retest of 63910-64300 holds with bullish rejection.",
-    "invalidation_condition": "A 4H close below 63000, or failure to reclaim 64300 after the sweep, invalidates the bullish reversal plan."
+    "entry_zone_low": 65400,
+    "entry_zone_high": 65700,
+    "stop_loss": 64800,
+    "take_profit_1": 66500,
+    "take_profit_2": 67500,
+    "take_profit_3": 68800,
+    "risk_reward_tp1": 1.27,
+    "risk_reward_tp2": 2.6,
+    "risk_reward_tp3": 4.33,
+    "activation_condition": "4H candle closes above 65687-65788, then price retests 65400-65700 and holds above the breakout zone.",
+    "invalidation_condition": "4H close back below 64800 or failure to hold the breakout retest."
   },
   "bearish_plan": {
-    "setup_type": "BREAKDOWN",
-    "entry_zone_low": 63910,
-    "entry_zone_high": 64300,
-    "stop_loss": 65000,
-    "take_profit_1": 63000,
-    "take_profit_2": 62000,
-    "take_profit_3": 61000,
-    "risk_reward_tp1": 1.23,
-    "risk_reward_tp2": 2.35,
-    "risk_reward_tp3": 3.47,
-    "activation_condition": "Wait for a confirmed 4H close below 63910, then a retest into 63910-64300 that fails with bearish rejection. Enter on the retest rejection, not on the first breakdown candle.",
-    "invalidation_condition": "A 4H close back above 65000, especially above 65687-65872, invalidates the breakdown scenario and shifts the short-term bias neutral or bullish."
+    "setup_type": "RETEST",
+    "entry_zone_low": 65400,
+    "entry_zone_high": 65687,
+    "stop_loss": 66000,
+    "take_profit_1": 64500,
+    "take_profit_2": 63910,
+    "take_profit_3": 63000,
+    "risk_reward_tp1": 2.29,
+    "risk_reward_tp2": 3.58,
+    "risk_reward_tp3": 5.57,
+    "activation_condition": "Price rallies into 65400-65687 and shows bearish rejection, ideally with a 4H close back below 65400.",
+    "invalidation_condition": "4H close above 66000 or sustained acceptance above the 65687 resistance zone."
   },
   "trade_setup": {
     "direction": "NONE",
@@ -57,19 +59,18 @@
     "take_profit_2": null,
     "take_profit_3": null,
     "risk_reward_ratio": null,
-    "confirmation_condition": "No active trade. Price is mid-range between 63910 support and 65687 resistance. Wait for a confirmed 4H close and retest of either boundary before considering a setup.",
-    "invalidation_condition": "Not applicable while no position is open."
+    "confirmation_condition": "No immediate trade. Wait for a 4H close above 65687-65788 for a long retest, or rejection at 65400-65687 / breakdown below 63910 for a short.",
+    "invalidation_condition": "N/A while decision is WAIT."
   },
   "main_risks": [
-    "Price is mid-range and may continue choppy consolidation between 63910 and 65687.",
-    "Relative volume is low at 0.40, reducing the reliability of breakout or breakdown signals.",
-    "RSI at 34.7 is near oversold, creating risk of a sharp corrective bounce into EMA20/resistance.",
-    "High ADX confirms trend strength but can also precede consolidation or exhaustion.",
-    "Liquidity sweeps around 63910 and 63000 may trigger false breakdowns before a reversal."
+    "Price is mid-range with no confirmed BOS/CHOCH",
+    "Low relative volume (0.66) increases fake breakout risk",
+    "Strong downtrend but RSI 37 may allow a relief rally",
+    "Overhead EMA20/50 resistance may cap upside",
+    "Potential liquidity sweep below 63910 before continuation"
   ],
   "data_limitations": [
-    "Chart timestamp labels may not perfectly align with the supplied latest candle timestamp.",
-    "Support and resistance levels are derived from visual swing points and supplied context; no order-book or liquidity heatmap data is available.",
-    "The latest 4H candle is fresh and closed, but higher-timeframe confirmation beyond the supplied context is not available."
+    "Chart x-axis labels appear to end before the latest candle timestamp; exact recent swing levels are approximated from visible price action",
+    "No order book or real-time liquidity data provided"
   ]
 }
