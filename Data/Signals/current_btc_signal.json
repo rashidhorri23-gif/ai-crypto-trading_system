@@ -1,0 +1,78 @@
+{
+  "symbol": "BTC-USDT",
+  "timeframe": "4H",
+  "market_bias": "BEARISH",
+  "confidence": 72,
+  "decision": "WAIT",
+  "current_price": 65057.4,
+  "structure_summary": "External structure remains bearish with price below EMA20, EMA50, and EMA200 after a sustained lower-high/lower-low decline. Internal structure is a short-term consolidation between 63910 support and 65687 resistance. No confirmed bullish or bearish BOS is present in the supplied context, and price is currently mid-range, so immediate entry is not justified.",
+  "external_structure": "Bearish. The chart shows a prolonged downtrend from around 82000 into the low 60000s, with clear lower highs and lower lows. EMA stack is bearish, ADX is strong, and minus DI dominates plus DI.",
+  "internal_structure": "Short-term range/consolidation after a sharp selloff. Price is oscillating between 63910 support and 65687 resistance. A recent long lower wick near support suggests a possible liquidity sweep, but no confirmed bullish CHOCH or reversal structure is visible.",
+  "key_supports": [
+    64387,
+    63910,
+    63000,
+    62000
+  ],
+  "key_resistances": [
+    65687,
+    65992,
+    66500,
+    67500,
+    69142
+  ],
+  "bullish_scenario": "A bearish-to-neutral transition could occur if price produces a confirmed 4H close above 65687 resistance and then holds a retest of that level. This would suggest short-term absorption of selling pressure and could open a move toward EMA20 near 65992, followed by 66500 and potentially 67500-69142. The setup remains inactive until the breakout and retest are confirmed.",
+  "bearish_scenario": "The dominant bearish trend could resume if price rejects 65687 resistance and then breaks below 63910 support with a confirmed 4H close. A failed retest of 63910-64300 from below would strengthen the short case, targeting 63000, 62000, and potentially 61000. A reclaim above 65000-65687 would invalidate the breakdown scenario.",
+  "bullish_plan": {
+    "setup_type": "RETEST",
+    "entry_zone_low": 65687,
+    "entry_zone_high": 65850,
+    "stop_loss": 65000,
+    "take_profit_1": 66500,
+    "take_profit_2": 67500,
+    "take_profit_3": 69142,
+    "risk_reward_tp1": 0.95,
+    "risk_reward_tp2": 2.25,
+    "risk_reward_tp3": 4.39,
+    "activation_condition": "4H candle closes above 65687 resistance, then price retests 65687-65850 and holds with a bullish rejection candle or a close back above the zone.",
+    "invalidation_condition": "4H close below 65000 after the breakout, or failure to hold 65687 during the retest."
+  },
+  "bearish_plan": {
+    "setup_type": "BREAKDOWN",
+    "entry_zone_low": 63910,
+    "entry_zone_high": 64300,
+    "stop_loss": 65000,
+    "take_profit_1": 63000,
+    "take_profit_2": 62000,
+    "take_profit_3": 61000,
+    "risk_reward_tp1": 1.23,
+    "risk_reward_tp2": 2.35,
+    "risk_reward_tp3": 3.47,
+    "activation_condition": "4H candle closes below 63910 support, then price retests 63910-64300 from below and fails with a bearish rejection candle or a close back below the zone.",
+    "invalidation_condition": "4H close back above 65000, especially above 65687, which would invalidate the breakdown structure."
+  },
+  "trade_setup": {
+    "direction": "NONE",
+    "entry_zone_low": null,
+    "entry_zone_high": null,
+    "stop_loss": null,
+    "take_profit_1": null,
+    "take_profit_2": null,
+    "take_profit_3": null,
+    "risk_reward_ratio": null,
+    "confirmation_condition": "No immediate trade. A valid long requires a confirmed 4H close above 65687 followed by a successful retest. A valid short requires a confirmed 4H close below 63910 followed by a failed retest.",
+    "invalidation_condition": "WAIT remains valid while price stays inside the 63910-65687 range. Re-evaluate on a confirmed 4H close outside this range."
+  },
+  "main_risks": [
+    "Strong bearish ADX trend could resume abruptly, making counter-trend longs risky.",
+    "Low relative volume increases the chance of false breakouts and liquidity sweeps.",
+    "Price is mid-range between support and resistance, so immediate entries have poor location.",
+    "The recent long lower wick near support may indicate liquidity sweeping rather than a confirmed reversal.",
+    "Short setups may be late after an extended decline, increasing bounce risk."
+  ],
+  "data_limitations": [
+    "The visual chart x-axis appears to end near 2026-11-15 while the numerical context latest candle is 2026-11-17; exact latest candle placement may differ slightly.",
+    "Relative volume is low at 0.5088, reducing breakout reliability.",
+    "No previous AI report was supplied, so changes versus an earlier scenario cannot be confirmed."
+  ]
+}
