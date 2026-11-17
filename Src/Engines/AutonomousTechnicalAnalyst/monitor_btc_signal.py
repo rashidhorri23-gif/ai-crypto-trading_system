@@ -25,6 +25,8 @@ CANDLE_LIMIT_4H = 300
 CANDLE_LIMIT_5M = 300
 MAX_HISTORY_PAGES = 20
 
+MONITOR_LOGIC_VERSION = 2
+
 DIRECTIONS = {
     "LONG": {"plan_key": "bullish_plan"},
     "SHORT": {"plan_key": "bearish_plan"},
@@ -143,7 +145,7 @@ def request_candle_page(bar, limit, after=None, history=False):
 
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "BTC-Signal-Monitor/2.0"},
+        headers={"User-Agent": "BTC-Signal-Monitor/3.0"},
     )
 
     with urllib.request.urlopen(request, timeout=20) as response:
@@ -265,6 +267,7 @@ def fetch_candles_since(bar, initial_candles, last_processed, interval):
 
 def make_fingerprint(direction, plan):
     fields = [
+        MONITOR_LOGIC_VERSION,
         direction,
         plan.get("setup_type"),
         plan.get("entry_zone_low"),
@@ -273,6 +276,8 @@ def make_fingerprint(direction, plan):
         plan.get("take_profit_1"),
         plan.get("take_profit_2"),
         plan.get("take_profit_3"),
+        plan.get("activation_condition"),
+        plan.get("invalidation_condition"),
     ]
 
     raw = json.dumps(fields, sort_keys=True)
@@ -379,6 +384,7 @@ def initialize_scenario(direction, plan, latest_4h, state):
     scenario = {
         "fingerprint": fingerprint,
         "baseline_4h_timestamp": latest_4h["timestamp"],
+        "sweep_timestamp": None,
         "breakout_timestamp": None,
         "pending_retest": None,
         "alert_sent": already_sent,
@@ -390,13 +396,75 @@ def initialize_scenario(direction, plan, latest_4h, state):
 
     log(
         f"{direction}: new scenario registered. "
-        "Waiting for a new confirmed 4H breakout."
+        "Waiting for its specific activation conditions."
     )
 
     return scenario
 
 
-def find_breakout(direction, plan, scenario, candles_4h):
+def find_long_activation(plan, scenario, candles_4h):
+    existing_breakout = scenario.get("breakout_timestamp")
+
+    if existing_breakout is not None:
+        return existing_breakout
+
+    baseline = scenario["baseline_4h_timestamp"]
+
+    zone_low = float(plan["entry_zone_low"])
+    zone_high = float(plan["entry_zone_high"])
+    stop_loss = float(plan["stop_loss"])
+
+    sweep_timestamp = scenario.get("sweep_timestamp")
+
+    for candle in candles_4h:
+        candle_timestamp = candle["timestamp"]
+
+        if sweep_timestamp is None:
+            if candle_timestamp <= baseline:
+                continue
+
+            if candle["low"] < zone_low:
+                sweep_timestamp = candle_timestamp
+                scenario["sweep_timestamp"] = sweep_timestamp
+
+                log(
+                    f"LONG liquidity sweep detected. "
+                    f"Low: {candle['low']:.2f}"
+                )
+
+                if candle["close"] < stop_loss:
+                    return "INVALIDATED"
+
+                continue
+
+        else:
+            if candle_timestamp < sweep_timestamp:
+                continue
+
+            if candle["close"] < stop_loss:
+                return "INVALIDATED"
+
+            if candle_timestamp == sweep_timestamp:
+                continue
+
+            if candle["close"] > zone_high:
+                breakout_close_time = (
+                    candle_timestamp + FOUR_HOURS_SECONDS
+                )
+
+                scenario["breakout_timestamp"] = breakout_close_time
+
+                log(
+                    f"LONG reclaim confirmed after sweep. "
+                    f"4H close: {candle['close']:.2f}"
+                )
+
+                return breakout_close_time
+
+    return None
+
+
+def find_short_breakdown(plan, scenario, candles_4h):
     existing_timestamp = scenario.get("breakout_timestamp")
 
     if existing_timestamp is not None:
@@ -409,21 +477,7 @@ def find_breakout(direction, plan, scenario, candles_4h):
         if candle["timestamp"] <= baseline:
             continue
 
-        if direction == "LONG" and candle["close"] > trigger_level:
-            breakout_close_time = (
-                candle["timestamp"] + FOUR_HOURS_SECONDS
-            )
-
-            scenario["breakout_timestamp"] = breakout_close_time
-
-            log(
-                f"LONG breakout confirmed. "
-                f"4H close: {candle['close']:.2f}"
-            )
-
-            return breakout_close_time
-
-        if direction == "SHORT" and candle["close"] < trigger_level:
+        if candle["close"] < trigger_level:
             breakout_close_time = (
                 candle["timestamp"] + FOUR_HOURS_SECONDS
             )
@@ -440,39 +494,39 @@ def find_breakout(direction, plan, scenario, candles_4h):
     return None
 
 
-def check_invalidation(direction, plan, scenario, candle_4h):
-    if scenario.get("breakout_timestamp") is None:
-        return False
+def find_invalidation(direction, plan, scenario, candles_4h):
+    if direction == "LONG":
+        reference_timestamp = scenario.get("sweep_timestamp")
 
-    close = candle_4h["close"]
+        if reference_timestamp is None:
+            return None
+
+    else:
+        reference_timestamp = scenario.get("breakout_timestamp")
+
+        if reference_timestamp is None:
+            return None
+
     stop_loss = float(plan["stop_loss"])
 
-    if direction == "LONG" and close < stop_loss:
-        return True
-
-    if direction == "SHORT" and close > stop_loss:
-        return True
-
-    return False
-
-
-def find_invalidation(direction, plan, scenario, candles_4h):
-    breakout_timestamp = scenario.get("breakout_timestamp")
-
-    if breakout_timestamp is None:
-        return None
-
     for candle in candles_4h:
-        if candle["timestamp"] < breakout_timestamp:
-            continue
+        candle_close_time = (
+            candle["timestamp"] + FOUR_HOURS_SECONDS
+        )
 
-        if check_invalidation(
-            direction,
-            plan,
-            scenario,
-            candle,
-        ):
-            return candle
+        if direction == "LONG":
+            if candle["timestamp"] < reference_timestamp:
+                continue
+
+            if candle["close"] < stop_loss:
+                return candle
+
+        else:
+            if candle_close_time < reference_timestamp:
+                continue
+
+            if candle["close"] > stop_loss:
+                return candle
 
     return None
 
@@ -500,7 +554,7 @@ def find_retest(direction, plan, breakout_timestamp, candles_5m):
         if direction == "LONG":
             confirmed = (
                 candle["close"] > candle["open"]
-                and candle["close"] > zone_low
+                and candle["close"] > zone_high
             )
 
             if confirmed:
@@ -509,7 +563,7 @@ def find_retest(direction, plan, breakout_timestamp, candles_5m):
         elif direction == "SHORT":
             confirmed = (
                 candle["close"] < candle["open"]
-                and candle["close"] < zone_high
+                and candle["close"] < zone_low
             )
 
             if confirmed:
@@ -598,10 +652,16 @@ def process_scenario(
         log(f"{direction}: scenario is invalidated.")
         return
 
-    reference_timestamp = scenario.get("breakout_timestamp")
-
-    if reference_timestamp is None:
-        reference_timestamp = scenario["baseline_4h_timestamp"]
+    if direction == "LONG":
+        reference_timestamp = (
+            scenario.get("sweep_timestamp")
+            or scenario["baseline_4h_timestamp"]
+        )
+    else:
+        reference_timestamp = (
+            scenario.get("breakout_timestamp")
+            or scenario["baseline_4h_timestamp"]
+        )
 
     if reference_timestamp < candles_4h[0]["timestamp"]:
         raise RuntimeError(
@@ -609,16 +669,31 @@ def process_scenario(
             "the active scenario. A new AI scenario is required."
         )
 
-    breakout_timestamp = find_breakout(
-        direction,
-        plan,
-        scenario,
-        candles_4h,
-    )
+    if direction == "LONG":
+        activation = find_long_activation(
+            plan,
+            scenario,
+            candles_4h,
+        )
 
-    if breakout_timestamp is None:
-        log(f"{direction}: waiting for 4H breakout.")
-        return
+        if activation == "INVALIDATED":
+            scenario["invalidated"] = True
+            scenario["pending_retest"] = None
+
+            log(
+                "LONG: scenario invalidated by a 4H close "
+                "below the stop-loss level."
+            )
+            return
+
+        breakout_timestamp = activation
+
+    else:
+        breakout_timestamp = find_short_breakdown(
+            plan,
+            scenario,
+            candles_4h,
+        )
 
     invalidation_candle = find_invalidation(
         direction,
@@ -635,6 +710,19 @@ def process_scenario(
             f"{direction}: scenario invalidated by historical "
             f"4H close at {invalidation_candle['close']:.2f}."
         )
+        return
+
+    if breakout_timestamp is None:
+        if direction == "LONG":
+            if scenario.get("sweep_timestamp") is None:
+                log("LONG: waiting for a liquidity sweep below 63910.")
+            else:
+                log(
+                    "LONG: sweep detected. "
+                    "Waiting for a later 4H close above the reclaim level."
+                )
+        else:
+            log("SHORT: waiting for a confirmed 4H breakdown.")
 
         return
 
@@ -649,7 +737,10 @@ def process_scenario(
         )
 
     if retest is None:
-        log(f"{direction}: waiting for a new confirmed 5M retest.")
+        log(
+            f"{direction}: waiting for a confirmed 5M "
+            "retest and rejection."
+        )
         return
 
     scenario["pending_retest"] = retest
