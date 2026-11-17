@@ -225,7 +225,6 @@ def fetch_candles_since(bar, initial_candles, last_processed, interval):
         )
 
         oldest_timestamp = ordered[0]["timestamp"]
-
         required_oldest = last_processed + interval
 
         if oldest_timestamp > required_oldest:
@@ -296,10 +295,12 @@ def fetch_candles_since(bar, initial_candles, last_processed, interval):
                 "while repairing an internal gap."
             )
 
+        # OKX 'after' returns candles older than the supplied timestamp.
+        # Use the end of the gap to retrieve candles inside that gap.
         recovered_page = request_candle_page(
             bar=bar,
             limit=300,
-            after=gap["start"] * 1000,
+            after=gap["end"] * 1000,
             history=True,
         )
 
