@@ -137,13 +137,7 @@ class TestBreakoutDetection(unittest.TestCase):
 class TestRetestDetection(unittest.TestCase):
 
     def test_long_retest_confirmation(self):
-        candle = make_candle(
-            28800,
-            102,
-            106,
-            99,
-            104,
-        )
+        candle = make_candle(28800, 102, 106, 99, 104)
 
         result = monitor.find_retest(
             "LONG",
@@ -156,13 +150,7 @@ class TestRetestDetection(unittest.TestCase):
         self.assertEqual(result["close"], 104)
 
     def test_short_retest_confirmation(self):
-        candle = make_candle(
-            28800,
-            99,
-            101,
-            94,
-            96,
-        )
+        candle = make_candle(28800, 99, 101, 94, 96)
 
         result = monitor.find_retest(
             "SHORT",
@@ -175,13 +163,7 @@ class TestRetestDetection(unittest.TestCase):
         self.assertEqual(result["close"], 96)
 
     def test_retest_before_breakout_close_is_rejected(self):
-        candle = make_candle(
-            28500,
-            102,
-            106,
-            99,
-            104,
-        )
+        candle = make_candle(28500, 102, 106, 99, 104)
 
         result = monitor.find_retest(
             "LONG",
@@ -193,13 +175,7 @@ class TestRetestDetection(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_wrong_candle_direction_is_rejected(self):
-        candle = make_candle(
-            28800,
-            104,
-            106,
-            99,
-            102,
-        )
+        candle = make_candle(28800, 104, 106, 99, 102)
 
         result = monitor.find_retest(
             "LONG",
@@ -230,19 +206,11 @@ class TestScenarioState(unittest.TestCase):
         }
 
         state = {
-            "scenarios": {
-                "LONG": existing,
-            },
+            "scenarios": {"LONG": existing},
             "sent_fingerprints": [],
         }
 
-        latest_4h = make_candle(
-            500,
-            100,
-            106,
-            99,
-            104,
-        )
+        latest_4h = make_candle(500, 100, 106, 99, 104)
 
         result = monitor.initialize_scenario(
             "LONG",
@@ -252,10 +220,7 @@ class TestScenarioState(unittest.TestCase):
         )
 
         self.assertIs(result, existing)
-        self.assertEqual(
-            result["baseline_4h_timestamp"],
-            100,
-        )
+        self.assertEqual(result["baseline_4h_timestamp"], 100)
 
     def test_previously_sent_fingerprint_is_not_reactivated(self):
         fingerprint = monitor.make_fingerprint(
@@ -268,13 +233,7 @@ class TestScenarioState(unittest.TestCase):
             "sent_fingerprints": [fingerprint],
         }
 
-        latest_4h = make_candle(
-            500,
-            100,
-            106,
-            99,
-            104,
-        )
+        latest_4h = make_candle(500, 100, 106, 99, 104)
 
         result = monitor.initialize_scenario(
             "LONG",
@@ -289,17 +248,9 @@ class TestScenarioState(unittest.TestCase):
 class TestInvalidation(unittest.TestCase):
 
     def test_long_scenario_invalidation(self):
-        scenario = {
-            "breakout_timestamp": 28800,
-        }
+        scenario = {"breakout_timestamp": 28800}
 
-        latest_4h = make_candle(
-            28800,
-            96,
-            98,
-            90,
-            93,
-        )
+        latest_4h = make_candle(28800, 96, 98, 90, 93)
 
         result = monitor.check_invalidation(
             "LONG",
@@ -311,17 +262,9 @@ class TestInvalidation(unittest.TestCase):
         self.assertTrue(result)
 
     def test_short_scenario_invalidation(self):
-        scenario = {
-            "breakout_timestamp": 28800,
-        }
+        scenario = {"breakout_timestamp": 28800}
 
-        latest_4h = make_candle(
-            28800,
-            104,
-            110,
-            103,
-            107,
-        )
+        latest_4h = make_candle(28800, 104, 110, 103, 107)
 
         result = monitor.check_invalidation(
             "SHORT",
@@ -370,11 +313,7 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "monitor_state.json"
 
-            with patch.object(
-                monitor,
-                "STATE_FILE",
-                state_file,
-            ):
+            with patch.object(monitor, "STATE_FILE", state_file):
                 with patch.object(
                     monitor,
                     "send_telegram",
@@ -393,10 +332,7 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
                         state["scenarios"]["LONG"]["alert_sent"]
                     )
 
-                    self.assertEqual(
-                        telegram_mock.call_count,
-                        1,
-                    )
+                    self.assertEqual(telegram_mock.call_count, 1)
 
                     monitor.process_scenario(
                         "LONG",
@@ -406,10 +342,129 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
                         candles_5m,
                     )
 
-                    self.assertEqual(
-                        telegram_mock.call_count,
-                        1,
-                    )
+                    self.assertEqual(telegram_mock.call_count, 1)
+
+
+class TestCheckpointProtection(unittest.TestCase):
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_file = Path(self.temp_dir.name) / "state.json"
+
+        self.initial_checkpoint = 1000
+        self.latest_checkpoint = 2000
+
+        self.state = {
+            "version": 1,
+            "scenarios": {},
+            "sent_fingerprints": [],
+            "last_processed_5m_timestamp": self.initial_checkpoint,
+        }
+
+        self.signal = {
+            "bullish_plan": VALID_LONG_PLAN,
+            "bearish_plan": VALID_SHORT_PLAN,
+        }
+
+        self.candles_4h = [
+            make_candle(0, 98, 101, 97, 99),
+            make_candle(14400, 99, 104, 98, 103),
+        ]
+
+        self.candles_5m = [
+            make_candle(1500, 101, 103, 99, 102),
+            make_candle(2000, 102, 104, 100, 103),
+        ]
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def run_main_with_failure(self, failed_direction):
+        def fake_process(
+            direction,
+            plan,
+            state,
+            candles_4h,
+            new_candles_5m,
+        ):
+            if direction == failed_direction:
+                raise RuntimeError("Simulated processing failure")
+
+        with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
+            with patch.object(monitor, "STATE_FILE", self.state_file):
+                with patch.object(
+                    monitor,
+                    "load_json",
+                    return_value=self.signal,
+                ):
+                    with patch.object(
+                        monitor,
+                        "load_state",
+                        return_value=self.state,
+                    ):
+                        with patch.object(
+                            monitor,
+                            "fetch_candles",
+                            side_effect=[
+                                self.candles_4h,
+                                self.candles_5m,
+                            ],
+                        ):
+                            with patch.object(
+                                monitor,
+                                "process_scenario",
+                                side_effect=fake_process,
+                            ):
+                                monitor.main()
+
+    def test_long_failure_does_not_advance_checkpoint(self):
+        self.run_main_with_failure("LONG")
+
+        self.assertEqual(
+            self.state["last_processed_5m_timestamp"],
+            self.initial_checkpoint,
+        )
+
+    def test_short_failure_does_not_advance_checkpoint(self):
+        self.run_main_with_failure("SHORT")
+
+        self.assertEqual(
+            self.state["last_processed_5m_timestamp"],
+            self.initial_checkpoint,
+        )
+
+    def test_successful_processing_advances_checkpoint(self):
+        with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
+            with patch.object(monitor, "STATE_FILE", self.state_file):
+                with patch.object(
+                    monitor,
+                    "load_json",
+                    return_value=self.signal,
+                ):
+                    with patch.object(
+                        monitor,
+                        "load_state",
+                        return_value=self.state,
+                    ):
+                        with patch.object(
+                            monitor,
+                            "fetch_candles",
+                            side_effect=[
+                                self.candles_4h,
+                                self.candles_5m,
+                            ],
+                        ):
+                            with patch.object(
+                                monitor,
+                                "process_scenario",
+                                return_value=None,
+                            ):
+                                monitor.main()
+
+        self.assertEqual(
+            self.state["last_processed_5m_timestamp"],
+            self.latest_checkpoint,
+        )
 
 
 if __name__ == "__main__":
