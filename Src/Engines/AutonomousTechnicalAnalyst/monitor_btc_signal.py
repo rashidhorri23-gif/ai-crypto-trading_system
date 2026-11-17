@@ -113,10 +113,18 @@ def fetch_candles(bar, limit):
         if not all(math.isfinite(price) and price > 0 for price in prices):
             continue
 
-        if candle["high"] < max(candle["open"], candle["close"], candle["low"]):
+        if candle["high"] < max(
+            candle["open"],
+            candle["close"],
+            candle["low"],
+        ):
             continue
 
-        if candle["low"] > min(candle["open"], candle["close"], candle["high"]):
+        if candle["low"] > min(
+            candle["open"],
+            candle["close"],
+            candle["high"],
+        ):
             continue
 
         candles.append(candle)
@@ -265,7 +273,7 @@ def initialize_scenario(direction, plan, latest_4h, state):
 
     log(
         f"{direction}: new scenario registered. "
-        f"Waiting for a new confirmed 4H breakout."
+        "Waiting for a new confirmed 4H breakout."
     )
 
     return scenario
@@ -393,7 +401,7 @@ def build_alert(direction, plan, candle):
         f"Take Profit 3: {float(plan['take_profit_3']):.2f}\n\n"
         f"5M Candle Close: {candle['close']:.2f}\n"
         f"Source: OKX\n\n"
-        f"Manual execution only. No automatic trade was opened."
+        "Manual execution only. No automatic trade was opened."
     )
 
 
@@ -519,7 +527,7 @@ def process_scenario(
     else:
         log(
             f"{direction}: alert remains pending. "
-            f"It will be retried on the next run."
+            "It will be retried on the next run."
         )
 
 
@@ -572,11 +580,18 @@ def main():
 
     log(f"New confirmed 5M candles: {len(new_candles_5m)}")
 
+    processing_successful = True
+
     for direction, settings in DIRECTIONS.items():
         plan = signal.get(settings["plan_key"])
 
         if not isinstance(plan, dict):
-            log(f"{direction}: plan is missing.")
+            processing_successful = False
+
+            log(
+                f"{direction}: plan is missing or invalid. "
+                "Checkpoint will not advance."
+            )
             continue
 
         try:
@@ -587,10 +602,24 @@ def main():
                 candles_4h,
                 new_candles_5m,
             )
-        except Exception as error:
-            log(f"{direction}: scenario processing error: {error}")
 
-    state["last_processed_5m_timestamp"] = latest_5m_timestamp
+        except Exception as error:
+            processing_successful = False
+
+            log(
+                f"{direction}: scenario processing error: {error}"
+            )
+
+    if processing_successful:
+        state["last_processed_5m_timestamp"] = latest_5m_timestamp
+
+        log("All scenarios processed successfully.")
+
+    else:
+        log(
+            "WARNING: Scenario processing failed. "
+            "The 5M checkpoint will not advance."
+        )
 
     save_json(STATE_FILE, state)
 
