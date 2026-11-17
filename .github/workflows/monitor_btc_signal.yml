@@ -1,0 +1,56 @@
+
+name: BTC 5M Signal Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btc-signal-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run BTC Signal Monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.monitor_btc_signal
+
+      - name: Save Monitor State
+        if: always()
+        run: |
+          if [ -f Data/Signals/btc_monitor_state.json ]; then
+            git add Data/Signals/btc_monitor_state.json
+
+            if git diff --cached --quiet; then
+              echo "No monitor state changes."
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+              git pull --rebase origin main
+              git push origin HEAD:main
+            fi
+          else
+            echo "Monitor state file was not created."
+          fi
