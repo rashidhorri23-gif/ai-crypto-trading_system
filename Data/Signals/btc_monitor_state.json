@@ -4,7 +4,7 @@
     "LONG": {
       "fingerprint": "44d73aad9d8131e76925f1ded35071ff715dd2abf5cc2df955926ab691ca121e",
       "baseline_4h_timestamp": 1794960000,
-      "sweep_timestamp": null,
+      "sweep_timestamp": 1794974400,
       "breakout_timestamp": null,
       "pending_retest": null,
       "alert_sent": false,
@@ -23,5 +23,5 @@
     }
   },
   "sent_fingerprints": [],
-  "last_processed_5m_timestamp": 1794987900
+  "last_processed_5m_timestamp": 1794991500
 }
