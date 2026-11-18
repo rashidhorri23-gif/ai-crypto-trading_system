@@ -4,18 +4,18 @@
     "LONG": {
       "fingerprint": "855ae263ae78a8e53e82b0cf25c83b734f2941fd7f33707b5e7a54c5c58af20c",
       "baseline_4h_timestamp": 1794988800,
-      "sweep_timestamp": null,
+      "sweep_timestamp": 1795003200,
       "breakout_timestamp": null,
       "pending_retest": null,
       "alert_sent": false,
-      "invalidated": false,
+      "invalidated": true,
       "created_at": "2026-11-18T13:48:20.372415+00:00"
     },
     "SHORT": {
       "fingerprint": "3a0879e23a3ded7b3fd9387073f38af272683d85a044df0e2574253747f54def",
       "baseline_4h_timestamp": 1794988800,
       "sweep_timestamp": null,
-      "breakout_timestamp": null,
+      "breakout_timestamp": 1795017600,
       "pending_retest": null,
       "alert_sent": false,
       "invalidated": false,
@@ -23,5 +23,5 @@
     }
   },
   "sent_fingerprints": [],
-  "last_processed_5m_timestamp": 1795015500
+  "last_processed_5m_timestamp": 1795019400
 }
