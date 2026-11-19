@@ -4,11 +4,11 @@
     "LONG": {
       "fingerprint": "c8d7201f7daae8affce96d09f50833241c6fbba6f7a30b1d76e8ed1d8911b70f",
       "baseline_4h_timestamp": 1795089600,
-      "sweep_timestamp": null,
+      "sweep_timestamp": 1795104000,
       "breakout_timestamp": null,
       "pending_retest": null,
       "alert_sent": false,
-      "invalidated": false,
+      "invalidated": true,
       "created_at": "2026-11-19T17:34:38.483518+00:00"
     },
     "SHORT": {
@@ -25,5 +25,5 @@
   "sent_fingerprints": [
     "45d83a04864fe193d9eebebde0bab817b460722da6c2ffbde86ac4aece0b6458"
   ],
-  "last_processed_5m_timestamp": 1795116300
+  "last_processed_5m_timestamp": 1795119600
 }
