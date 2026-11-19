@@ -17,11 +17,13 @@
       "sweep_timestamp": null,
       "breakout_timestamp": 1795032000,
       "pending_retest": null,
-      "alert_sent": false,
+      "alert_sent": true,
       "invalidated": false,
       "created_at": "2026-11-18T17:33:15.205636+00:00"
     }
   },
-  "sent_fingerprints": [],
-  "last_processed_5m_timestamp": 1795058700
+  "sent_fingerprints": [
+    "45d83a04864fe193d9eebebde0bab817b460722da6c2ffbde86ac4aece0b6458"
+  ],
+  "last_processed_5m_timestamp": 1795062300
 }
