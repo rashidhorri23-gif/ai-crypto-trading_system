@@ -2,51 +2,52 @@
   "symbol": "BTC-USDT",
   "timeframe": "4H",
   "market_bias": "BEARISH",
-  "confidence": 68,
+  "confidence": 72,
   "decision": "WAIT",
-  "current_price": 63953.0,
-  "structure_summary": "4H remains in a broader bearish trend from the ~80k area, with price below EMA20, EMA50, and EMA200. Recent price action is consolidating near the lows between roughly 62.0k and 65.4k. The latest candle is a bullish bounce, but there is no confirmed bullish BOS or CHOCH, and market structure is still neutral internally.",
-  "external_structure": "Bearish external structure: lower highs and lower lows from the 80k region, with price trading well below the 4H EMA20/50/200 and -DI dominating +DI.",
-  "internal_structure": "Internal structure is range/consolidation near the lows. Price is reacting between support around 62050-62500 and resistance around 65444.9. No confirmed BOS or CHOCH is present in the supplied context.",
+  "current_price": 63100.1,
+  "structure_summary": "BTC remains in a broader bearish trend, trading below EMA20, EMA50, and EMA200. However, price is currently consolidating above the 62050 support area and below the 65445 resistance area, so immediate trade confirmation is lacking. The latest 4H candle is bearish and rejected near 64079, but no confirmed bullish or bearish BOS is present in the supplied context.",
+  "external_structure": "Bearish external structure: lower highs and lower lows from the ~80000 region, with price well below the 4H EMA20/50/200 and declining EMAs. The dominant trend remains down unless price reclaims the 65445 resistance zone.",
+  "internal_structure": "Transitional/range-bound internal structure after the selloff. Price is oscillating between roughly 62050 support and 65445 resistance, with recent rejection near 64000-64250 and support near 62500-62777. No confirmed internal bullish BOS or bearish BOS is currently established.",
   "key_supports": [
-    63561.3,
+    62050.1,
     62500.0,
-    62050.1
+    62777.0
   ],
   "key_resistances": [
-    64358.8,
+    64079.3,
+    64238.9,
     65444.9,
-    66904.5
+    66755.3
   ],
-  "bullish_scenario": "A bullish path requires price to reclaim the EMA20 area and break above the 65444.9 resistance with a confirmed 4H close. A successful retest holding above 65000 could open upside toward the EMA50 near 66904.5, then 68000 and 70000. Without a confirmed breakout and retest, bounces remain counter-trend and vulnerable to rejection.",
-  "bearish_scenario": "Bearish continuation requires a confirmed 4H close below the 62050.1 support. A retest into 62050-62500 that fails to reclaim the level would favor continuation toward 61000, 60000, and 59000. A rejection at 65444.9 would also support bearish bias, but the primary breakdown plan is below 62050.1.",
+  "bullish_scenario": "A bullish reversal would require BTC to reclaim the EMA20 area around 64238 and then break and hold above the 65444.9 range resistance. A confirmed 4H close above 65444.9 followed by a successful retest would open the path toward 66755 and potentially 68000-70000. Without that breakout and retest, upward moves are more likely corrective within the broader downtrend.",
+  "bearish_scenario": "The bearish continuation case remains dominant while price stays below 64238-65445. A confirmed 4H close below the 62050.1 support, followed by a failed retest, would signal range breakdown and continuation of the larger downtrend. That setup would target 61000, 60000, and potentially 59000. A reclaim above 64238 would weaken the immediate bearish continuation case.",
   "bullish_plan": {
     "setup_type": "RETEST",
-    "entry_zone_low": 65000.0,
-    "entry_zone_high": 65445.0,
-    "stop_loss": 64300.0,
-    "take_profit_1": 66904.5,
+    "entry_zone_low": 65444.9,
+    "entry_zone_high": 65600.0,
+    "stop_loss": 64238.9,
+    "take_profit_1": 66755.3,
     "take_profit_2": 68000.0,
     "take_profit_3": 70000.0,
-    "risk_reward_tp1": 1.82,
-    "risk_reward_tp2": 3.01,
-    "risk_reward_tp3": 5.18,
-    "activation_condition": "4H candle closes above 65444.9 and a subsequent retest holds above 65000.",
-    "invalidation_condition": "4H close back below 64300 or failure to hold above 65000 after the breakout."
+    "risk_reward_tp1": 0.85,
+    "risk_reward_tp2": 1.76,
+    "risk_reward_tp3": 3.23,
+    "activation_condition": "A 4H candle closes above 65444.9, followed by a retest that holds above 65444.9-65600. Enter only after retest confirmation.",
+    "invalidation_condition": "A 4H close back below 64238.9 or a failed breakout retest. Bullish thesis is invalid below 62050.1."
   },
   "bearish_plan": {
     "setup_type": "BREAKDOWN",
-    "entry_zone_low": 62050.0,
-    "entry_zone_high": 62500.0,
-    "stop_loss": 63500.0,
+    "entry_zone_low": 61800.0,
+    "entry_zone_high": 62050.1,
+    "stop_loss": 62777.0,
     "take_profit_1": 61000.0,
     "take_profit_2": 60000.0,
     "take_profit_3": 59000.0,
-    "risk_reward_tp1": 1.5,
-    "risk_reward_tp2": 2.5,
-    "risk_reward_tp3": 3.5,
-    "activation_condition": "4H candle closes below 62050.1 and a subsequent retest into 62050-62500 fails to reclaim the level.",
-    "invalidation_condition": "4H close back above 63500 or price reclaims 64000 before the breakdown retest."
+    "risk_reward_tp1": 1.44,
+    "risk_reward_tp2": 2.82,
+    "risk_reward_tp3": 4.2,
+    "activation_condition": "A 4H candle closes below 62050.1, followed by a retest that rejects below 62050.1. Enter only after breakdown retest confirmation.",
+    "invalidation_condition": "A 4H close back above 62777.0 or a reclaim of the 63000-64238 range. Bearish breakdown is invalid above 64238.9."
   },
   "trade_setup": {
     "direction": "NONE",
@@ -57,18 +58,20 @@
     "take_profit_2": null,
     "take_profit_3": null,
     "risk_reward_ratio": null,
-    "confirmation_condition": "No active setup. Wait for a confirmed 4H breakout/retest above 65444.9 or a confirmed breakdown/retest below 62050.1.",
-    "invalidation_condition": "Not applicable while decision is WAIT."
+    "confirmation_condition": "No immediate trade. Price is mid-range at 63100.1. Wait for a confirmed 4H close above 65444.9 with retest for a long setup, or a confirmed 4H close below 62050.1 with retest for a short setup.",
+    "invalidation_condition": "Not applicable while decision is WAIT. Conditional plans invalidate according to their respective levels."
   },
   "main_risks": [
-    "Low relative volume (0.4012) increases the risk of fake breakout or breakdown moves.",
-    "Price is in a consolidation range near the lows, so both bullish and bearish continuation signals require confirmation.",
-    "ADX is high and -DI dominates, supporting bearish trend continuation, but RSI is not oversold and a counter-trend bounce remains possible.",
-    "Intrabar moves may be noisy; 4H candle closes are required for structural confirmation."
+    "Price is mid-range, increasing the risk of false breakouts and whipsaws around 62050 and 65445.",
+    "ADX is elevated but market_structure is neutral, so trend continuation is not yet confirmed on the 4H timeframe.",
+    "Relative volume is below average, which can reduce breakout reliability.",
+    "BTC can sweep liquidity above/below range boundaries before choosing direction.",
+    "The latest candle is bearish but the market remains close to support, so shorting directly into support is unfavorable without a confirmed breakdown."
   ],
   "data_limitations": [
-    "Only the supplied 4H chart and numerical indicators are available; no lower-timeframe confirmation or order-book liquidity data is provided.",
-    "Support and resistance levels are approximate and derived from the visible chart and supplied context.",
-    "Targets beyond visible structure, especially 68000/70000 and 60000/59000, are psychological/round-number estimates rather than confirmed structural levels."
+    "Analysis is based on a single 4H chart snapshot and supplied numerical context; no order book, liquidation map, or volume profile is available.",
+    "Exact swing levels are approximated from the chart where not explicitly provided.",
+    "No previous AI report is included, so prior scenario continuity cannot be assumed.",
+    "The latest 4H candle is treated as closed per supplied context, but intra-candle movement may still affect short-term execution."
   ]
 }
