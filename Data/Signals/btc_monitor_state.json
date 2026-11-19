@@ -2,28 +2,28 @@
   "version": 1,
   "scenarios": {
     "LONG": {
-      "fingerprint": "6aaba9576dedc1681c0c7b81c090b80d15ab6561bd87fd1eae1d632500b69a56",
-      "baseline_4h_timestamp": 1795075200,
-      "sweep_timestamp": 1795089600,
-      "breakout_timestamp": null,
-      "pending_retest": null,
-      "alert_sent": false,
-      "invalidated": true,
-      "created_at": "2026-11-19T13:49:18.614375+00:00"
-    },
-    "SHORT": {
-      "fingerprint": "3d815163a8e5bca72f1355bf2a42099a505c6d07b199622f7db85e0f0c8ee3a9",
-      "baseline_4h_timestamp": 1795075200,
+      "fingerprint": "c8d7201f7daae8affce96d09f50833241c6fbba6f7a30b1d76e8ed1d8911b70f",
+      "baseline_4h_timestamp": 1795089600,
       "sweep_timestamp": null,
       "breakout_timestamp": null,
       "pending_retest": null,
       "alert_sent": false,
       "invalidated": false,
-      "created_at": "2026-11-19T13:49:18.614495+00:00"
+      "created_at": "2026-11-19T17:34:38.483518+00:00"
+    },
+    "SHORT": {
+      "fingerprint": "50f039f8cdba512818d7ac85b851f92187e844ba6a839ddc30a9b16e4676457c",
+      "baseline_4h_timestamp": 1795089600,
+      "sweep_timestamp": null,
+      "breakout_timestamp": null,
+      "pending_retest": null,
+      "alert_sent": false,
+      "invalidated": false,
+      "created_at": "2026-11-19T17:34:38.483584+00:00"
     }
   },
   "sent_fingerprints": [
     "45d83a04864fe193d9eebebde0bab817b460722da6c2ffbde86ac4aece0b6458"
   ],
-  "last_processed_5m_timestamp": 1795105800
+  "last_processed_5m_timestamp": 1795109100
 }
