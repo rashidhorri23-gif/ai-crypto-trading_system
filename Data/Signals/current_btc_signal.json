@@ -2,53 +2,53 @@
   "symbol": "BTC-USDT",
   "timeframe": "4H",
   "market_bias": "BEARISH",
-  "confidence": 80,
+  "confidence": 72,
   "decision": "WAIT",
-  "current_price": 58952.7,
-  "structure_summary": "4H trend remains strongly bearish with a confirmed BOS below the 62050.1 support and price making lower lows. The latest candle shows a bullish rejection from 58211.4, but price is still below 59417.5 and 60000, so no bullish CHOCH is confirmed. Immediate action is WAIT.",
-  "external_structure": "Bearish external structure: sustained series of lower highs and lower lows from the ~80000 area, confirmed bearish BOS below 62050.1, and EMA20/EMA50/EMA200 stacked downward.",
-  "internal_structure": "Bearish internal structure with recent sharp selloff into 58211.4. A minor bullish candle has formed, but internal resistance at 59417.5 and 60000 remains intact. No confirmed bullish CHOCH.",
+  "current_price": 57996.4,
+  "structure_summary": "Strong 4H downtrend with confirmed bearish BOS and price below EMA20/50/200. ADX is high at 55.6 with -DI dominant, while RSI is oversold at 28.6. The latest candle is a high-volume bullish rejection from 55134, creating short-term bounce risk, but no bullish structure confirmation has formed. Bias remains bearish, but immediate entry is not confirmed.",
+  "external_structure": "Bearish. Price has printed a series of lower highs and lower lows and confirmed a bearish BOS below the 62050 support area. Price remains below all major EMAs, confirming a strong external downtrend.",
+  "internal_structure": "Bearish but showing short-term exhaustion. The market sold off impulsively into 55134 and printed a high-volume bullish rejection candle. Internal structure still lacks a confirmed bullish CHOCH; a break above 58668 would be the first sign of short-term transition.",
   "key_supports": [
-    58211.4,
-    58000,
-    57000
+    56000,
+    55134,
+    55000
   ],
   "key_resistances": [
-    59417.5,
+    58668,
     60000,
-    62050.1,
-    64084.9,
-    65116.2
+    61349,
+    62050,
+    64085
   ],
-  "bullish_scenario": "An oversold bounce could develop if price holds above 58211.4 and reclaims 59417.5/60000. A confirmed 4H close above 60000 would create a bullish CHOCH and open a retest long toward 62050.1 and 64084.9. Without that confirmation, longs remain countertrend.",
-  "bearish_scenario": "Bearish continuation remains primary. A 4H close below 58211.4 would confirm another breakdown and expose 57000/56000. Alternatively, a rally into 60000-62050.1 that rejects would provide a retest short. Trend, ADX, and DI still favor downside.",
+  "bullish_scenario": "A bullish path requires the 55134 rejection low to hold. If price closes above 58668 and then retests 58000-58600 without losing 56700, a short-term breakout-retest long could develop toward 60000, 61350, and 62050. Failure to reclaim 58668 or a loss of 56700 would keep the bearish structure intact.",
+  "bearish_scenario": "Bearish continuation remains the primary path. A corrective bounce into 60000-61350, where EMA20 and former support sit, could produce a bearish rejection and resume the downtrend toward 58000, 56000, and 55134. A confirmed 4H close below 55134 would open deeper downside, but immediate shorting at current oversold levels is not confirmed.",
   "bullish_plan": {
     "setup_type": "RETEST",
-    "entry_zone_low": 59600,
-    "entry_zone_high": 60000,
-    "stop_loss": 58200,
-    "take_profit_1": 62050.1,
-    "take_profit_2": 64084.9,
-    "take_profit_3": 65116.2,
-    "risk_reward_tp1": 1.41,
-    "risk_reward_tp2": 2.68,
-    "risk_reward_tp3": 3.32,
-    "activation_condition": "4H close above 60000, followed by a retest that holds 59600-60000 with bullish rejection.",
-    "invalidation_condition": "4H close below 58211.4 or failure to hold 59600 after the breakout."
+    "entry_zone_low": 58000,
+    "entry_zone_high": 58600,
+    "stop_loss": 56700,
+    "take_profit_1": 60000,
+    "take_profit_2": 61350,
+    "take_profit_3": 62050,
+    "risk_reward_tp1": 1.06,
+    "risk_reward_tp2": 1.91,
+    "risk_reward_tp3": 2.34,
+    "activation_condition": "4H candle closes above 58668, then price retests 58000-58600 and holds above 56700 with a bullish reaction.",
+    "invalidation_condition": "4H close below 56700 or failure to hold above 58000 after the breakout."
   },
   "bearish_plan": {
-    "setup_type": "BREAKDOWN",
-    "entry_zone_low": 57800,
-    "entry_zone_high": 58200,
-    "stop_loss": 59417.5,
-    "take_profit_1": 57000,
+    "setup_type": "RETEST",
+    "entry_zone_low": 60000,
+    "entry_zone_high": 61350,
+    "stop_loss": 62100,
+    "take_profit_1": 58000,
     "take_profit_2": 56000,
-    "take_profit_3": 55000,
-    "risk_reward_tp1": 0.71,
-    "risk_reward_tp2": 1.41,
-    "risk_reward_tp3": 2.12,
-    "activation_condition": "4H close below 58211.4, followed by a retest into 57800-58200 that fails with bearish rejection.",
-    "invalidation_condition": "4H close back above 59417.5 or a reclaim of 60000."
+    "take_profit_3": 55134,
+    "risk_reward_tp1": 1.88,
+    "risk_reward_tp2": 3.28,
+    "risk_reward_tp3": 3.89,
+    "activation_condition": "Price rallies into 60000-61350 and prints a 4H bearish rejection or closes back below 60000, confirming resistance.",
+    "invalidation_condition": "4H close above 62100 or sustained acceptance above 61350."
   },
   "trade_setup": {
     "direction": "NONE",
@@ -59,19 +59,19 @@
     "take_profit_2": null,
     "take_profit_3": null,
     "risk_reward_ratio": null,
-    "confirmation_condition": "No immediate trade. Wait for either a confirmed 4H close above 60000 with retest for a long, or a confirmed 4H close below 58211.4 with retest for a short.",
-    "invalidation_condition": "N/A until a setup activates."
+    "confirmation_condition": "No active trade. Wait for either a confirmed 4H breakout/retest above 58668 for a long or a bearish rejection in 60000-61350 for a short.",
+    "invalidation_condition": "N/A for WAIT; reevaluate on the next confirmed 4H close."
   },
   "main_risks": [
-    "RSI at 24 is oversold, increasing bounce or short-squeeze risk.",
-    "High relative volume and elevated ATR can cause volatile stop runs.",
-    "Strong bearish trend but price is near support, so breakdown continuation may fail.",
-    "Context support/resistance levels are above current price and may be stale relative to the latest breakdown."
+    "Strong oversold bounce risk after the high-volume bullish rejection at 55134.",
+    "High volatility with ATR around 1528 and recent long wicks.",
+    "Bearish trend remains strong, but short-term reversal or liquidity sweep could trigger violent countertrend moves.",
+    "Resistance levels around 60000-61350 may be tested before bearish continuation.",
+    "A 4H close below 55134 could accelerate downside and invalidate the current bounce structure."
   ],
   "data_limitations": [
-    "Only the 4H chart is supplied; no lower-timeframe confirmation is available.",
-    "No order book or liquidity heatmap is provided.",
-    "Targets below 58211.4 are based on psychological/round-number levels rather than visible historical swing levels.",
-    "Data is fresh, but the latest candle is treated as closed based on the supplied timestamps."
+    "Only the supplied 4H chart and numerical context are available; no lower-timeframe confirmation.",
+    "Support and resistance levels are derived from visible chart structure and provided context, so exact swing levels are approximate.",
+    "No order book, liquidity heatmap, or previous AI report is available for comparison."
   ]
 }
