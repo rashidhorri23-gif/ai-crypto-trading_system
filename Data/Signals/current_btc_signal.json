@@ -1,54 +1,52 @@
 {
   "symbol": "BTC-USDT",
   "timeframe": "4H",
-  "market_bias": "SIDEWAYS",
-  "confidence": 62,
+  "market_bias": "BEARISH",
+  "confidence": 58,
   "decision": "WAIT",
-  "current_price": 60890.5,
-  "structure_summary": "BTC remains in a larger bearish external structure after a prolonged decline from the 80k area, but the recent sharp recovery from the 55k liquidity sweep has shifted short-term internal structure into a neutral-to-bullish transition. Price is now testing the 61k resistance area and the latest 4H candle rejected higher levels, so no confirmed breakout or breakdown is active.",
-  "external_structure": "Bearish: the chart shows a sequence of lower highs and lower lows from the 80k region down to the 55k area. The recent bounce is corrective/internal unless price confirms a bullish BOS above the 61.6k-63.2k resistance zone.",
-  "internal_structure": "Neutral-to-bullish transition: after sweeping the 55.1k support area, price produced strong bullish displacement and reclaimed the 60k region. However, the latest candle rejected 61.6k and closed below 61k, so internal bullish continuation is not yet confirmed.",
+  "current_price": 60741.6,
+  "structure_summary": "BTC-USDT 4H is consolidating at the top of a recent range near 61000 resistance after a sharp decline from approximately 80000. Price is below EMA 50 (63170.34) and EMA 200 (71590.80), slightly above EMA 20 (60630.67). No confirmed BOS or CHOCH. The latest 4H candle closed at 60741.6 with an upper wick to 61410.7, indicating rejection at higher levels. Market is transitioning from a bearish trend to range-bound behavior.",
+  "external_structure": "Bearish external structure with lower highs and lower lows from the approximately 80000 swing high down to recent lows near 56000-57000. Price is currently testing the 61000 resistance zone, which aligns with the dashed resistance line and prior swing area.",
+  "internal_structure": "Internal structure shows a potential higher low formation near 56000-57000 followed by a rally into 61000. However, no bullish BOS has been confirmed because price has not decisively closed above 61000. The latest 4H candle closed near its open with a long upper wick to 61410.7, suggesting selling pressure at resistance and possible liquidity sweep above recent highs.",
   "key_supports": [
-    60460,
+    58768.1,
     60000,
-    58000,
-    55134
+    56000
   ],
   "key_resistances": [
-    61000,
-    61670,
-    63269,
-    65000
+    61000.0,
+    61410.7,
+    63170.3437
   ],
-  "bullish_scenario": "A bullish path requires BTC to confirm strength above the 61.6k rejection high and hold a retest of the 61k area. A confirmed 4H close above 61670 followed by a successful retest of 61000-61670 would indicate that the recent recovery is transitioning into a larger bullish correction. In that case, price could target the EMA50 near 63269, then the 65k prior consolidation/resistance zone, and potentially 67k if momentum expands.",
-  "bearish_scenario": "A bearish path remains valid if the 61k-61.6k resistance zone rejects price and BTC breaks back below the latest 4H low near 60460. A confirmed 4H close below 60460 followed by a failed retest of 60460-61000 would suggest the recent bounce was a relief rally into resistance. Downside targets would then be 59000, 58000, and the major 55134 support/liquidity area.",
+  "bullish_scenario": "Price could rally if it breaks above 61000 resistance with a strong 4H close and retests that level as support. This would invalidate the immediate bearish bias and target the EMA 50 at 63170.34 and beyond. Buyers need to defend 60500-60600 (EMA 20 area) to maintain bullish momentum.",
+  "bearish_scenario": "Price could reverse lower if it fails at 61000-61400 and breaks below the current candle low of 60546.1 or the 58768.1 support. Sellers would target the recent swing lows near 56000-57000. The upper wick to 61410.7 on the latest candle indicates rejection and potential liquidity above that could be swept before a drop.",
   "bullish_plan": {
     "setup_type": "BREAKOUT",
-    "entry_zone_low": 61000,
-    "entry_zone_high": 61670,
-    "stop_loss": 60400,
-    "take_profit_1": 63269,
-    "take_profit_2": 65000,
-    "take_profit_3": 67000,
-    "risk_reward_tp1": 2.07,
-    "risk_reward_tp2": 3.92,
-    "risk_reward_tp3": 6.06,
-    "activation_condition": "Wait for a confirmed 4H close above 61670, then enter on a retest that holds above 61000. Do not enter before the breakout is confirmed.",
-    "invalidation_condition": "A 4H close back below 60460 invalidates the bullish breakout scenario."
+    "entry_zone_low": 61000.0,
+    "entry_zone_high": 61200.0,
+    "stop_loss": 60400.0,
+    "take_profit_1": 62000.0,
+    "take_profit_2": 63170.3437,
+    "take_profit_3": 65000.0,
+    "risk_reward_tp1": 1.67,
+    "risk_reward_tp2": 3.62,
+    "risk_reward_tp3": 6.67,
+    "activation_condition": "4H candle closes above 61000.0 resistance with volume expansion",
+    "invalidation_condition": "4H candle closes below 60546.1 or price fails to hold 60000 after breakout"
   },
   "bearish_plan": {
     "setup_type": "BREAKDOWN",
-    "entry_zone_low": 60460,
-    "entry_zone_high": 61000,
-    "stop_loss": 61670,
-    "take_profit_1": 59000,
-    "take_profit_2": 58000,
-    "take_profit_3": 55134,
-    "risk_reward_tp1": 1.84,
-    "risk_reward_tp2": 2.9,
-    "risk_reward_tp3": 5.95,
-    "activation_condition": "Wait for a confirmed 4H close below 60460, then enter on a failed retest into 60460-61000. Do not short before the breakdown is confirmed.",
-    "invalidation_condition": "A 4H close back above 61670 invalidates the bearish breakdown scenario."
+    "entry_zone_low": 60000.0,
+    "entry_zone_high": 60500.0,
+    "stop_loss": 61500.0,
+    "take_profit_1": 59000.0,
+    "take_profit_2": 58768.1,
+    "take_profit_3": 56000.0,
+    "risk_reward_tp1": 1.5,
+    "risk_reward_tp2": 1.73,
+    "risk_reward_tp3": 4.5,
+    "activation_condition": "4H candle closes below 60546.1 or breakdown below 60000 support",
+    "invalidation_condition": "4H candle closes above 61410.7 or price reclaims 61000 with strong momentum"
   },
   "trade_setup": {
     "direction": "NONE",
@@ -59,19 +57,20 @@
     "take_profit_2": null,
     "take_profit_3": null,
     "risk_reward_ratio": null,
-    "confirmation_condition": "No immediate entry. Wait for a confirmed 4H close above 61670 for a long setup or below 60460 for a short setup.",
-    "invalidation_condition": "N/A while decision is WAIT."
+    "confirmation_condition": "No confirmed setup; waiting for breakout above 61000 or breakdown below 60546.1",
+    "invalidation_condition": "N/A"
   },
   "main_risks": [
-    "Price is directly testing the 61000-61670 resistance zone, increasing rejection risk.",
-    "Relative volume is low at 0.5338, reducing breakout reliability.",
-    "EMA trend remains bearish with price below EMA50 and EMA200.",
-    "ADX is elevated and minus DI remains above plus DI, so bearish momentum can resume.",
-    "The latest 4H candle rejected higher prices and closed below 61000, showing near-term supply."
+    "Price is at key resistance 61000 with rejection wick, risk of fakeout",
+    "EMA 50 and EMA 200 act as strong overhead resistance if price rallies",
+    "Low relative volume (0.3366) suggests weak conviction in current move",
+    "RSI near 47.63 shows no clear momentum direction",
+    "ADX 45.63 with -DI greater than +DI indicates bearish momentum dominance"
   ],
   "data_limitations": [
-    "No previous AI report is supplied, so prior scenario continuity cannot be confirmed.",
-    "Chart resolution limits precise identification of minor swing levels.",
-    "Intermediate support levels between 60460 and 55134 are inferred from price action and round-number psychology rather than clearly marked swing points."
+    "Latest 4H candle data is 0.66 hours old and may not represent final close",
+    "No historical swing high/low coordinates provided beyond numerical context",
+    "Volume profile and order book liquidity not visible",
+    "Chart does not show exact swing points for precise liquidity pool mapping"
   ]
 }
