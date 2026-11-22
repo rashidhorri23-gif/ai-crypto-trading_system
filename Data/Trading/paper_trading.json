@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "settings": {
+    "margin_usd_per_trade": 1000.0,
+    "leverage": 3.0,
+    "notional_usd_per_trade": 3000.0,
+    "fee_rate_per_side": 0.0005,
+    "slippage_rate_per_side": 0.0002,
+    "trailing_trigger_net_usd": 70.0,
+    "trailing_lock_net_usd": 50.0,
+    "trailing_giveback_net_usd": null,
+    "tp1_exit_fraction": 1.0
+  },
+  "trades": [],
+  "summary": {
+    "total_trades": 0,
+    "open_trades": 0,
+    "closed_trades": 0,
+    "winning_closed_trades": 0,
+    "win_rate_percent": 0.0,
+    "realized_net_pnl_usd": 0,
+    "unrealized_net_pnl_usd": 0,
+    "combined_net_pnl_usd": 0
+  }
+}
