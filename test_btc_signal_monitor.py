@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from Src.Engines.AutonomousTechnicalAnalyst import monitor_btc_signal as monitor
+from Src.Engines.AutonomousTechnicalAnalyst import paper_trading
 
 
 VALID_LONG_PLAN = {
@@ -324,36 +325,38 @@ class TestDuplicateAlertPrevention(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "monitor_state.json"
+            paper_file = Path(temp_dir) / "paper_trading.json"
 
             with patch.object(monitor, "STATE_FILE", state_file):
-                with patch.object(
-                    monitor,
-                    "send_telegram",
-                    return_value=True,
-                ) as telegram_mock:
+                with patch.object(paper_trading, "TRADING_FILE", paper_file):
+                    with patch.object(
+                            monitor,
+                            "send_telegram",
+                            return_value=True,
+                        ) as telegram_mock:
 
-                    monitor.process_scenario(
-                        "LONG",
-                        VALID_LONG_PLAN,
-                        state,
-                        candles_4h,
-                        candles_5m,
-                    )
+                        monitor.process_scenario(
+                            "LONG",
+                            VALID_LONG_PLAN,
+                            state,
+                            candles_4h,
+                            candles_5m,
+                        )
 
-                    self.assertTrue(
-                        state["scenarios"]["LONG"]["alert_sent"]
-                    )
-                    self.assertEqual(telegram_mock.call_count, 1)
+                        self.assertTrue(
+                            state["scenarios"]["LONG"]["alert_sent"]
+                        )
+                        self.assertEqual(telegram_mock.call_count, 1)
 
-                    monitor.process_scenario(
-                        "LONG",
-                        VALID_LONG_PLAN,
-                        state,
-                        candles_4h,
-                        candles_5m,
-                    )
+                        monitor.process_scenario(
+                            "LONG",
+                            VALID_LONG_PLAN,
+                            state,
+                            candles_4h,
+                            candles_5m,
+                        )
 
-                    self.assertEqual(telegram_mock.call_count, 1)
+                        self.assertEqual(telegram_mock.call_count, 1)
 
 
 class TestCheckpointProtection(unittest.TestCase):
@@ -361,6 +364,11 @@ class TestCheckpointProtection(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_file = Path(self.temp_dir.name) / "state.json"
+        self.paper_file_patch = patch.object(
+            paper_trading, "TRADING_FILE",
+            Path(self.temp_dir.name) / "paper_trading.json",
+        )
+        self.paper_file_patch.start()
 
         self.initial_checkpoint = 1000
         self.latest_checkpoint = 1600
@@ -388,6 +396,7 @@ class TestCheckpointProtection(unittest.TestCase):
         ]
 
     def tearDown(self):
+        self.paper_file_patch.stop()
         self.temp_dir.cleanup()
 
     def run_main_with_failure(self, failed_direction):
