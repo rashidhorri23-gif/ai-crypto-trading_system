@@ -9,6 +9,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from Src.Engines.AutonomousTechnicalAnalyst import paper_trading
+
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -680,7 +682,8 @@ def build_alert(direction, plan, candle):
         f"Take Profit 3: {float(plan['take_profit_3']):.2f}\n\n"
         f"5M Candle Close: {candle['close']:.2f}\n"
         f"Source: OKX\n\n"
-        "Manual execution only. No automatic trade was opened."
+        "Paper trade recorded automatically for tracking. "
+        "No exchange order was submitted."
     )
 
 
@@ -801,6 +804,24 @@ def process_scenario(
 
     scenario["pending_retest"] = retest
 
+    ledger = paper_trading.load_ledger()
+    trade, created = paper_trading.open_trade(
+        ledger,
+        direction,
+        plan,
+        retest,
+        scenario["fingerprint"],
+    )
+    if created:
+        paper_trading.save_ledger(ledger)
+        log(
+            f"{direction}: paper trade opened. "
+            f"Entry reference: {trade['entry_reference_price']:.2f}; "
+            f"notional: ${trade['notional_usd']:.2f}."
+        )
+    else:
+        log(f"{direction}: matching paper trade already exists; no duplicate created.")
+
     message = build_alert(direction, plan, retest)
 
     log(f"{direction}: retest confirmed.")
@@ -882,7 +903,26 @@ def main():
 
     processing_successful = True
 
+    try:
+        ledger = paper_trading.load_ledger()
+        if new_candles_5m:
+            paper_trading.process_candles(ledger, new_candles_5m)
+            paper_trading.save_ledger(ledger)
+        report = paper_trading.summary(ledger)
+        log(
+            "Paper trading: "
+            f"{report['open_trades']} open, "
+            f"{report['closed_trades']} closed, "
+            f"net PnL ${report['combined_net_pnl_usd']:.2f}."
+        )
+    except Exception as error:
+        processing_successful = False
+        log(f"Paper trading processing error: {error}")
+
     for direction, settings in DIRECTIONS.items():
+        if not processing_successful:
+            log("Scenario processing skipped because paper ledger processing failed.")
+            break
         plan = signal.get(settings["plan_key"])
 
         if not isinstance(plan, dict):
@@ -909,6 +949,14 @@ def main():
             log(
                 f"{direction}: scenario processing error: {error}"
             )
+
+    try:
+        final_ledger = paper_trading.load_ledger()
+        final_ledger["summary"] = paper_trading.summary(final_ledger)
+        paper_trading.save_ledger(final_ledger)
+    except Exception as error:
+        processing_successful = False
+        log(f"Paper trading summary save error: {error}")
 
     if processing_successful:
         state["last_processed_5m_timestamp"] = latest_5m_timestamp
