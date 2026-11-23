@@ -4,7 +4,7 @@
     "LONG": {
       "fingerprint": "2dc5940a7d41cbb44c34e38da303567ff48a282ecf0a21fa233d49849836697b",
       "baseline_4h_timestamp": 1795363200,
-      "sweep_timestamp": null,
+      "sweep_timestamp": 1795377600,
       "breakout_timestamp": null,
       "pending_retest": null,
       "alert_sent": false,
@@ -26,5 +26,5 @@
     "45d83a04864fe193d9eebebde0bab817b460722da6c2ffbde86ac4aece0b6458",
     "265f5febb075b696587a2d0cdc1f30da777a7eddb0cd60c90aff3a1b21c84818"
   ],
-  "last_processed_5m_timestamp": 1795391100
+  "last_processed_5m_timestamp": 1795393500
 }
