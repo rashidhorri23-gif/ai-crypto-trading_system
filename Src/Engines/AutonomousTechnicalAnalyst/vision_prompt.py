@@ -2,348 +2,285 @@
 import json
 
 
-def build_btc_4h_prompt(market_context):
-    """
-    Build the BTC 4H market analysis prompt.
-    """
+def _serialize_context(value):
+    """Convert market context into JSON-safe text."""
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    except (TypeError, ValueError):
+        return str(value)
 
-    if isinstance(market_context, str):
-        try:
-            context = json.loads(market_context)
-        except json.JSONDecodeError:
-            context = {"raw_context": market_context}
-    elif isinstance(market_context, dict):
-        context = market_context
-    else:
-        context = {"raw_context": str(market_context)}
 
-    schema = {
-        "symbol": "BTC-USDT",
-        "timeframe": "4H",
-        "market_bias": "BULLISH | BEARISH | SIDEWAYS",
-        "confidence": 0,
-        "decision": "LONG | SHORT | WAIT",
-        "current_price": None,
-        "structure_summary": "",
-        "external_structure": "",
-        "internal_structure": "",
-        "key_supports": [],
-        "key_resistances": [],
-        "bullish_scenario": "",
-        "bearish_scenario": "",
-        "bullish_plan": {
-            "setup_type": "BREAKOUT | RETEST | NONE",
-            "entry_zone_low": None,
-            "entry_zone_high": None,
-            "stop_loss": None,
-            "take_profit_1": None,
-            "take_profit_2": None,
-            "take_profit_3": None,
-            "risk_reward_tp1": None,
-            "risk_reward_tp2": None,
-            "risk_reward_tp3": None,
-            "activation_condition": "",
-            "invalidation_condition": ""
-        },
-        "bearish_plan": {
-            "setup_type": "BREAKDOWN | RETEST | NONE",
-            "entry_zone_low": None,
-            "entry_zone_high": None,
-            "stop_loss": None,
-            "take_profit_1": None,
-            "take_profit_2": None,
-            "take_profit_3": None,
-            "risk_reward_tp1": None,
-            "risk_reward_tp2": None,
-            "risk_reward_tp3": None,
-            "activation_condition": "",
-            "invalidation_condition": ""
-        },
-        "trade_setup": {
-            "direction": "LONG | SHORT | NONE",
-            "entry_zone_low": None,
-            "entry_zone_high": None,
-            "stop_loss": None,
-            "take_profit_1": None,
-            "take_profit_2": None,
-            "take_profit_3": None,
-            "risk_reward_ratio": None,
-            "confirmation_condition": "",
-            "invalidation_condition": ""
-        },
-        "main_risks": [],
-        "data_limitations": []
+def build_btc_analysis_prompt(
+    market_context,
+    previous_signal=None,
+    open_trade=None,
+):
+    """Build the multi-timeframe BTC analysis prompt."""
+
+    context = {
+        "market_data": market_context,
+        "previous_signal": previous_signal,
+        "open_trade": open_trade,
     }
 
+    context_json = _serialize_context(context)
+
     prompt = f"""
-You are a professional BTC-USDT market analyst specializing in:
+You are an independent professional cryptocurrency market analyst.
 
-- Candlestick price action
-- Smart Money Concepts
-- External and internal market structure
-- Liquidity analysis
-- BOS and CHOCH
-- Support and resistance
-- Breakout and retest trading
-- Conditional trade planning
-- Risk management
+Your task is to analyze BTC-USDT using the supplied market data and
+return exactly ONE trading decision:
 
-Your task is to analyze the supplied BTC-USDT 4H candlestick chart
-and numerical market context.
+LONG, SHORT, or WAIT.
 
-The objective is NOT simply to decide whether to enter a trade now.
+IMPORTANT SYSTEM ARCHITECTURE:
 
-Your main objective is to understand the current market and map
-the two most reasonable possible future price paths.
+- You are the only component responsible for the trading decision.
+- Python does not decide market direction.
+- Python does not generate LONG or SHORT signals.
+- Python only collects data, validates your response, simulates
+  approved trades, manages the paper-trading ledger, and reports results.
+- Do not assume that a technical indicator automatically creates a signal.
+- Do not follow a fixed indicator combination or mechanical entry strategy.
+- Make your decision from the complete market evidence.
+- WAIT is a valid and preferred decision whenever evidence is insufficient.
 
-The chart is the primary visual source.
-Numerical indicators are supporting evidence.
+MARKET DATA AND TIMEFRAMES:
 
-MARKET CONTEXT:
-{json.dumps(context, indent=2, ensure_ascii=False)}
+You will receive available market information for:
 
-==================================================
-1. VISUAL CHART ANALYSIS
-==================================================
+1. 4H: Higher-timeframe market structure and broader context.
+2. 15M: Intermediate structure and the primary analysis timeframe.
+3. 5M: Lower-timeframe price action and execution context.
 
-Carefully inspect the candlestick chart.
+The analysis is performed after a 15-minute candle has closed.
 
-Analyze:
+Use only the supplied confirmed candles.
+Do not assume that an unfinished candle is confirmed.
+Do not invent prices, candles, indicators, news, or market events.
 
-- Candle bodies and wicks
-- Swing highs and swing lows
-- Higher highs and higher lows
-- Lower highs and lower lows
-- Strong bullish and bearish candles
-- Rejection candles
-- Consolidation ranges
-- Breakouts and failed breakouts
-- Retests
-- Liquidity sweeps
-- Potential liquidity pools
-- Support and resistance zones
-- Price reaction around important levels
+Analyze the timeframes together.
+Identify disagreements between timeframes and explain their importance.
+Do not automatically prioritize one indicator over price structure.
 
-Do not produce an indicator-only report.
+ANALYSIS REQUIREMENTS:
 
-Separate confirmed price action from possible future movements.
+Evaluate the available evidence, including:
 
-==================================================
-2. CURRENT MARKET STRUCTURE
-==================================================
+- Overall market structure and directional bias.
+- Swing highs and swing lows.
+- Breaks of structure and possible changes of character.
+- Support and resistance.
+- Liquidity areas and possible liquidity sweeps, where supported by data.
+- Trend strength and momentum.
+- EMA relationships.
+- RSI, ATR, ADX, directional indicators, and relative volume.
+- Volatility and the distance to important price levels.
+- Whether the current price offers a reasonable risk/reward opportunity.
+- Whether the proposed entry is still actionable.
+- Conflicting evidence and data limitations.
 
-Determine:
+These are analytical inputs, not mandatory signal conditions.
+Do not force a trade simply because some indicators agree.
 
-- External market structure
-- Internal market structure
-- Current market bias
-- Confirmed BOS
-- Confirmed CHOCH
-- Important support levels
-- Important resistance levels
-- Liquidity above current price
-- Liquidity below current price
-- Whether the market is trending, ranging, or transitioning
-
-Explain why the current bias is bullish, bearish, or sideways.
-
-Do not confuse market direction with trade entry confirmation.
-
-==================================================
-3. BULLISH SCENARIO - ALWAYS REQUIRED
-==================================================
-
-Independently analyze the most reasonable bullish path.
-
-This analysis is mandatory even if the current market is bearish.
-
-Identify:
-
-- What could cause price to move upward?
-- Which resistance or liquidity level matters?
-- What must happen before a LONG setup becomes valid?
-- Is a breakout, retest, or another structure confirmation required?
-- What is the conditional entry zone?
-- Where should the stop loss be placed?
-- Where are TP1, TP2, and TP3?
-- What would invalidate this bullish scenario?
-
-If a technically reasonable conditional setup exists,
-provide numerical levels.
-
-Do not set the bullish plan to NONE merely because
-the activation condition has not happened yet.
-
-==================================================
-4. BEARISH SCENARIO - ALWAYS REQUIRED
-==================================================
-
-Independently analyze the most reasonable bearish path.
-
-This analysis is mandatory even if the current market is bullish.
-
-Identify:
-
-- What could cause price to move downward?
-- Which support or liquidity level matters?
-- What must happen before a SHORT setup becomes valid?
-- Is a breakdown, retest, or another structure confirmation required?
-- What is the conditional entry zone?
-- Where should the stop loss be placed?
-- Where are TP1, TP2, and TP3?
-- What would invalidate this bearish scenario?
-
-If a technically reasonable conditional setup exists,
-provide numerical levels.
-
-Do not set the bearish plan to NONE merely because
-the activation condition has not happened yet.
-
-==================================================
-5. CONDITIONAL TRADE PLANS
-==================================================
-
-The bullish_plan and bearish_plan describe possible future trades.
-
-They are independent of the current active trade decision.
-
-A conditional plan can exist while the current decision is WAIT.
-
-For each valid plan:
-
-- Specify the setup type.
-- Specify entry_zone_low.
-- Specify entry_zone_high.
-- Specify stop_loss.
-- Specify take_profit_1.
-- Specify take_profit_2.
-- Specify take_profit_3.
-- Calculate risk/reward ratios.
-- Specify a precise activation condition.
-- Specify a precise invalidation condition.
-
-Use:
-
-BREAKOUT for a confirmed breakout setup.
-BREAKDOWN for a confirmed bearish breakdown setup.
-RETEST for a setup requiring a retest.
-
-Use NONE only when no technically defensible conditional
-setup can be established.
-
-Never invent numerical prices.
-
-If a level cannot be established reliably, use null
-and explain the limitation.
-
-==================================================
-6. ACTIVE TRADE DECISION
-==================================================
-
-The trade_setup describes only a trade that is actionable now.
+DECISION RULES:
 
 LONG:
-A bullish setup is confirmed and its entry conditions
-are currently satisfied.
+Choose LONG only when the available evidence supports a bullish
+trade with a defensible entry, stop loss, and profit targets.
 
 SHORT:
-A bearish setup is confirmed and its entry conditions
-are currently satisfied.
+Choose SHORT only when the available evidence supports a bearish
+trade with a defensible entry, stop loss, and profit targets.
 
 WAIT:
-Neither setup is currently ready for immediate entry.
+Choose WAIT when:
+- Direction is unclear.
+- Evidence is contradictory.
+- The proposed entry is no longer actionable.
+- A defensible stop loss cannot be identified.
+- Risk/reward is unattractive.
+- Required market data is missing, stale, or insufficient.
 
-IMPORTANT:
+ENTRY INSTRUCTIONS:
 
-WAIT does not mean that bullish_plan and bearish_plan
-should be empty.
+You must determine the entry type and price.
 
-WAIT does not mean that no future opportunity exists.
+Allowed entry types:
 
-A conditional LONG or SHORT plan must remain available
-even when the active decision is WAIT.
+- MARKET: An actionable market-entry proposal.
+- LIMIT: An entry proposal at a specified price or within a specified zone.
+- NONE: No entry because the decision is WAIT.
 
-Never issue LONG or SHORT simply to avoid WAIT.
+For LONG:
+- Stop loss must be below the proposed entry.
+- Take profit 1, 2, and 3 must be above the proposed entry.
+- Targets must be logically ordered.
 
-If decision is WAIT, trade_setup.direction MUST be NONE.
+For SHORT:
+- Stop loss must be above the proposed entry.
+- Take profit 1, 2, and 3 must be below the proposed entry.
+- Targets must be logically ordered.
 
-If decision is LONG, trade_setup.direction MUST be LONG.
+For MARKET:
+- Provide a numeric entry_price representing your proposed entry reference.
+- Set entry_zone_low and entry_zone_high to the same price unless
+  a meaningful execution range is justified.
+- Do not assume Python will independently choose an entry price.
 
-If decision is SHORT, trade_setup.direction MUST be SHORT.
+For LIMIT:
+- Provide a numeric entry_price.
+- Provide a valid entry zone.
+- Explain why the proposed limit entry is reasonable.
+- Set an expiry timestamp in UTC.
 
-==================================================
-7. FOUR-HOUR ANALYSIS UPDATE
-==================================================
+For WAIT:
+- entry_type must be NONE.
+- All entry and trade-level price fields must be null.
 
-Every analysis is a new point-in-time update.
+RISK MANAGEMENT:
 
-Use the supplied historical chart and context to identify:
+- Propose a technically defensible stop loss.
+- Provide three logically ordered profit targets.
+- Do not move targets closer merely to make a trade appear attractive.
+- Consider current volatility and nearby structural levels.
+- Do not assume a guaranteed outcome.
+- The paper-trading system closes the full position at TP1.
+- TP2 and TP3 are analytical reference targets only.
+- The paper-trading system applies its own predefined fees and slippage.
+- Do not change the configured margin, leverage, fees, or slippage.
 
-- Changes in external structure
-- Changes in internal structure
-- Newly confirmed BOS or CHOCH
-- New support or resistance levels
-- Whether a previous breakout or breakdown condition
-  is now satisfied
-- Whether a conditional setup is approaching activation
-- Whether a conditional setup has become invalid
-- Whether the market bias has changed
+PREVIOUS SIGNAL:
 
-Do not claim to know the previous AI report unless it
-is explicitly included in the supplied context.
+The supplied context may contain a previous AI signal.
 
-Do not assume an earlier scenario is still valid.
+You must explicitly evaluate it.
 
-Re-evaluate both scenarios from the current available evidence.
+Allowed previous_signal_action values:
 
-==================================================
-8. RISK MANAGEMENT
-==================================================
+- NONE: No previous active signal exists.
+- KEEP: The previous signal remains valid and actionable.
+- REPLACE: A new decision should replace the previous signal.
+- CANCEL: The previous signal is no longer valid.
 
-- Prefer confirmed 4H candle closes for structural confirmation.
-- Never treat an unfinished candle as confirmed.
-- Avoid entries directly into opposing support or resistance.
-- Use technically meaningful stop-loss levels.
-- Do not fabricate risk/reward ratios.
-- Identify ambiguous conditions.
-- Consider volatility and market momentum.
-- Keep LONG and SHORT scenarios independent.
-- Do not force a trade when the evidence is insufficient.
+Do not keep an expired or invalid signal.
+Do not replace a valid signal without a reason.
+If there is no previous signal, use NONE.
 
-==================================================
-9. OUTPUT REQUIREMENTS
-==================================================
+OPEN PAPER TRADE:
 
-Return one complete JSON object only.
+The supplied context may contain an existing open paper trade.
 
-No Markdown.
-No code fences.
-No explanation outside JSON.
+You must evaluate it independently from any new entry opportunity.
 
-Include every key in the required schema.
+Allowed open_trade_action values:
 
-Use:
+- NONE: No open trade exists.
+- HOLD: Keep the existing trade unchanged.
+- CLOSE: Recommend closing the existing trade.
+- UPDATE_LEVELS: Recommend updating its stop loss and/or targets.
 
-BULLISH, BEARISH, or SIDEWAYS for market_bias.
-LONG, SHORT, or WAIT for decision.
-LONG, SHORT, or NONE for trade_setup.direction.
+Important:
+- Never assume an open trade does not exist.
+- Do not silently ignore its current direction, entry, stop, or targets.
+- Do not recommend opening an opposing position without explicitly
+  addressing the existing trade.
+- If the existing trade remains valid, use HOLD.
+- If you recommend UPDATE_LEVELS, provide valid replacement levels.
+- If you recommend CLOSE, explain the reason.
+- Do not modify the open trade merely because a new market bias has appeared.
+- Existing paper-trading protection rules are managed separately by Python.
+- Do not assume that your recommendation has already been executed.
 
-Confidence must be an integer from 0 to 100.
+CONFIDENCE:
 
-All numerical prices must be numbers or null.
+Return confidence as a number from 0 to 100.
 
-All three targets must be included in each plan.
-Use null when a target cannot be reliably estimated.
+Confidence represents your assessment of the quality of the evidence,
+not the probability of guaranteed profit.
 
-Always analyze both bullish and bearish scenarios.
+OUTPUT FORMAT:
 
-Do not omit a valid conditional plan just because
-its activation condition has not occurred.
+Return exactly one valid JSON object.
+Do not use Markdown.
+Do not include code fences.
+Do not include explanatory text outside the JSON.
+Use null for unavailable numeric values.
+Do not use NaN, Infinity, or undefined.
 
-The final decision and conditional plans are separate concepts.
+Required JSON schema:
 
-REQUIRED JSON SCHEMA:
-{json.dumps(schema, indent=2, ensure_ascii=False)}
+{{
+  "schema_version": "2.0",
+  "analysis_id": "unique_analysis_id",
+  "generated_at": "UTC ISO 8601 timestamp",
+  "symbol": "BTC-USDT",
+  "timeframes": ["4H", "15M", "5M"],
+  "decision": "LONG",
+  "confidence": 0,
+  "market_bias": "BULLISH",
+  "entry": {{
+    "entry_type": "MARKET",
+    "entry_price": 0.0,
+    "entry_zone_low": 0.0,
+    "entry_zone_high": 0.0,
+    "entry_expires_at": null
+  }},
+  "stop_loss": 0.0,
+  "take_profit_1": 0.0,
+  "take_profit_2": 0.0,
+  "take_profit_3": 0.0,
+  "reasoning": "Detailed explanation of the decision.",
+  "main_risks": [],
+  "data_limitations": [],
+  "previous_signal_action": "NONE",
+  "open_trade_action": "NONE",
+  "open_trade_updated_levels": {{
+    "stop_loss": null,
+    "take_profit_1": null,
+    "take_profit_2": null,
+    "take_profit_3": null
+  }}
+}}
+
+VALIDATION EXPECTATIONS:
+
+- decision must be LONG, SHORT, or WAIT.
+- market_bias must be BULLISH, BEARISH, or NEUTRAL.
+- confidence must be between 0 and 100.
+- All timestamps must be UTC ISO 8601.
+- LONG and SHORT require valid entry, stop loss, and all three targets.
+- WAIT requires entry_type NONE and null entry and trade-level prices.
+- A MARKET entry must have a numeric entry_price.
+- A LIMIT entry must have a numeric entry_price and a valid expiry.
+- All trade prices must be positive finite numbers.
+- The entry zone low must not exceed the entry zone high.
+- LONG and SHORT price geometry must be valid.
+- If open_trade_action is UPDATE_LEVELS, provide valid replacement levels.
+- If open_trade_action is not UPDATE_LEVELS, set all
+  open_trade_updated_levels values to null.
+- If there is no previous signal, previous_signal_action must be NONE.
+- If there is no open trade, open_trade_action must be NONE.
+
+Do not fabricate missing context.
+If the available information is inadequate, return WAIT.
+
+MARKET CONTEXT:
+
+{context_json}
+
+Now analyze the supplied evidence and return the JSON object only.
 """
 
     return prompt.strip()
+
+
+def build_btc_4h_prompt(market_context):
+    """Backward-compatible wrapper for the previous function name."""
+
+    return build_btc_analysis_prompt(market_context)
