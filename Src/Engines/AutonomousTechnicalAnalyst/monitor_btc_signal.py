@@ -8,12 +8,14 @@ state persistence, and Telegram notifications.
 No real exchange orders are submitted.
 """
 
+import copy
+import hashlib
 import json
+import math
 import os
 import time
 import urllib.parse
 import urllib.request
-import hashlib
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,17 +32,11 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 REPORT_FILE = ROOT_DIR / "Reports" / "BTC_4H_Vision_Report.json"
 
 SIGNAL_FILE = (
-    ROOT_DIR
-    / "Data"
-    / "Signals"
-    / "current_btc_signal.json"
+    ROOT_DIR / "Data" / "Signals" / "current_btc_signal.json"
 )
 
 STATE_FILE = (
-    ROOT_DIR
-    / "Data"
-    / "Signals"
-    / "btc_monitor_state.json"
+    ROOT_DIR / "Data" / "Signals" / "btc_monitor_state.json"
 )
 
 OKX_BASE_URL = os.getenv(
@@ -59,10 +55,7 @@ REQUEST_DELAY_SECONDS = 0.15
 
 REPORT_SCHEMA_VERSION = "2.0"
 
-# A MARKET signal cannot be executed retroactively.
 MARKET_ENTRY_MAX_DELAY_SECONDS = 600
-
-# A LIMIT signal is valid only until its AI-defined expiry.
 FIVE_MINUTES_SECONDS = 300
 
 
@@ -89,6 +82,9 @@ def parse_timestamp(value, field_name):
         raise ValueError(f"{field_name} is invalid.")
 
     if isinstance(value, (int, float)):
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{field_name} is invalid.")
+
         return float(value)
 
     if not isinstance(value, str) or not value.strip():
@@ -239,13 +235,11 @@ def send_telegram(message, event_id, state):
 
         if not result.get("ok"):
             print(
-                f"Telegram rejected notification: {result}"
+                "Telegram rejected notification."
             )
             return False
 
         sent_ids.append(event_id)
-
-        # Keep the state file reasonably small.
         state["notification_ids"] = sent_ids[-500:]
 
         save_state(state)
@@ -318,7 +312,6 @@ def normalize_okx_candle(raw):
             "Unexpected OKX candle format."
         )
 
-    # Only confirmed candles are allowed.
     if str(raw[8]) != "1":
         return None
 
@@ -333,19 +326,31 @@ def normalize_okx_candle(raw):
         "volume": float(raw[5]),
     }
 
-    if (
-        candle["open"] <= 0
-        or candle["high"] <= 0
-        or candle["low"] <= 0
-        or candle["close"] <= 0
-    ):
+    values = [
+        candle["open"],
+        candle["high"],
+        candle["low"],
+        candle["close"],
+        candle["volume"],
+    ]
+
+    if not all(math.isfinite(value) for value in values):
         raise ValueError(
-            "OKX returned an invalid candle price."
+            "OKX returned non-finite candle values."
         )
 
-    if candle["high"] < candle["low"]:
+    if min(values[:4]) <= 0 or candle["volume"] < 0:
         raise ValueError(
-            "OKX returned invalid candle high/low values."
+            "OKX returned invalid candle values."
+        )
+
+    if (
+        candle["high"] < candle["low"]
+        or candle["high"] < max(candle["open"], candle["close"])
+        or candle["low"] > min(candle["open"], candle["close"])
+    ):
+        raise ValueError(
+            "OKX returned invalid candle geometry."
         )
 
     return candle
@@ -386,9 +391,6 @@ def fetch_new_confirmed_candles(last_timestamp):
                 reached_checkpoint = True
 
         if reached_checkpoint:
-            break
-
-        if last_timestamp <= 0 and page_number == MAX_HISTORY_PAGES - 1:
             break
 
         before = oldest_timestamp_ms
@@ -442,9 +444,7 @@ def load_ai_report():
             "AI report analysis_id is missing."
         )
 
-    decision = report.get("decision")
-
-    if decision not in (
+    if report.get("decision") not in (
         "LONG",
         "SHORT",
         "WAIT",
@@ -465,6 +465,23 @@ def load_ai_report():
             "AI report timestamp is in the future."
         )
 
+    if generated_at < now - 86400:
+        raise ValueError(
+            "AI report is older than 24 hours."
+        )
+
+    confidence = report.get("confidence")
+
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(float(confidence))
+        or not 0 <= confidence <= 100
+    ):
+        raise ValueError(
+            "AI confidence must be between 0 and 100."
+        )
+
     return report, analysis_id, generated_at
 
 
@@ -476,7 +493,6 @@ def report_entry(report):
             "AI report entry must be an object."
         )
 
-    # Support the prompt's possible field naming variants.
     entry_type = (
         entry.get("type")
         or entry.get("entry_type")
@@ -509,16 +525,44 @@ def report_entry(report):
     if (
         isinstance(entry_price, bool)
         or not isinstance(entry_price, (int, float))
+        or not math.isfinite(float(entry_price))
         or entry_price <= 0
     ):
         raise ValueError(
-            "AI entry price must be a positive number."
+            "AI entry price must be a positive finite number."
         )
+
+    zone_low = entry.get("entry_zone_low")
+    zone_high = entry.get("entry_zone_high")
+
+    if zone_low is not None or zone_high is not None:
+        if (
+            isinstance(zone_low, bool)
+            or isinstance(zone_high, bool)
+            or not isinstance(zone_low, (int, float))
+            or not isinstance(zone_high, (int, float))
+            or not math.isfinite(float(zone_low))
+            or not math.isfinite(float(zone_high))
+            or zone_low <= 0
+            or zone_high <= 0
+            or zone_low > zone_high
+        ):
+            raise ValueError(
+                "AI entry zone is invalid."
+            )
+
+        if not zone_low <= entry_price <= zone_high:
+            raise ValueError(
+                "AI entry price is outside its entry zone."
+            )
 
     return {
         "type": entry_type,
         "price": float(entry_price),
-        "zone": entry.get("zone"),
+        "zone": {
+            "low": zone_low,
+            "high": zone_high,
+        },
         "expires_at": expires_at,
     }
 
@@ -544,6 +588,7 @@ def report_levels(report):
         if (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
             or value <= 0
         ):
             raise ValueError(
@@ -559,6 +604,24 @@ def validate_ai_plan(report):
     decision = report["decision"]
 
     if decision == "WAIT":
+        entry = report_entry(report)
+
+        if entry is not None:
+            raise ValueError(
+                "WAIT decision must use entry_type NONE."
+            )
+
+        for field in (
+            "stop_loss",
+            "take_profit_1",
+            "take_profit_2",
+            "take_profit_3",
+        ):
+            if report.get(field) is not None:
+                raise ValueError(
+                    "WAIT decision must not contain trade levels."
+                )
+
         return None
 
     entry = report_entry(report)
@@ -579,6 +642,25 @@ def validate_ai_plan(report):
         levels["take_profit_3"],
     )
 
+    if entry["type"] == "LIMIT":
+        if not entry.get("expires_at"):
+            raise ValueError(
+                "LIMIT entry requires an expiry timestamp."
+            )
+
+        expiry = parse_timestamp(
+            entry["expires_at"],
+            "entry.expires_at",
+        )
+
+        if expiry <= parse_timestamp(
+            report["generated_at"],
+            "generated_at",
+        ):
+            raise ValueError(
+                "LIMIT expiry must be after report generation."
+            )
+
     return {
         "direction": decision,
         "entry": entry,
@@ -596,31 +678,13 @@ def build_pending_signal(report, analysis_id, generated_at):
     if plan is None:
         return None
 
-    entry = plan["entry"]
-
-    if entry["type"] == "LIMIT":
-        if not entry.get("expires_at"):
-            raise ValueError(
-                "LIMIT entry requires an expiry timestamp."
-            )
-
-        expiry = parse_timestamp(
-            entry["expires_at"],
-            "entry.expires_at",
-        )
-
-        if expiry <= generated_at:
-            raise ValueError(
-                "LIMIT expiry must be after report generation."
-            )
-
     return {
         "analysis_id": analysis_id,
         "generated_at": report["generated_at"],
         "generated_at_timestamp": generated_at,
         "symbol": "BTC-USDT",
         "direction": plan["direction"],
-        "entry": entry,
+        "entry": plan["entry"],
         "levels": plan["levels"],
         "confidence": report.get("confidence"),
         "market_bias": report.get("market_bias"),
@@ -675,9 +739,16 @@ def notify_signal(event, signal, state):
 
 
 def get_open_trades(ledger):
+    trades = ledger.get("trades")
+
+    if not isinstance(trades, list):
+        raise ValueError(
+            "Paper trading ledger has an invalid trades list."
+        )
+
     return [
         trade
-        for trade in ledger["trades"]
+        for trade in trades
         if trade.get("status") == "OPEN"
     ]
 
@@ -692,6 +763,39 @@ def get_updated_levels(report):
             "AI updated levels must be an object."
         )
 
+    allowed = {
+        "stop_loss",
+        "take_profit_1",
+        "take_profit_2",
+        "take_profit_3",
+    }
+
+    if set(levels) - allowed:
+        raise ValueError(
+            "AI supplied unsupported updated level fields."
+        )
+
+    if not any(levels.get(key) is not None for key in allowed):
+        raise ValueError(
+            "AI UPDATE_LEVELS must change at least one level."
+        )
+
+    for key in allowed:
+        value = levels.get(key)
+
+        if value is None:
+            continue
+
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or value <= 0
+        ):
+            raise ValueError(
+                f"Invalid updated trade level: {key}."
+            )
+
     return levels
 
 
@@ -702,8 +806,16 @@ def process_new_ai_report(
     state,
     ledger,
 ):
+    """Validate the complete AI report before changing persistent state."""
+
     if state.get("last_analysis_id") == analysis_id:
         return
+
+    # --------------------------------------------------------
+    # 1. Validate the new AI decision.
+    # --------------------------------------------------------
+
+    plan = validate_ai_plan(report)
 
     previous_action = report.get(
         "previous_signal_action"
@@ -718,63 +830,6 @@ def process_new_ai_report(
         raise ValueError(
             "Invalid previous_signal_action."
         )
-
-    current_pending = state.get(
-        "pending_signal"
-    )
-
-    if previous_action == "CANCEL":
-        state["pending_signal"] = None
-        save_current_signal(None)
-
-        send_telegram(
-            "BTC AI signal cancelled.\n"
-            f"Analysis ID: {analysis_id}",
-            make_notification_id(
-                "signal_cancelled",
-                analysis_id,
-            ),
-            state,
-        )
-
-    elif previous_action == "REPLACE":
-        new_signal = build_pending_signal(
-            report,
-            analysis_id,
-            generated_at,
-        )
-
-        state["pending_signal"] = new_signal
-        save_current_signal(new_signal)
-
-        if new_signal is not None:
-            notify_signal(
-                "signal_replaced",
-                new_signal,
-                state,
-            )
-
-    elif previous_action == "NONE":
-        if current_pending is None:
-            new_signal = build_pending_signal(
-                report,
-                analysis_id,
-                generated_at,
-            )
-
-            state["pending_signal"] = new_signal
-            save_current_signal(new_signal)
-
-            if new_signal is not None:
-                notify_signal(
-                    "signal_created",
-                    new_signal,
-                    state,
-                )
-
-    elif previous_action == "KEEP":
-        # The existing pending signal remains unchanged.
-        pass
 
     open_action = report.get(
         "open_trade_action"
@@ -799,52 +854,160 @@ def process_new_ai_report(
                 "but there is no open trade."
             )
 
-    else:
-        if open_action == "NONE":
+    elif open_action == "NONE":
+        raise ValueError(
+            "AI report must specify an action "
+            "for the existing open trade."
+        )
+
+    # --------------------------------------------------------
+    # 2. Prepare signal changes without modifying state.
+    # --------------------------------------------------------
+
+    current_pending = state.get(
+        "pending_signal"
+    )
+
+    signal_changed = False
+    new_signal = current_pending
+
+    if previous_action == "CANCEL":
+        new_signal = None
+        signal_changed = current_pending is not None
+
+    elif previous_action == "REPLACE":
+        new_signal = build_pending_signal(
+            report,
+            analysis_id,
+            generated_at,
+        )
+        signal_changed = True
+
+    elif previous_action == "NONE" and current_pending is None:
+        new_signal = build_pending_signal(
+            report,
+            analysis_id,
+            generated_at,
+        )
+        signal_changed = new_signal is not None
+
+    # --------------------------------------------------------
+    # 3. Validate open trade updates on temporary copies.
+    # --------------------------------------------------------
+
+    levels = None
+    trial_trade = None
+
+    if open_action == "UPDATE_LEVELS":
+        if len(open_trades) != 1:
             raise ValueError(
-                "AI report must specify an action "
-                "for the existing open trade."
+                "UPDATE_LEVELS requires exactly one open trade."
             )
 
-        if open_action == "UPDATE_LEVELS":
-            if len(open_trades) != 1:
-                raise ValueError(
-                    "UPDATE_LEVELS requires exactly one open trade."
-                )
+        levels = get_updated_levels(report)
+        trial_trade = copy.deepcopy(open_trades[0])
 
-            levels = get_updated_levels(report)
+        paper_trading.update_trade_levels(
+            trial_trade,
+            stop_loss=levels.get("stop_loss"),
+            take_profit_1=levels.get("take_profit_1"),
+            take_profit_2=levels.get("take_profit_2"),
+            take_profit_3=levels.get("take_profit_3"),
+        )
 
-            paper_trading.update_trade_levels(
-                open_trades[0],
-                stop_loss=levels.get("stop_loss"),
-                take_profit_1=levels.get("take_profit_1"),
-                take_profit_2=levels.get("take_profit_2"),
-                take_profit_3=levels.get("take_profit_3"),
-            )
+    # --------------------------------------------------------
+    # 4. Prepare close request without applying it yet.
+    # --------------------------------------------------------
 
-            paper_trading.save_ledger(ledger)
+    close_request = None
 
-            send_telegram(
-                "BTC PAPER TRADE LEVELS UPDATED BY AI\n"
-                f"Trade ID: {open_trades[0]['trade_id']}",
-                make_notification_id(
-                    "levels_updated",
-                    analysis_id,
-                ),
-                state,
-            )
+    if open_action == "CLOSE":
+        close_request = {
+            "analysis_id": analysis_id,
+            "generated_at_timestamp": generated_at,
+            "reason": "AI_CLOSE",
+            "trade_ids": [
+                trade["trade_id"]
+                for trade in open_trades
+            ],
+        }
 
-        elif open_action == "CLOSE":
-            state["pending_ai_close"] = {
-                "analysis_id": analysis_id,
-                "reason": "AI_CLOSE",
-            }
+    # --------------------------------------------------------
+    # 5. All validation passed. Apply changes.
+    # --------------------------------------------------------
 
-        elif open_action == "HOLD":
-            state["pending_ai_close"] = None
+    if open_action == "UPDATE_LEVELS":
+        paper_trading.update_trade_levels(
+            open_trades[0],
+            stop_loss=levels.get("stop_loss"),
+            take_profit_1=levels.get("take_profit_1"),
+            take_profit_2=levels.get("take_profit_2"),
+            take_profit_3=levels.get("take_profit_3"),
+        )
+
+        paper_trading.save_ledger(ledger)
+
+    if signal_changed:
+        state["pending_signal"] = new_signal
+        save_current_signal(new_signal)
+
+    if open_action == "CLOSE":
+        state["pending_ai_close"] = close_request
+
+    elif open_action == "HOLD":
+        state["pending_ai_close"] = None
 
     state["last_analysis_id"] = analysis_id
+    state["last_trade_action_analysis_id"] = analysis_id
+
     save_state(state)
+
+    # --------------------------------------------------------
+    # 6. Send notifications after validation and persistence.
+    # --------------------------------------------------------
+
+    if previous_action == "CANCEL" and signal_changed:
+        send_telegram(
+            "BTC AI signal cancelled.\n"
+            f"Analysis ID: {analysis_id}",
+            make_notification_id(
+                "signal_cancelled",
+                analysis_id,
+            ),
+            state,
+        )
+
+    elif signal_changed and new_signal is not None:
+        notify_signal(
+            "signal_replaced" if previous_action == "REPLACE"
+            else "signal_created",
+            new_signal,
+            state,
+        )
+
+    if open_action == "UPDATE_LEVELS":
+        send_telegram(
+            "BTC PAPER TRADE LEVELS UPDATED BY AI\n"
+            f"Trade ID: {open_trades[0]['trade_id']}",
+            make_notification_id(
+                "levels_updated",
+                analysis_id,
+            ),
+            state,
+        )
+
+    elif open_action == "CLOSE":
+        send_telegram(
+            "BTC AI requested a paper trade close.\n"
+            "The close will be processed on a confirmed "
+            "5M candle after the AI report timestamp.\n"
+            f"Analysis ID: {analysis_id}",
+            make_notification_id(
+                "close_requested",
+                analysis_id,
+            ),
+            state,
+        )
 
 
 # ============================================================
@@ -867,8 +1030,19 @@ def expire_pending_signal(state, reason):
     save_current_signal(None)
     save_state(state)
 
+    send_telegram(
+        "BTC AI paper signal expired.\n"
+        f"Reason: {reason}\n"
+        f"Analysis ID: {signal.get('analysis_id')}",
+        make_notification_id(
+            "signal_expired",
+            signal.get("analysis_id"),
+        ),
+        state,
+    )
 
-def determine_entry_fill(signal, candle):
+
+def determine_entry_fill(signal, candle, state):
     entry = signal["entry"]
     entry_type = entry["type"]
 
@@ -883,8 +1057,8 @@ def determine_entry_fill(signal, candle):
 
         if delay > MARKET_ENTRY_MAX_DELAY_SECONDS:
             expire_pending_signal(
-                state=ACTIVE_STATE,
-                reason="MARKET_ENTRY_WINDOW_MISSED",
+                state,
+                "MARKET_ENTRY_WINDOW_MISSED",
             )
             return None
 
@@ -896,10 +1070,14 @@ def determine_entry_fill(signal, candle):
             "entry.expires_at",
         )
 
-        if candle_timestamp >= expiry:
+        candle_close_timestamp = (
+            candle_timestamp + FIVE_MINUTES_SECONDS
+        )
+
+        if candle_close_timestamp > expiry:
             expire_pending_signal(
-                state=ACTIVE_STATE,
-                reason="LIMIT_ENTRY_EXPIRED",
+                state,
+                "LIMIT_ENTRY_EXPIRED",
             )
             return None
 
@@ -912,7 +1090,6 @@ def determine_entry_fill(signal, candle):
 
         direction = signal["direction"]
 
-        # Use the opening price when it gives a better limit fill.
         if direction == "LONG" and candle["open"] <= limit_price:
             return candle["open"]
 
@@ -935,12 +1112,14 @@ def try_open_pending_signal(candle, state, ledger):
     if signal.get("status") != "PENDING":
         return False
 
-    global ACTIVE_STATE
-    ACTIVE_STATE = state
+    # Do not open a second position while another trade is open.
+    if get_open_trades(ledger):
+        return False
 
     reference_price = determine_entry_fill(
         signal,
         candle,
+        state,
     )
 
     if reference_price is None:
@@ -948,6 +1127,23 @@ def try_open_pending_signal(candle, state, ledger):
 
     entry = signal["entry"]
     levels = signal["levels"]
+
+    # Revalidate the AI levels against the actual execution reference.
+    try:
+        paper_trading._validate_trade_levels(
+            signal["direction"],
+            reference_price,
+            levels["stop_loss"],
+            levels["take_profit_1"],
+            levels["take_profit_2"],
+            levels["take_profit_3"],
+        )
+    except ValueError:
+        expire_pending_signal(
+            state,
+            "EXECUTION_PRICE_INVALIDATED_AI_LEVELS",
+        )
+        return False
 
     fingerprint = paper_trading.make_signal_fingerprint(
         signal["analysis_id"],
@@ -1054,13 +1250,42 @@ def process_ai_close(candle, state, ledger):
     if not request:
         return
 
-    open_trades = get_open_trades(ledger)
+    candle_close_timestamp = (
+        candle["timestamp"] + FIVE_MINUTES_SECONDS
+    )
+
+    generated_at = request.get(
+        "generated_at_timestamp",
+        0,
+    )
+
+    # Never apply a new AI instruction to an older candle.
+    if candle_close_timestamp <= generated_at:
+        return
+
+    requested_ids = set(
+        request.get("trade_ids", [])
+    )
+
+    open_trades = [
+        trade
+        for trade in get_open_trades(ledger)
+        if (
+            not requested_ids
+            or trade["trade_id"] in requested_ids
+        )
+    ]
+
+    previous_status = {
+        trade["trade_id"]: "OPEN"
+        for trade in open_trades
+    }
 
     for trade in open_trades:
         paper_trading.close_trade_at_market(
             trade,
             reference_price=candle["close"],
-            timestamp=candle["timestamp"] + FIVE_MINUTES_SECONDS,
+            timestamp=candle_close_timestamp,
             reason="AI_CLOSE",
         )
 
@@ -1068,10 +1293,7 @@ def process_ai_close(candle, state, ledger):
 
     notify_closed_trades(
         ledger,
-        {
-            trade["trade_id"]: "OPEN"
-            for trade in open_trades
-        },
+        previous_status,
         state,
     )
 
@@ -1101,14 +1323,14 @@ def process_one_candle(candle, state, ledger):
         state,
     )
 
-    # Apply AI close at the latest confirmed candle close.
+    # Apply an AI close only after its report timestamp.
     process_ai_close(
         candle,
         state,
         ledger,
     )
 
-    # Only then consider a new AI-approved pending entry.
+    # Only consider a new entry when no position is open.
     try_open_pending_signal(
         candle,
         state,
@@ -1217,5 +1439,4 @@ def main():
 
 
 if __name__ == "__main__":
-    ACTIVE_STATE = None
     main()
