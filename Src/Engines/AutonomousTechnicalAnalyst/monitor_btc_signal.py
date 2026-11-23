@@ -29,10 +29,14 @@ from Src.Engines.AutonomousTechnicalAnalyst import paper_trading
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 
-REPORT_FILE = ROOT_DIR / "Reports" / "BTC_4H_Vision_Report.json"
-
-SIGNAL_FILE = (
+# AI report published by the daily analysis workflow.
+AI_REPORT_FILE = (
     ROOT_DIR / "Data" / "Signals" / "current_btc_signal.json"
+)
+
+# Separate file for the monitor's pending paper signal.
+PENDING_SIGNAL_FILE = (
+    ROOT_DIR / "Data" / "Signals" / "pending_btc_signal.json"
 )
 
 STATE_FILE = (
@@ -170,7 +174,7 @@ def save_state(state):
 
 def save_current_signal(signal):
     atomic_write_json(
-        SIGNAL_FILE,
+        PENDING_SIGNAL_FILE,
         signal,
     )
 
@@ -414,7 +418,7 @@ def fetch_new_confirmed_candles(last_timestamp):
 # ============================================================
 
 def load_ai_report():
-    report = read_json(REPORT_FILE)
+    report = read_json(AI_REPORT_FILE)
 
     if not isinstance(report, dict):
         raise ValueError(
@@ -1343,23 +1347,29 @@ def process_one_candle(candle, state, ledger):
 # ============================================================
 
 def main():
-    print(
-        "Starting BTC AI paper-trading monitor."
-    )
+    print("Starting BTC AI paper-trading monitor.")
 
     state = load_state()
     ledger = paper_trading.load_ledger()
 
-    if REPORT_FILE.exists():
-        report, analysis_id, generated_at = load_ai_report()
-
-        process_new_ai_report(
-            report,
-            analysis_id,
-            generated_at,
-            state,
-            ledger,
+    # AI report is mandatory.
+    if not AI_REPORT_FILE.is_file():
+        raise FileNotFoundError(
+            f"AI report not found: {AI_REPORT_FILE}"
         )
+
+    report, analysis_id, generated_at = load_ai_report()
+
+    print(f"AI analysis ID: {analysis_id}")
+    print(f"AI decision: {report['decision']}")
+
+    process_new_ai_report(
+        report,
+        analysis_id,
+        generated_at,
+        state,
+        ledger,
+    )
 
     last_timestamp = int(
         state.get(
@@ -1373,9 +1383,29 @@ def main():
     )
 
     if not candles:
+        print("No new confirmed 5M candles.")
+
+        result = paper_trading.summary(ledger)
+
+        print(f"Total trades: {result['total_trades']}")
+        print(f"Open trades: {result['open_trades']}")
+        print(f"Closed trades: {result['closed_trades']}")
+
         print(
-            "No new confirmed 5M candles."
+            "Realized net PnL: "
+            f"{result['realized_net_pnl_usd']:.2f} USD"
         )
+
+        print(
+            "Unrealized net PnL: "
+            f"{result['unrealized_net_pnl_usd']:.2f} USD"
+        )
+
+        print(
+            "Combined net PnL: "
+            f"{result['combined_net_pnl_usd']:.2f} USD"
+        )
+
         return
 
     processed_count = 0
@@ -1402,25 +1432,12 @@ def main():
 
     paper_trading.save_ledger(ledger)
 
-    result = paper_trading.summary(
-        ledger
-    )
+    result = paper_trading.summary(ledger)
 
-    print(
-        f"Candles processed: {processed_count}"
-    )
-
-    print(
-        f"Total trades: {result['total_trades']}"
-    )
-
-    print(
-        f"Open trades: {result['open_trades']}"
-    )
-
-    print(
-        f"Closed trades: {result['closed_trades']}"
-    )
+    print(f"Candles processed: {processed_count}")
+    print(f"Total trades: {result['total_trades']}")
+    print(f"Open trades: {result['open_trades']}")
+    print(f"Closed trades: {result['closed_trades']}")
 
     print(
         "Realized net PnL: "
