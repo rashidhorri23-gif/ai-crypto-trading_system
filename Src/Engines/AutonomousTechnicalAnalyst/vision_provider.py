@@ -235,7 +235,17 @@ def build_vision_model_priority():
             "error": discovered["error"],
         }
 
-    models = discovered["models"]
+    models = [
+        {
+            "id": "openrouter/free",
+            "name": "OpenRouter Free Models Router",
+            "context_length": 0,
+            "max_completion_tokens": None,
+            "supported_parameters": ["response_format"],
+        }
+    ]
+
+    models.extend(discovered["models"])
 
     preferred = os.getenv(
         "OPENROUTER_VISION_MODEL",
@@ -462,6 +472,15 @@ def ask_openrouter_vision(
 
     model_errors = []
 
+    print(
+        "Vision model candidates: "
+        + ", ".join(item["id"] for item in models)
+    )
+    print(
+        f"Vision prompt size: {len(prompt)} characters; "
+        f"chart size: {image_file.stat().st_size} bytes."
+    )
+
     for model_info in models:
         model_id = model_info["id"]
         supported_parameters = set(
@@ -556,7 +575,7 @@ def ask_openrouter_vision(
 
                 return {
                     "status": "success",
-                    "model": model_id,
+                    "model": response.get("model", model_id),
                     "content": content,
                     "error": None,
                 }
