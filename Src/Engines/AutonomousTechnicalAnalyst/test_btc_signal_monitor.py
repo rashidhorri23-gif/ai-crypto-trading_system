@@ -1,3 +1,4 @@
+
 """Unit tests for the AI-report-driven BTC paper-trading monitor.
 
 Tests use synthetic in-memory ledgers and mocked persistence.
