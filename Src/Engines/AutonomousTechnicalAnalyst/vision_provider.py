@@ -83,8 +83,8 @@ def _request_json(url, method="GET", payload=None):
         )
 
 
-def discover_free_vision_models(limit=20):
-    """Discover free vision models that accept images and return text."""
+def discover_free_vision_models(limit=None):
+    """Discover free vision models with JSON response support."""
 
     if not Config.OPENROUTER_API_KEY:
         return {
@@ -95,7 +95,10 @@ def discover_free_vision_models(limit=20):
 
     query = urllib.parse.urlencode({
         "input_modalities": "image",
-        "sort": "most-popular",
+        "output_modalities": "text",
+        "supported_parameters": "response_format",
+        "context": Config.MIN_VISION_CONTEXT_LENGTH,
+        "sort": "throughput-high-to-low",
     })
 
     url = (
@@ -106,13 +109,13 @@ def discover_free_vision_models(limit=20):
 
     try:
         data = _request_json(url)
-
         discovered = []
+        seen_model_ids = set()
 
         for item in data.get("data", []):
             model_id = item.get("id", "")
 
-            if not model_id:
+            if not model_id or model_id in seen_model_ids:
                 continue
 
             if model_id in BLOCKED_MODEL_IDS:
@@ -120,23 +123,21 @@ def discover_free_vision_models(limit=20):
 
             architecture = item.get("architecture", {})
             pricing = item.get("pricing", {})
+            supported_parameters = item.get(
+                "supported_parameters", []
+            )
 
             input_modalities = architecture.get(
                 "input_modalities", []
             )
-
             output_modalities = architecture.get(
                 "output_modalities", []
             )
 
             try:
-                prompt_price = float(
-                    pricing.get("prompt", -1)
-                )
-
-                completion_price = float(
-                    pricing.get("completion", -1)
-                )
+                prompt_price = float(pricing.get("prompt", -1))
+                completion_price = float(pricing.get("completion", -1))
+                context_length = int(item.get("context_length", 0))
             except (TypeError, ValueError):
                 continue
 
@@ -155,21 +156,48 @@ def discover_free_vision_models(limit=20):
             if "text" not in output_modalities:
                 continue
 
+            if "response_format" not in supported_parameters:
+                continue
+
+            if context_length < Config.MIN_VISION_CONTEXT_LENGTH:
+                continue
+
+            top_provider = item.get("top_provider") or {}
+            max_completion_tokens = top_provider.get(
+                "max_completion_tokens"
+            )
+
+            if max_completion_tokens is not None:
+                try:
+                    max_completion_tokens = int(max_completion_tokens)
+                except (TypeError, ValueError):
+                    max_completion_tokens = None
+
+            if (
+                max_completion_tokens is not None
+                and max_completion_tokens < Config.MAX_OUTPUT_TOKENS
+            ):
+                continue
+
+            seen_model_ids.add(model_id)
             discovered.append({
                 "id": model_id,
                 "name": item.get("name", model_id),
-                "context_length": item.get(
-                    "context_length", 0
-                ),
+                "context_length": context_length,
+                "max_completion_tokens": max_completion_tokens,
+                "supported_parameters": supported_parameters,
             })
 
         discovered.sort(
             key=lambda item: (
-                item["id"] != KNOWN_WORKING_MODEL
-            )
+                item["max_completion_tokens"] or 0,
+                item["context_length"],
+            ),
+            reverse=True,
         )
 
-        discovered = discovered[:limit]
+        max_models = limit or Config.MAX_VISION_MODELS
+        discovered = discovered[:max_models]
 
         return {
             "status": "success",
@@ -196,9 +224,9 @@ def discover_free_vision_models(limit=20):
 
 
 def build_vision_model_priority():
-    """Build the priority list for vision-capable models."""
+    """Build a short, unique list of vision models with JSON support."""
 
-    discovered = discover_free_vision_models(limit=20)
+    discovered = discover_free_vision_models()
 
     if discovered["status"] != "success":
         return {
@@ -207,10 +235,7 @@ def build_vision_model_priority():
             "error": discovered["error"],
         }
 
-    models = [
-        item["id"]
-        for item in discovered["models"]
-    ]
+    models = discovered["models"]
 
     preferred = os.getenv(
         "OPENROUTER_VISION_MODEL",
@@ -228,26 +253,32 @@ def build_vision_model_priority():
                 ),
             }
 
-        if preferred not in models:
+        preferred_matches = [
+            item for item in models
+            if item["id"] == preferred
+        ]
+
+        if not preferred_matches:
             return {
                 "status": "error",
                 "models": [],
                 "error": (
-                    "Configured vision model is not "
-                    "available in the verified free vision list: "
+                    "Configured vision model is not available "
+                    "with free vision and JSON response support: "
                     + preferred
                 ),
             }
 
-        models.remove(preferred)
-        models.insert(0, preferred)
+        models = preferred_matches + [
+            item for item in models
+            if item["id"] != preferred
+        ]
 
     return {
         "status": "success",
         "models": models,
         "error": None,
     }
-
 
 def _extract_text(response):
     choices = response.get("choices", [])
@@ -398,7 +429,10 @@ def ask_openrouter_vision(
                 ),
             }
 
-        models = [model_override]
+        models = [{
+            "id": model_override,
+            "supported_parameters": [],
+        }]
 
     else:
         priority = build_vision_model_priority()
@@ -428,7 +462,12 @@ def ask_openrouter_vision(
 
     model_errors = []
 
-    for model_id in models:
+    for model_info in models:
+        model_id = model_info["id"]
+        supported_parameters = set(
+            model_info.get("supported_parameters", [])
+        )
+
         payload = {
             "model": model_id,
             "messages": [
@@ -451,6 +490,22 @@ def ask_openrouter_vision(
             "max_tokens": Config.MAX_OUTPUT_TOKENS,
             "temperature": 0.1,
         }
+
+        if "response_format" in supported_parameters:
+            payload["response_format"] = {
+                "type": "json_object",
+            }
+            payload["provider"] = {
+                "require_parameters": True,
+            }
+
+        if "reasoning" in supported_parameters:
+            payload["reasoning"] = {
+                "effort": "low",
+                "summary": "concise",
+            }
+        elif "reasoning_effort" in supported_parameters:
+            payload["reasoning_effort"] = "low"
 
         rate_limit_retried = False
 
