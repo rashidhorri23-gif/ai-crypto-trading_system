@@ -452,7 +452,56 @@ def load_previous_signal():
     if not isinstance(signal, dict):
         raise ValueError("Previous signal must be a JSON object.")
 
+    schema_version = signal.get("schema_version")
+
+    if schema_version is None:
+        trade_setup = signal.get("trade_setup")
+
+        is_legacy_inactive_signal = (
+            signal.get("decision") == "WAIT"
+            and isinstance(trade_setup, dict)
+            and trade_setup.get("direction") == "NONE"
+        )
+
+        if is_legacy_inactive_signal:
+            print(
+                "WARNING: Ignoring legacy inactive signal "
+                "without schema_version."
+            )
+            return None
+
+        raise ValueError(
+            "Legacy previous signal requires manual review."
+        )
+
+    if schema_version != SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported previous signal schema: {schema_version}"
+        )
+
+    required_fields = {
+        "analysis_id",
+        "generated_at",
+        "symbol",
+        "decision",
+        "entry",
+        "previous_signal_action",
+        "open_trade_action",
+        "open_trade_updated_levels",
+    }
+
+    missing = required_fields.difference(signal)
+
+    if missing:
+        raise ValueError(
+            f"Previous signal missing fields: {sorted(missing)}"
+        )
+
+    if signal["symbol"] != "BTC-USDT":
+        raise ValueError("Previous signal has unexpected symbol.")
+
     return signal
+
 
 
 def load_open_trades():
