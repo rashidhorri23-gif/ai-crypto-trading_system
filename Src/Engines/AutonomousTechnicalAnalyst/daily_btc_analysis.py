@@ -51,11 +51,38 @@ MAX_DATA_AGE_MINUTES = {
     "5M": 10,
 }
 
+MAX_CHART_CANDLES = 120
+
 MAX_CONTEXT_CANDLES = {
-    "4H": 120,
-    "15M": 80,
-    "5M": 100,
+    "4H": 80,
+    "15M": 48,
+    "5M": 48,
 }
+
+CONTEXT_CANDLE_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "ema_20",
+    "ema_50",
+    "ema_200",
+    "rsi_14",
+    "atr_14",
+    "adx_14",
+    "plus_di",
+    "minus_di",
+    "relative_volume",
+    "swing_high",
+    "swing_low",
+    "market_structure",
+    "support",
+    "resistance",
+    "ema_trend",
+    "bos_bullish",
+    "bos_bearish",
+)
 
 SCHEMA_VERSION = "2.0"
 
@@ -322,7 +349,7 @@ def draw_candlesticks(ax, df):
 
 def generate_4h_chart(df, analysis=None):
     chart_data = (
-        df.tail(MAX_CONTEXT_CANDLES["4H"])
+        df.tail(MAX_CHART_CANDLES)
         .copy()
         .reset_index(drop=True)
     )
@@ -428,11 +455,16 @@ def build_timeframe_context(timeframe, result):
     df = result["data"]
     recent = []
 
+    available_columns = [
+        column
+        for column in CONTEXT_CANDLE_COLUMNS
+        if column in df.columns
+    ]
+
     for _, row in df.tail(MAX_CONTEXT_CANDLES[timeframe]).iterrows():
         candle = {
             column: json_safe(row[column])
-            for column in df.columns
-            if column != "timestamp_utc"
+            for column in available_columns
         }
 
         candle["timestamp_utc"] = pd.to_datetime(
