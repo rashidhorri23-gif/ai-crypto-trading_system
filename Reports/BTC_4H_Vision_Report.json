@@ -1,0 +1,47 @@
+{
+  "schema_version": "2.0",
+  "analysis_id": "72f0cf32-4455-4d7d-8648-d1aab1f22a2c",
+  "generated_at": "2026-11-23T10:00:15.213114+00:00",
+  "symbol": "BTC-USDT",
+  "timeframes": [
+    "4H",
+    "15M",
+    "5M"
+  ],
+  "decision": "WAIT",
+  "confidence": 62,
+  "market_bias": "NEUTRAL",
+  "entry": {
+    "entry_type": "NONE",
+    "entry_price": null,
+    "entry_zone_low": null,
+    "entry_zone_high": null,
+    "entry_expires_at": null
+  },
+  "stop_loss": null,
+  "take_profit_1": null,
+  "take_profit_2": null,
+  "take_profit_3": null,
+  "reasoning": "Timeframe evidence is contradictory, so no new entry is justified. On the 4H, price printed a bullish BOS above the 61000 resistance (close 61460.7, last_bullish_bos 61460.7), but the EMA stack remains bearish (EMA 20 60816 below EMA 50 62963 below EMA 200 71287, ema_trend BEARISH) and DI is bearish-leaning (minus_di 22.66 > plus_di 18.61), suggesting the breakout may be a relief rally inside a broader downtrend rather than a confirmed trend change. On the 15M, the EMA stack is bullish (price 61493.6 above EMA 20 61464, EMA 50 61262, EMA 200 60670, ema_trend BULLISH) and DI is bullish (plus_di 26.88 > minus_di 16.33), but the last closed candle was a bearish rejection from the 61845.6 resistance area (open 61683.6, close 61493.6 at the low), and market_structure is NEUTRAL. On the 5M, structure is clearly bearish: BEARISH_BOS with last_bearish_bos at 61305.1, price broke below the 61450 support level, closed at 61305.1 below both EMA 20 (61525.7) and EMA 50 (61478.4), RSI 38.75, and minus_di (26.74) exceeds plus_di (20.96). The 5M breakdown conflicts with the bullish-leaning 15M EMA stack and the 4H bullish BOS. Because higher-timeframe and lower-timeframe evidence disagree, and no defensible entry with a clear stop and favorable risk/reward can be established, the correct decision is WAIT. The existing open SHORT trade (entry 61290.44, stop 62600, TP1 60000) remains technically valid: the 5M bearish BOS supports the short direction, the stop is wide enough to absorb normal volatility, and the trade should not be closed or modified merely because a new bias has appeared on higher timeframes. Open trade action is HOLD with no level updates.",
+  "main_risks": [
+    "4H bullish BOS could trigger a short squeeze toward the 62600 stop if the breakout above 61000/61845.6 is sustained.",
+    "15M bearish rejection candle at resistance indicates near-term selling pressure that could extend downside.",
+    "5M bearish BOS below 61450 support conflicts with bullish 15M/4H structure, creating whipsaw risk.",
+    "4H EMA alignment remains bearish (price below EMA 50 and EMA 200), so any long entry would be counter-trend on the higher timeframe.",
+    "Open SHORT trade is slightly underwater (unrealized PnL approx -0.10) and exposed to 4H bullish momentum if price rallies above resistance."
+  ],
+  "data_limitations": [
+    "All three timeframes are fresh with no missing intervals, so no data gaps limit the analysis.",
+    "Swing high/low fields are null on several recent candles, so structural levels rely on last_swing_high/last_swing_low rather than tagged swing points.",
+    "No order book, liquidation heatmap, or funding rate data is supplied to confirm liquidity sweeps."
+  ],
+  "previous_signal_action": "NONE",
+  "open_trade_action": "HOLD",
+  "open_trade_updated_levels": {
+    "stop_loss": null,
+    "take_profit_1": null,
+    "take_profit_2": null,
+    "take_profit_3": null
+  },
+  "model": "nvidia/nemotron-3.5-super-vl:free"
+}
