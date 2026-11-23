@@ -518,6 +518,28 @@ def load_previous_signal():
     if signal["symbol"] != "BTC-USDT":
         raise ValueError("Previous signal has unexpected symbol.")
 
+    entry = signal.get("entry")
+    is_inactive_wait = (
+        signal.get("decision") == "WAIT"
+        and isinstance(entry, dict)
+        and entry.get("entry_type", entry.get("type")) == "NONE"
+        and entry.get("entry_price", entry.get("price")) is None
+        and entry.get("entry_zone_low") is None
+        and entry.get("entry_zone_high") is None
+        and signal.get("stop_loss") is None
+        and signal.get("take_profit_1") is None
+        and signal.get("take_profit_2") is None
+        and signal.get("take_profit_3") is None
+        and signal.get("previous_signal_action") == "NONE"
+    )
+
+    if is_inactive_wait:
+        print(
+            "INFO: Previous record is an inactive WAIT decision; "
+            "it will not be treated as a pending signal."
+        )
+        return None
+
     return signal
 
 
