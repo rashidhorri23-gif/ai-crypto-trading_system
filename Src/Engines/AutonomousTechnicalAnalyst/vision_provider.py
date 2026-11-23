@@ -481,8 +481,19 @@ def ask_openrouter_vision(
         f"chart size: {image_file.stat().st_size} bytes."
     )
 
+    attempted_model_ids = set()
+
     for model_info in models:
         model_id = model_info["id"]
+
+        if model_id in attempted_model_ids:
+            print(
+                f"INFO: Skipping duplicate vision model: {model_id}"
+            )
+            continue
+
+        attempted_model_ids.add(model_id)
+
         supported_parameters = set(
             model_info.get("supported_parameters", [])
         )
@@ -535,6 +546,10 @@ def ask_openrouter_vision(
                     method="POST",
                     payload=payload,
                 )
+
+                actual_model_id = response.get("model")
+                if actual_model_id:
+                    attempted_model_ids.add(actual_model_id)
 
                 choices = response.get("choices", [])
 
