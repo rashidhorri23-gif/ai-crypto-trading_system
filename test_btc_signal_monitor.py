@@ -1,491 +1,362 @@
 
-import tempfile
+"""Unit tests for the AI-report-driven BTC paper-trading monitor.
+
+Tests use synthetic in-memory ledgers and mocked persistence.
+They never access the repository's live paper-trading ledger.
+"""
+
+import copy
+import time
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from Src.Engines.AutonomousTechnicalAnalyst import monitor_btc_signal as monitor
 from Src.Engines.AutonomousTechnicalAnalyst import paper_trading
 
 
-VALID_LONG_PLAN = {
-    "setup_type": "RETEST",
-    "entry_zone_low": 100.0,
-    "entry_zone_high": 105.0,
-    "stop_loss": 95.0,
-    "take_profit_1": 110.0,
-    "take_profit_2": 115.0,
-    "take_profit_3": 120.0,
-}
-
-VALID_SHORT_PLAN = {
-    "setup_type": "BREAKDOWN",
-    "entry_zone_low": 95.0,
-    "entry_zone_high": 100.0,
-    "stop_loss": 105.0,
-    "take_profit_1": 90.0,
-    "take_profit_2": 85.0,
-    "take_profit_3": 80.0,
-}
-
-
-def make_candle(timestamp, open_price, high, low, close):
-    return {
-        "timestamp": timestamp,
-        "open": open_price,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": 100.0,
-        "confirm": "1",
+def make_report(
+    decision="WAIT",
+    analysis_id="unit-test-001",
+    open_trade_action="NONE",
+    previous_signal_action="NONE",
+):
+    report = {
+        "schema_version": "2.0",
+        "analysis_id": analysis_id,
+        "generated_at": monitor.utc_now().isoformat(),
+        "symbol": "BTC-USDT",
+        "timeframes": ["4H", "15M", "5M"],
+        "decision": decision,
+        "confidence": 80,
+        "market_bias": "NEUTRAL",
+        "entry": {
+            "entry_type": "NONE",
+            "entry_price": None,
+            "entry_zone_low": None,
+            "entry_zone_high": None,
+            "entry_expires_at": None,
+        },
+        "stop_loss": None,
+        "take_profit_1": None,
+        "take_profit_2": None,
+        "take_profit_3": None,
+        "reasoning": "Unit test.",
+        "main_risks": [],
+        "data_limitations": [],
+        "previous_signal_action": previous_signal_action,
+        "open_trade_action": open_trade_action,
+        "open_trade_updated_levels": {
+            "stop_loss": None,
+            "take_profit_1": None,
+            "take_profit_2": None,
+            "take_profit_3": None,
+        },
     }
 
-
-class TestPlanValidation(unittest.TestCase):
-
-    def test_valid_long_plan(self):
-        self.assertTrue(monitor.validate_plan("LONG", VALID_LONG_PLAN))
-
-    def test_valid_short_plan(self):
-        self.assertTrue(monitor.validate_plan("SHORT", VALID_SHORT_PLAN))
-
-    def test_invalid_long_stop_loss(self):
-        plan = dict(VALID_LONG_PLAN)
-        plan["stop_loss"] = 102.0
-
-        with self.assertRaises(ValueError):
-            monitor.validate_plan("LONG", plan)
-
-    def test_invalid_short_targets(self):
-        plan = dict(VALID_SHORT_PLAN)
-        plan["take_profit_1"] = 110.0
-
-        with self.assertRaises(ValueError):
-            monitor.validate_plan("SHORT", plan)
-
-    def test_invalid_direction(self):
-        with self.assertRaises(ValueError):
-            monitor.validate_plan("BUY", VALID_LONG_PLAN)
-
-
-class TestBreakoutDetection(unittest.TestCase):
-
-    def test_long_activation_after_sweep_and_reclaim(self):
-        scenario = {
-            "baseline_4h_timestamp": 0,
-            "sweep_timestamp": None,
-            "breakout_timestamp": None,
-        }
-
-        candles = [
-            make_candle(0, 98, 101, 97, 99),
-            make_candle(14400, 99, 102, 98, 100),
-            make_candle(28800, 104, 108, 103, 106),
-        ]
-
-        result = monitor.find_long_activation(
-            VALID_LONG_PLAN,
-            scenario,
-            candles,
-        )
-
-        self.assertEqual(result, 43200)
-        self.assertEqual(scenario["sweep_timestamp"], 14400)
-
-    def test_short_breakdown_after_baseline(self):
-        scenario = {
-            "baseline_4h_timestamp": 0,
-            "breakout_timestamp": None,
-        }
-
-        candles = [
-            make_candle(0, 102, 103, 99, 101),
-            make_candle(14400, 99, 101, 92, 94),
-        ]
-
-        result = monitor.find_short_breakdown(
-            VALID_SHORT_PLAN,
-            scenario,
-            candles,
-        )
-
-        self.assertEqual(result, 28800)
-
-    def test_old_candle_cannot_trigger_long_activation(self):
-        scenario = {
-            "baseline_4h_timestamp": 14400,
-            "sweep_timestamp": None,
-            "breakout_timestamp": None,
-        }
-
-        candles = [
-            make_candle(0, 99, 108, 98, 106),
-            make_candle(14400, 99, 104, 98, 103),
-        ]
-
-        result = monitor.find_long_activation(
-            VALID_LONG_PLAN,
-            scenario,
-            candles,
-        )
-
-        self.assertIsNone(result)
-
-
-class TestRetestDetection(unittest.TestCase):
-
-    def test_long_retest_confirmation(self):
-        candle = make_candle(28800, 104, 107, 103, 106)
-
-        result = monitor.find_retest(
-            "LONG",
-            VALID_LONG_PLAN,
-            28800,
-            [candle],
-        )
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 106)
-
-    def test_short_retest_confirmation(self):
-        candle = make_candle(28800, 99, 101, 93, 94)
-
-        result = monitor.find_retest(
-            "SHORT",
-            VALID_SHORT_PLAN,
-            28800,
-            [candle],
-        )
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 94)
-
-    def test_retest_before_breakout_close_is_rejected(self):
-        candle = make_candle(28500, 104, 107, 103, 106)
-
-        result = monitor.find_retest(
-            "LONG",
-            VALID_LONG_PLAN,
-            28800,
-            [candle],
-        )
-
-        self.assertIsNone(result)
-
-    def test_wrong_candle_direction_is_rejected(self):
-        candle = make_candle(28800, 106, 107, 102, 103)
-
-        result = monitor.find_retest(
-            "LONG",
-            VALID_LONG_PLAN,
-            28800,
-            [candle],
-        )
-
-        self.assertIsNone(result)
-
-
-class TestScenarioState(unittest.TestCase):
-
-    def test_same_fingerprint_keeps_existing_scenario(self):
-        fingerprint = monitor.make_fingerprint(
-            "LONG",
-            VALID_LONG_PLAN,
-        )
-
-        existing = {
-            "fingerprint": fingerprint,
-            "baseline_4h_timestamp": 100,
-            "sweep_timestamp": None,
-            "breakout_timestamp": 200,
-            "pending_retest": None,
-            "alert_sent": False,
-            "invalidated": False,
-            "created_at": "2026-01-01T00:00:00+00:00",
-        }
-
-        state = {
-            "scenarios": {"LONG": existing},
-            "sent_fingerprints": [],
-        }
-
-        latest_4h = make_candle(500, 100, 106, 99, 104)
-
-        result = monitor.initialize_scenario(
-            "LONG",
-            VALID_LONG_PLAN,
-            latest_4h,
-            state,
-        )
-
-        self.assertIs(result, existing)
-        self.assertEqual(result["baseline_4h_timestamp"], 100)
-
-    def test_previously_sent_fingerprint_is_not_reactivated(self):
-        fingerprint = monitor.make_fingerprint(
-            "LONG",
-            VALID_LONG_PLAN,
-        )
-
-        state = {
-            "scenarios": {},
-            "sent_fingerprints": [fingerprint],
-        }
-
-        latest_4h = make_candle(500, 100, 106, 99, 104)
-
-        result = monitor.initialize_scenario(
-            "LONG",
-            VALID_LONG_PLAN,
-            latest_4h,
-            state,
-        )
-
-        self.assertTrue(result["alert_sent"])
-
-
-class TestInvalidation(unittest.TestCase):
-
-    def test_long_scenario_invalidation(self):
-        scenario = {
-            "sweep_timestamp": 14400,
-            "breakout_timestamp": 28800,
-        }
-
-        candles = [
-            make_candle(14400, 99, 102, 98, 100),
-            make_candle(28800, 96, 98, 90, 93),
-        ]
-
-        result = monitor.find_invalidation(
-            "LONG",
-            VALID_LONG_PLAN,
-            scenario,
-            candles,
-        )
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 93)
-
-    def test_short_scenario_invalidation(self):
-        scenario = {
-            "breakout_timestamp": 28800,
-        }
-
-        candles = [
-            make_candle(28800, 104, 110, 103, 107),
-        ]
-
-        result = monitor.find_invalidation(
-            "SHORT",
-            VALID_SHORT_PLAN,
-            scenario,
-            candles,
-        )
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 107)
-
-
-class TestDuplicateAlertPrevention(unittest.TestCase):
-
-    def test_alert_is_sent_only_once(self):
-        fingerprint = monitor.make_fingerprint(
-            "LONG",
-            VALID_LONG_PLAN,
-        )
-
-        state = {
-            "version": 1,
-            "scenarios": {
-                "LONG": {
-                    "fingerprint": fingerprint,
-                    "baseline_4h_timestamp": 0,
-                    "sweep_timestamp": None,
-                    "breakout_timestamp": None,
-                    "pending_retest": None,
-                    "alert_sent": False,
-                    "invalidated": False,
-                    "created_at": "2026-01-01T00:00:00+00:00",
-                }
+    if decision == "LONG":
+        report.update({
+            "market_bias": "BULLISH",
+            "entry": {
+                "entry_type": "MARKET",
+                "entry_price": 100.0,
+                "entry_zone_low": 99.0,
+                "entry_zone_high": 101.0,
+                "entry_expires_at": None,
             },
-            "sent_fingerprints": [],
-            "last_processed_5m_timestamp": None,
-        }
+            "stop_loss": 95.0,
+            "take_profit_1": 105.0,
+            "take_profit_2": 110.0,
+            "take_profit_3": 115.0,
+        })
 
-        candles_4h = [
-            make_candle(0, 98, 101, 97, 99),
-            make_candle(14400, 99, 102, 98, 100),
-            make_candle(28800, 104, 108, 103, 106),
-        ]
+    elif decision == "SHORT":
+        report.update({
+            "market_bias": "BEARISH",
+            "entry": {
+                "entry_type": "LIMIT",
+                "entry_price": 100.0,
+                "entry_zone_low": 99.0,
+                "entry_zone_high": 101.0,
+                "entry_expires_at": monitor.utc_iso(time.time() + 3600),
+            },
+            "stop_loss": 105.0,
+            "take_profit_1": 95.0,
+            "take_profit_2": 90.0,
+            "take_profit_3": 85.0,
+        })
 
-        candles_5m = [
-            make_candle(43200, 104, 107, 103, 106),
-        ]
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            state_file = Path(temp_dir) / "monitor_state.json"
-            paper_file = Path(temp_dir) / "paper_trading.json"
-
-            with patch.object(monitor, "STATE_FILE", state_file):
-                with patch.object(paper_trading, "TRADING_FILE", paper_file):
-                    with patch.object(
-                            monitor,
-                            "send_telegram",
-                            return_value=True,
-                        ) as telegram_mock:
-
-                        monitor.process_scenario(
-                            "LONG",
-                            VALID_LONG_PLAN,
-                            state,
-                            candles_4h,
-                            candles_5m,
-                        )
-
-                        self.assertTrue(
-                            state["scenarios"]["LONG"]["alert_sent"]
-                        )
-                        self.assertEqual(telegram_mock.call_count, 1)
-
-                        monitor.process_scenario(
-                            "LONG",
-                            VALID_LONG_PLAN,
-                            state,
-                            candles_4h,
-                            candles_5m,
-                        )
-
-                        self.assertEqual(telegram_mock.call_count, 1)
+    return report
 
 
-class TestCheckpointProtection(unittest.TestCase):
+def make_open_trade(direction="SHORT", trailing_active=False):
+    ledger = {
+        "version": 1,
+        "settings": paper_trading.settings(),
+        "trades": [],
+    }
+
+    if direction == "SHORT":
+        levels = (105.0, 95.0, 90.0, 85.0)
+    else:
+        levels = (95.0, 105.0, 110.0, 115.0)
+
+    trade, created = paper_trading.open_trade_from_ai(
+        ledger=ledger,
+        direction=direction,
+        entry_type="MARKET",
+        entry_price=100.0,
+        stop_loss=levels[0],
+        take_profit_1=levels[1],
+        take_profit_2=levels[2],
+        take_profit_3=levels[3],
+        signal_fingerprint=f"synthetic-{direction}",
+        timestamp=1000,
+    )
+    assert created
+
+    if trailing_active:
+        trade["trailing_active"] = True
+        trade["stop_loss_current"] = (
+            101.0 if direction == "SHORT" else 99.0
+        )
+
+    return ledger, trade
+
+
+class TestReportValidation(unittest.TestCase):
+
+    def test_valid_wait(self):
+        self.assertIsNone(monitor.validate_ai_plan(make_report()))
+
+    def test_valid_long(self):
+        plan = monitor.validate_ai_plan(make_report("LONG"))
+        self.assertEqual(plan["direction"], "LONG")
+        self.assertEqual(plan["entry"]["price"], 100.0)
+
+    def test_valid_short_limit_with_expiry(self):
+        plan = monitor.validate_ai_plan(make_report("SHORT"))
+        self.assertEqual(plan["direction"], "SHORT")
+        self.assertEqual(plan["entry"]["type"], "LIMIT")
+
+    def test_wait_rejects_non_null_trade_level(self):
+        report = make_report()
+        report["take_profit_1"] = 101.0
+        with self.assertRaises(ValueError):
+            monitor.validate_ai_plan(report)
+
+    def test_long_rejects_invalid_stop(self):
+        report = make_report("LONG")
+        report["stop_loss"] = 101.0
+        with self.assertRaises(ValueError):
+            monitor.validate_ai_plan(report)
+
+    def test_entry_must_be_inside_zone(self):
+        report = make_report("LONG")
+        report["entry"]["entry_price"] = 102.0
+        with self.assertRaises(ValueError):
+            monitor.validate_ai_plan(report)
+
+    def test_limit_rejects_expired_entry(self):
+        report = make_report("SHORT")
+        report["entry"]["entry_expires_at"] = monitor.utc_iso(time.time() - 60)
+        with self.assertRaises(ValueError):
+            monitor.validate_ai_plan(report)
+
+    def test_unknown_decision_is_rejected(self):
+        report = make_report()
+        report["decision"] = "BUY"
+        with self.assertRaises(ValueError):
+            monitor.validate_ai_plan(report)
+
+
+class TestAiReportProcessing(unittest.TestCase):
 
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.state_file = Path(self.temp_dir.name) / "state.json"
-        self.paper_file_patch = patch.object(
-            paper_trading, "TRADING_FILE",
-            Path(self.temp_dir.name) / "paper_trading.json",
-        )
-        self.paper_file_patch.start()
-
-        self.initial_checkpoint = 1000
-        self.latest_checkpoint = 1600
-
         self.state = {
+            "version": 2,
+            "last_analysis_id": None,
+            "last_trade_action_analysis_id": None,
+            "pending_signal": None,
+            "pending_ai_close": None,
+            "notification_ids": [],
+        }
+        self.ledger = {
             "version": 1,
-            "scenarios": {},
-            "sent_fingerprints": [],
-            "last_processed_5m_timestamp": self.initial_checkpoint,
+            "settings": paper_trading.settings(),
+            "trades": [],
         }
 
-        self.signal = {
-            "bullish_plan": VALID_LONG_PLAN,
-            "bearish_plan": VALID_SHORT_PLAN,
+    def run_report(self, report):
+        generated = monitor.parse_timestamp(
+            report["generated_at"], "generated_at"
+        )
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "save_current_signal"), \
+             patch.object(monitor, "send_telegram", return_value=True), \
+             patch.object(paper_trading, "save_ledger"):
+            monitor.process_new_ai_report(
+                report,
+                report["analysis_id"],
+                generated,
+                self.state,
+                self.ledger,
+            )
+
+    def test_new_long_creates_pending_signal(self):
+        report = make_report("LONG")
+        self.run_report(report)
+        self.assertEqual(self.state["pending_signal"]["direction"], "LONG")
+        self.assertEqual(self.state["pending_signal"]["status"], "PENDING")
+
+    def test_duplicate_analysis_id_is_ignored(self):
+        report = make_report("LONG")
+        self.state["last_analysis_id"] = report["analysis_id"]
+        before = copy.deepcopy(self.state)
+        with patch.object(monitor, "save_state") as save_mock:
+            monitor.process_new_ai_report(
+                report,
+                report["analysis_id"],
+                monitor.parse_timestamp(report["generated_at"], "generated_at"),
+                self.state,
+                self.ledger,
+            )
+        self.assertEqual(self.state, before)
+        save_mock.assert_not_called()
+
+    def test_invalid_report_does_not_change_state_or_ledger(self):
+        report = make_report("LONG")
+        report["stop_loss"] = 101.0
+        state_before = copy.deepcopy(self.state)
+        ledger_before = copy.deepcopy(self.ledger)
+        with self.assertRaises(ValueError):
+            monitor.process_new_ai_report(
+                report,
+                report["analysis_id"],
+                monitor.parse_timestamp(report["generated_at"], "generated_at"),
+                self.state,
+                self.ledger,
+            )
+        self.assertEqual(self.state, state_before)
+        self.assertEqual(self.ledger, ledger_before)
+
+    def test_ai_close_is_queued_not_executed_immediately(self):
+        ledger, trade = make_open_trade("SHORT")
+        self.ledger = ledger
+        report = make_report(
+            "WAIT",
+            analysis_id="close-request-001",
+            open_trade_action="CLOSE",
+        )
+        self.run_report(report)
+        self.assertEqual(trade["status"], "OPEN")
+        self.assertEqual(
+            self.state["pending_ai_close"]["analysis_id"],
+            "close-request-001",
+        )
+
+    def test_valid_short_trailing_stop_update(self):
+        ledger, trade = make_open_trade("SHORT", trailing_active=True)
+        self.ledger = ledger
+        report = make_report(
+            "WAIT",
+            analysis_id="update-levels-001",
+            open_trade_action="UPDATE_LEVELS",
+        )
+        report["open_trade_updated_levels"] = {
+            "stop_loss": 100.5,
+            "take_profit_1": 94.0,
+            "take_profit_2": None,
+            "take_profit_3": None,
         }
+        self.run_report(report)
+        self.assertEqual(trade["stop_loss_current"], 100.5)
+        self.assertEqual(trade["levels_updated_by"], "AI")
 
-        self.candles_4h = [
-            make_candle(0, 98, 101, 97, 99),
-            make_candle(14400, 99, 104, 98, 103),
-        ]
-
-        self.candles_5m = [
-            make_candle(1300, 101, 103, 99, 102),
-            make_candle(1600, 102, 104, 100, 103),
-        ]
-
-    def tearDown(self):
-        self.paper_file_patch.stop()
-        self.temp_dir.cleanup()
-
-    def run_main_with_failure(self, failed_direction):
-
-        def fake_process(
-            direction,
-            plan,
-            state,
-            candles_4h,
-            new_candles_5m,
-        ):
-            if direction == failed_direction:
-                raise RuntimeError("Simulated processing failure")
-
-        with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
-            with patch.object(monitor, "STATE_FILE", self.state_file):
-                with patch.object(
-                    monitor,
-                    "load_json",
-                    return_value=self.signal,
-                ):
-                    with patch.object(
-                        monitor,
-                        "load_state",
-                        return_value=self.state,
-                    ):
-                        with patch.object(
-                            monitor,
-                            "fetch_candles",
-                            side_effect=[
-                                self.candles_4h,
-                                self.candles_5m,
-                            ],
-                        ):
-                            with patch.object(
-                                monitor,
-                                "process_scenario",
-                                side_effect=fake_process,
-                            ):
-                                monitor.main()
-
-    def test_long_failure_does_not_advance_checkpoint(self):
-        self.run_main_with_failure("LONG")
-
-        self.assertEqual(
-            self.state["last_processed_5m_timestamp"],
-            self.initial_checkpoint,
+    def test_invalid_short_trailing_stop_update_is_atomic(self):
+        ledger, trade = make_open_trade("SHORT", trailing_active=True)
+        self.ledger = ledger
+        trade_before = copy.deepcopy(trade)
+        state_before = copy.deepcopy(self.state)
+        report = make_report(
+            "WAIT",
+            analysis_id="bad-update-001",
+            open_trade_action="UPDATE_LEVELS",
         )
+        report["open_trade_updated_levels"] = {
+            "stop_loss": 104.0,
+            "take_profit_1": None,
+            "take_profit_2": None,
+            "take_profit_3": None,
+        }
+        with self.assertRaises(ValueError):
+            monitor.process_new_ai_report(
+                report,
+                report["analysis_id"],
+                monitor.parse_timestamp(report["generated_at"], "generated_at"),
+                self.state,
+                self.ledger,
+            )
+        self.assertEqual(trade, trade_before)
+        self.assertEqual(self.state, state_before)
 
-    def test_short_failure_does_not_advance_checkpoint(self):
-        self.run_main_with_failure("SHORT")
 
-        self.assertEqual(
-            self.state["last_processed_5m_timestamp"],
-            self.initial_checkpoint,
-        )
+class TestCandleExecution(unittest.TestCase):
 
-    def test_successful_processing_advances_checkpoint(self):
-        with patch.object(monitor, "SIGNAL_FILE", Path("unused.json")):
-            with patch.object(monitor, "STATE_FILE", self.state_file):
-                with patch.object(
-                    monitor,
-                    "load_json",
-                    return_value=self.signal,
-                ):
-                    with patch.object(
-                        monitor,
-                        "load_state",
-                        return_value=self.state,
-                    ):
-                        with patch.object(
-                            monitor,
-                            "fetch_candles",
-                            side_effect=[
-                                self.candles_4h,
-                                self.candles_5m,
-                            ],
-                        ):
-                            with patch.object(
-                                monitor,
-                                "process_scenario",
-                                return_value=None,
-                            ):
-                                monitor.main()
+    def test_ai_close_waits_for_candle_after_report_time(self):
+        ledger, trade = make_open_trade("SHORT")
+        report_time = 2000
+        state = {
+            "pending_ai_close": {
+                "analysis_id": "close-001",
+                "generated_at_timestamp": report_time,
+                "trade_ids": [trade["trade_id"]],
+            }
+        }
+        candle = {
+            "timestamp": report_time - 300,
+            "open": 100.0, "high": 101.0, "low": 99.0,
+            "close": 100.0, "volume": 10.0,
+        }
+        with patch.object(paper_trading, "save_ledger"), \
+             patch.object(monitor, "save_state"), \
+             patch.object(monitor, "notify_closed_trades"):
+            monitor.process_ai_close(candle, state, ledger)
+        self.assertEqual(trade["status"], "OPEN")
+        self.assertIsNotNone(state["pending_ai_close"])
 
-        self.assertEqual(
-            self.state["last_processed_5m_timestamp"],
-            self.latest_checkpoint,
-        )
+    def test_ai_close_executes_on_later_candle(self):
+        ledger, trade = make_open_trade("SHORT")
+        state = {
+            "pending_ai_close": {
+                "analysis_id": "close-002",
+                "generated_at_timestamp": 2000,
+                "trade_ids": [trade["trade_id"]],
+            }
+        }
+        candle = {
+            "timestamp": 2000,
+            "open": 100.0, "high": 101.0, "low": 99.0,
+            "close": 99.5, "volume": 10.0,
+        }
+        with patch.object(paper_trading, "save_ledger"), \
+             patch.object(monitor, "save_state"), \
+             patch.object(monitor, "notify_closed_trades"):
+            monitor.process_ai_close(candle, state, ledger)
+        self.assertEqual(trade["status"], "CLOSED")
+        self.assertEqual(trade["exit_reason"], "AI_CLOSE")
+        self.assertIsNone(state["pending_ai_close"])
+        self.assertEqual(state["last_completed_ai_close_id"], "close-002")
+
+    def test_stop_loss_has_priority_if_sl_and_tp1_hit_together(self):
+        ledger, trade = make_open_trade("LONG")
+        candle = {
+            "timestamp": 1100,
+            "open": 100.0, "high": 106.0, "low": 94.0,
+            "close": 100.0, "volume": 10.0,
+        }
+        paper_trading.process_candle(ledger, candle)
+        self.assertEqual(trade["status"], "CLOSED")
+        self.assertEqual(trade["exit_reason"], "STOP_LOSS")
 
 
 if __name__ == "__main__":
