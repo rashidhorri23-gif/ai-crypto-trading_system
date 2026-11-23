@@ -2,9 +2,12 @@ import base64
 import json
 import mimetypes
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from pathlib import Path
 
@@ -26,6 +29,31 @@ def _read_error_body(error):
         )[:2000]
     except Exception:
         return str(error)
+
+
+
+
+def _retry_after_seconds(error, fallback_seconds):
+    """Read Retry-After as seconds or an HTTP date."""
+    headers = getattr(error, "headers", None)
+    retry_after = headers.get("Retry-After") if headers else None
+
+    if not retry_after:
+        return float(fallback_seconds)
+
+    try:
+        return max(0.0, float(retry_after))
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(retry_after)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(
+                0.0,
+                (retry_at - datetime.now(timezone.utc)).total_seconds(),
+            )
+        except (TypeError, ValueError, OverflowError):
+            return float(fallback_seconds)
 
 
 def _request_json(url, method="GET", payload=None):
@@ -424,70 +452,103 @@ def ask_openrouter_vision(
             "temperature": 0.1,
         }
 
-        try:
-            response = _request_json(
-                url,
-                method="POST",
-                payload=payload,
-            )
+        rate_limit_retried = False
 
-            choices = response.get("choices", [])
-
-            if not choices:
-                raise ValueError(
-                    "The AI response contains no choices."
+        while True:
+            try:
+                response = _request_json(
+                    url,
+                    method="POST",
+                    payload=payload,
                 )
 
-            finish_reason = choices[0].get(
-                "finish_reason"
-            )
+                choices = response.get("choices", [])
 
-            if finish_reason == "length":
-                raise ValueError(
-                    "Model output was truncated because "
-                    "the maximum token limit was reached."
+                if not choices:
+                    raise ValueError(
+                        "The AI response contains no choices."
+                    )
+
+                finish_reason = choices[0].get(
+                    "finish_reason"
                 )
 
-            if finish_reason == "content_filter":
-                raise ValueError(
-                    "Model output was stopped by a content filter."
+                if finish_reason == "length":
+                    model_error = (
+                        f"Model {model_id}: output was truncated "
+                        "at the model token limit; incomplete output rejected."
+                    )
+                    model_errors.append(model_error)
+                    print("WARNING: " + model_error)
+                    break
+
+                if finish_reason == "content_filter":
+                    model_error = (
+                        f"Model {model_id}: output was stopped "
+                        "by a content filter."
+                    )
+                    model_errors.append(model_error)
+                    break
+
+                content = _extract_text(response)
+
+                if not content:
+                    raise ValueError(
+                        "The AI returned an empty response."
+                    )
+
+                _validate_json_response(content)
+
+                return {
+                    "status": "success",
+                    "model": model_id,
+                    "content": content,
+                    "error": None,
+                }
+
+            except urllib.error.HTTPError as error:
+                error_body = _read_error_body(error)
+
+                if error.code == 429 and not rate_limit_retried:
+                    retry_delay = _retry_after_seconds(
+                        error,
+                        Config.RETRY_BASE_SECONDS,
+                    )
+                    max_wait = getattr(
+                        Config,
+                        "RATE_LIMIT_MAX_WAIT_SECONDS",
+                        30,
+                    )
+
+                    if retry_delay <= max_wait:
+                        rate_limit_retried = True
+                        print(
+                            f"WARNING: Model {model_id} rate-limited "
+                            f"(HTTP 429); retrying once after "
+                            f"{retry_delay:.1f} seconds."
+                        )
+                        time.sleep(retry_delay)
+                        continue
+
+                    model_errors.append(
+                        f"Model {model_id}: HTTP 429; Retry-After "
+                        f"requested {retry_delay:.1f} seconds, exceeding "
+                        f"the configured wait limit of {max_wait} seconds. "
+                        "Skipping this model."
+                    )
+                    break
+
+                model_errors.append(
+                    f"Model {model_id}: HTTP {error.code}: {error_body}"
                 )
+                break
 
-            content = _extract_text(response)
-
-            if not content:
-                raise ValueError(
-                    "The AI returned an empty response."
+            except Exception as error:
+                model_errors.append(
+                    f"Model {model_id}: "
+                    f"{type(error).__name__}: {error}"
                 )
-
-            _validate_json_response(content)
-
-            return {
-                "status": "success",
-                "model": model_id,
-                "content": content,
-                "error": None,
-            }
-
-        except urllib.error.HTTPError as error:
-            error_body = _read_error_body(error)
-
-            model_error = (
-                f"Model {model_id}: "
-                f"HTTP {error.code}: {error_body}"
-            )
-
-            model_errors.append(model_error)
-            continue
-
-        except Exception as error:
-            model_error = (
-                f"Model {model_id}: "
-                f"{type(error).__name__}: {error}"
-            )
-
-            model_errors.append(model_error)
-            continue
+                break
 
     return {
         "status": "error",
