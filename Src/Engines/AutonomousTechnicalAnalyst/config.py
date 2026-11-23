@@ -17,10 +17,11 @@ class Config:
     ]
 
     # AI request settings
-    MAX_OUTPUT_TOKENS = 8000
+    MAX_OUTPUT_TOKENS = 3000
     REQUEST_TIMEOUT = 60
     MAX_RETRIES = 2
     RETRY_BASE_SECONDS = 2
+    RATE_LIMIT_MAX_WAIT_SECONDS = 30
 
     # Market configuration
     SYMBOL = "BTC_USDT"
