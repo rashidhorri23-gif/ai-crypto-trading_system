@@ -206,6 +206,10 @@ not the probability of guaranteed profit.
 
 OUTPUT FORMAT:
 
+Write all human-readable text fields in Persian (Farsi), including reasoning,
+main_risks, and data_limitations. Keep JSON keys and enum values in English.
+Keep reasoning concise and specific to the supplied evidence.
+
 Return exactly one valid JSON object.
 Do not use Markdown.
 Do not include code fences.
