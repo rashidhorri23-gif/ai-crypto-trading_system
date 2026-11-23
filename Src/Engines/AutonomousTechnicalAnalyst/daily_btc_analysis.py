@@ -16,6 +16,7 @@ from .market_features import prepare_market_features
 from .vision_provider import ask_openrouter_vision
 from .vision_prompt import build_btc_analysis_prompt
 from .paper_trading import load_ledger
+from .telegram_report import send_telegram_chart_report
 
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -319,7 +320,7 @@ def draw_candlesticks(ax, df):
         )
 
 
-def generate_4h_chart(df):
+def generate_4h_chart(df, analysis=None):
     chart_data = (
         df.tail(MAX_CONTEXT_CANDLES["4H"])
         .copy()
@@ -365,6 +366,23 @@ def generate_4h_chart(df):
                     linewidth=1,
                     label=label,
                 )
+
+        if analysis is not None and analysis.get("decision") in ("LONG", "SHORT"):
+            entry = analysis.get("entry") or {}
+            entry_price = entry.get("entry_price")
+            zone_low = entry.get("entry_zone_low")
+            zone_high = entry.get("entry_zone_high")
+            stop = analysis.get("stop_loss")
+            targets = [analysis.get("take_profit_1"), analysis.get("take_profit_2"), analysis.get("take_profit_3")]
+            if entry_price is not None:
+                ax.axhline(entry_price, color="blue", linewidth=1.8, label="AI Entry")
+            if zone_low is not None and zone_high is not None and zone_low != zone_high:
+                ax.axhspan(min(zone_low, zone_high), max(zone_low, zone_high), color="blue", alpha=0.10, label="Entry Zone")
+            if stop is not None:
+                ax.axhline(stop, color="red", linewidth=1.8, linestyle="-.", label="AI Stop Loss")
+            for index, target in enumerate(targets, start=1):
+                if target is not None:
+                    ax.axhline(target, linewidth=1.2, linestyle=":", label=f"AI TP{index}")
 
         step = max(1, len(chart_data) // 12)
         ticks = list(range(0, len(chart_data), step))
@@ -957,10 +975,17 @@ def run_daily_btc_analysis():
         open_trade,
     )
 
-    # Publish the report only after successful AI validation.
+    # Rebuild the chart with validated AI trade levels for Telegram delivery.
+    generate_4h_chart(results["4H"]["data"], analysis=analysis)
+
+    # Deliver before checkpointing so failed Telegram delivery can retry.
+    telegram_result = send_telegram_chart_report(CHART_FILE, analysis, market_context)
+    print(f"Telegram report sent: {telegram_result}")
+
+    # Publish only after successful AI validation and Telegram delivery.
     atomic_write_json(VISION_REPORT_FILE, analysis)
 
-    # Save the candle checkpoint only after the report is published.
+    # Save the candle checkpoint only after the report is published and delivered.
     save_successful_analysis(
         candle_id,
         analysis["analysis_id"],
