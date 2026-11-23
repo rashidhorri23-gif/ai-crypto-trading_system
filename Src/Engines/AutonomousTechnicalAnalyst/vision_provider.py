@@ -228,13 +228,6 @@ def build_vision_model_priority():
 
     discovered = discover_free_vision_models()
 
-    if discovered["status"] != "success":
-        return {
-            "status": "error",
-            "models": [],
-            "error": discovered["error"],
-        }
-
     models = [
         {
             "id": "openrouter/free",
@@ -245,7 +238,14 @@ def build_vision_model_priority():
         }
     ]
 
-    models.extend(discovered["models"])
+    if discovered["status"] == "success":
+        models.extend(discovered["models"])
+    else:
+        print(
+            "WARNING: Direct model discovery failed; "
+            "using the OpenRouter free vision router only. "
+            + str(discovered["error"])
+        )
 
     preferred = os.getenv(
         "OPENROUTER_VISION_MODEL",
