@@ -3,19 +3,19 @@ name: Daily BTC 15M AI Analysis
 on:
   workflow_dispatch:
   schedule:
-    - cron: "5,20,35,50 * * * *"
+    - cron: "3,18,33,48 * * * *"
 
 permissions:
   contents: write
 
 concurrency:
-  group: daily-btc-analysis
+  group: btc-market-pipeline
   cancel-in-progress: false
 
 jobs:
   btc-analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository
@@ -36,13 +36,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Update BTC 4H Data From OKX
+      - name: Update BTC 5M, 15M and 4H Data
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
 
-      - name: Save Updated BTC Archive
+      - name: Save Updated BTC Archives
         run: |
-          git add Data/Archive/BTC_USDT_SPOT_4H.csv
+          git add \
+            Data/Archive/BTC_USDT_SPOT_5m.csv \
+            Data/Archive/BTC_USDT_SPOT_15m.csv \
+            Data/Archive/BTC_USDT_SPOT_4H.csv
 
           if git diff --cached --quiet; then
             echo "No archive changes to commit."
@@ -51,50 +54,50 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update BTC 4H market data"
+          git commit -m "Update BTC multi-timeframe market data"
 
           for attempt in 1 2 3 4 5; do
             git fetch origin main
 
             if ! git rebase origin/main; then
               git rebase --abort || true
-              echo "Rebase failed. Manual review is required."
+              echo "Rebase failed."
               exit 1
             fi
 
             if git push origin HEAD:main; then
-              echo "BTC archive update pushed successfully."
+              echo "BTC archives pushed successfully."
               exit 0
             fi
 
-            echo "Push attempt ${attempt} failed."
             sleep 3
           done
 
-          echo "Unable to push BTC archive after 5 attempts."
+          echo "Unable to push BTC archives."
           exit 1
 
-      - name: Run BTC 4H Vision Analysis
+      - name: Run BTC AI Analysis
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.daily_btc_analysis
 
-      - name: Publish Current BTC Signal
+      - name: Validate and Publish BTC AI Report
         run: |
-          if [ ! -f Reports/BTC_4H_Vision_Report.json ]; then
-            echo "BTC vision report was not generated."
-            exit 1
-          fi
+          test -s Reports/BTC_4H_Vision_Report.json
+
+          python -c "import json; json.load(open('Reports/BTC_4H_Vision_Report.json', encoding='utf-8'))"
 
           mkdir -p Data/Signals
           cp Reports/BTC_4H_Vision_Report.json Data/Signals/current_btc_signal.json
 
-          git add Data/Signals/current_btc_signal.json
+          git add \
+            Reports/BTC_4H_Vision_Report.json \
+            Data/Signals/current_btc_signal.json
 
           if git diff --cached --quiet; then
-            echo "No signal report changes."
+            echo "No report changes."
             exit 0
           fi
 
@@ -107,27 +110,26 @@ jobs:
 
             if ! git rebase origin/main; then
               git rebase --abort || true
-              echo "Rebase failed. Manual review is required."
+              echo "Rebase failed."
               exit 1
             fi
 
             if git push origin HEAD:main; then
-              echo "BTC signal published successfully."
+              echo "BTC AI report published successfully."
               exit 0
             fi
 
-            echo "Push attempt ${attempt} failed."
             sleep 3
           done
 
-          echo "Unable to publish BTC signal after 5 attempts."
+          echo "Unable to publish BTC AI report."
           exit 1
 
       - name: Upload BTC Analysis Artifacts
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: BTC-4H-Analysis
+          name: BTC-Analysis
           path: |
             Reports/BTC_4H_Vision_Chart.png
             Reports/BTC_4H_Market_Context.txt
