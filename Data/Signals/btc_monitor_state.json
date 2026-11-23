@@ -27,10 +27,14 @@
     "265f5febb075b696587a2d0cdc1f30da777a7eddb0cd60c90aff3a1b21c84818",
     "2badd1676d861f4a4ca44125ae888ff82c0a24af9260651ed72cca85012ba784"
   ],
-  "last_processed_5m_timestamp": 1795437000,
-  "last_analysis_id": "6414d7e8-d648-4504-b04b-01c809b4d9ea",
-  "last_trade_action_analysis_id": "6414d7e8-d648-4504-b04b-01c809b4d9ea",
+  "last_processed_5m_timestamp": 1795442100,
+  "last_analysis_id": "065749e6-45d5-420d-bfb2-89214d4ca8ec",
+  "last_trade_action_analysis_id": "065749e6-45d5-420d-bfb2-89214d4ca8ec",
   "pending_signal": null,
   "pending_ai_close": null,
-  "notification_ids": []
+  "notification_ids": [
+    "addf622c32e4e4a5e885e1ff28dde3d57e3fa3b9cd4986f7d9b7b978694c6d06",
+    "285b0027696f9e50fe1da282b631a6e4fa4c1588ca335be1a4c3cd370d38e075"
+  ],
+  "last_completed_ai_close_id": "065749e6-45d5-420d-bfb2-89214d4ca8ec"
 }
