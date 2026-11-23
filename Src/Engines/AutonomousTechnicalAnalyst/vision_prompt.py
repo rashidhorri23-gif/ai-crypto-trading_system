@@ -208,7 +208,12 @@ OUTPUT FORMAT:
 
 Write all human-readable text fields in Persian (Farsi), including reasoning,
 main_risks, and data_limitations. Keep JSON keys and enum values in English.
-Keep reasoning concise and specific to the supplied evidence.
+Keep all human-readable output compact and specific to the supplied evidence.
+The reasoning field must contain no more than 3 short Persian sentences.
+The main_risks array must contain at most 3 short Persian items.
+The data_limitations array must contain at most 3 short Persian items.
+Do not repeat the market context or restate the same evidence in multiple fields.
+Do not include chain-of-thought or hidden deliberation; provide only concise conclusions.
 
 Return exactly one valid JSON object.
 Do not use Markdown.
@@ -239,7 +244,7 @@ Required JSON schema:
   "take_profit_1": 0.0,
   "take_profit_2": 0.0,
   "take_profit_3": 0.0,
-  "reasoning": "Detailed explanation of the decision.",
+  "reasoning": "خلاصه تصمیم در حداکثر سه جمله کوتاه.",
   "main_risks": [],
   "data_limitations": [],
   "previous_signal_action": "NONE",
