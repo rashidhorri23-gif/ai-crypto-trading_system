@@ -1,981 +1,1221 @@
 
-import hashlib
+"""AI-driven BTC paper-trading monitor.
+
+AI is the only source of trading decisions.
+This module handles market data, report validation, paper trading,
+state persistence, and Telegram notifications.
+
+No real exchange orders are submitted.
+"""
+
 import json
-import math
 import os
-import sys
+import time
 import urllib.parse
 import urllib.request
+import hashlib
+
 from datetime import datetime, timezone
 from pathlib import Path
 
 from Src.Engines.AutonomousTechnicalAnalyst import paper_trading
 
 
-ROOT = Path(__file__).resolve().parents[3]
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-SIGNAL_FILE = ROOT / "Data" / "Signals" / "current_btc_signal.json"
-STATE_FILE = ROOT / "Data" / "Signals" / "btc_monitor_state.json"
+ROOT_DIR = Path(__file__).resolve().parents[3]
 
-OKX_BASE_URL = "https://www.okx.com"
-INSTRUMENT = "BTC-USDT"
+REPORT_FILE = ROOT_DIR / "Reports" / "BTC_4H_Vision_Report.json"
 
-FOUR_HOURS_SECONDS = 4 * 60 * 60
-FIVE_MINUTES_SECONDS = 5 * 60
+SIGNAL_FILE = (
+    ROOT_DIR
+    / "Data"
+    / "Signals"
+    / "current_btc_signal.json"
+)
 
-CANDLE_LIMIT_4H = 300
-CANDLE_LIMIT_5M = 300
+STATE_FILE = (
+    ROOT_DIR
+    / "Data"
+    / "Signals"
+    / "btc_monitor_state.json"
+)
 
+OKX_BASE_URL = os.getenv(
+    "OKX_BASE_URL",
+    "https://www.okx.com",
+).rstrip("/")
+
+OKX_SYMBOL = "BTC-USDT"
+OKX_BAR = "5m"
+
+OKX_PAGE_SIZE = 100
 MAX_HISTORY_PAGES = 20
-MONITOR_LOGIC_VERSION = 2
 
-DIRECTIONS = {
-    "LONG": {"plan_key": "bullish_plan"},
-    "SHORT": {"plan_key": "bearish_plan"},
-}
+REQUEST_TIMEOUT = 20
+REQUEST_DELAY_SECONDS = 0.15
 
+REPORT_SCHEMA_VERSION = "2.0"
+
+# A MARKET signal cannot be executed retroactively.
+MARKET_ENTRY_MAX_DELAY_SECONDS = 600
+
+# A LIMIT signal is valid only until its AI-defined expiry.
+FIVE_MINUTES_SECONDS = 300
+
+
+# ============================================================
+# TIME AND JSON HELPERS
+# ============================================================
 
 def utc_now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc)
 
 
-def log(message):
-    print(f"[{utc_now()}] {message}", flush=True)
+def utc_iso(timestamp=None):
+    if timestamp is None:
+        return utc_now().isoformat()
+
+    return datetime.fromtimestamp(
+        timestamp,
+        timezone.utc,
+    ).isoformat()
 
 
-def load_json(path):
+def parse_timestamp(value, field_name):
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} is invalid.")
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} is missing.")
+
+    normalized = value.strip()
+
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
+        return parsed.timestamp()
+
+    except ValueError as exc:
+        raise ValueError(
+            f"{field_name} is not a valid timestamp."
+        ) from exc
+
+
+def atomic_write_json(path, data):
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    temporary = path.with_suffix(
+        path.suffix + ".tmp"
+    )
+
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(
+            data,
+            handle,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+    temporary.replace(path)
+
+
+def read_json(path, default=None):
     if not path.exists():
-        raise FileNotFoundError(f"Required file not found: {path}")
+        return default
 
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def save_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_suffix(".tmp")
-
-    with temporary_path.open("w", encoding="utf-8") as file:
-        json.dump(data, file, indent=2)
-
-    temporary_path.replace(path)
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
-def parse_candle_rows(rows):
-    candles = []
-
-    for row in rows:
-        if len(row) < 9:
-            continue
-
-        try:
-            candle = {
-                "timestamp": int(row[0]) // 1000,
-                "open": float(row[1]),
-                "high": float(row[2]),
-                "low": float(row[3]),
-                "close": float(row[4]),
-                "volume": float(row[5]),
-                "confirm": str(row[8]),
-            }
-        except (TypeError, ValueError):
-            continue
-
-        if candle["confirm"] != "1":
-            continue
-
-        prices = [
-            candle["open"],
-            candle["high"],
-            candle["low"],
-            candle["close"],
-        ]
-
-        if not all(math.isfinite(p) and p > 0 for p in prices):
-            continue
-
-        if candle["high"] < max(
-            candle["open"],
-            candle["close"],
-            candle["low"],
-        ):
-            continue
-
-        if candle["low"] > min(
-            candle["open"],
-            candle["close"],
-            candle["high"],
-        ):
-            continue
-
-        candles.append(candle)
-
-    unique = {
-        candle["timestamp"]: candle
-        for candle in candles
-    }
-
-    return sorted(unique.values(), key=lambda item: item["timestamp"])
-
-
-def request_candle_page(bar, limit=300, after=None, history=False):
-    params = {
-        "instId": INSTRUMENT,
-        "bar": bar,
-        "limit": str(limit),
-    }
-
-    if after is not None:
-        params["after"] = str(int(after))
-
-    endpoint = (
-        "/api/v5/market/history-candles"
-        if history
-        else "/api/v5/market/candles"
+def load_state():
+    state = read_json(
+        STATE_FILE,
+        default={},
     )
 
-    url = (
-        f"{OKX_BASE_URL}{endpoint}?"
-        f"{urllib.parse.urlencode(params)}"
+    if not isinstance(state, dict):
+        raise ValueError(
+            "Monitor state must be a JSON object."
+        )
+
+    state.setdefault("version", 2)
+    state.setdefault("last_processed_5m_timestamp", 0)
+    state.setdefault("last_analysis_id", None)
+    state.setdefault("last_trade_action_analysis_id", None)
+    state.setdefault("pending_signal", None)
+    state.setdefault("pending_ai_close", None)
+    state.setdefault("notification_ids", [])
+
+    return state
+
+
+def save_state(state):
+    atomic_write_json(
+        STATE_FILE,
+        state,
     )
 
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "BTC-Signal-Monitor/1.0"},
+
+def save_current_signal(signal):
+    atomic_write_json(
+        SIGNAL_FILE,
+        signal,
     )
 
-    with urllib.request.urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
 
-    if payload.get("code") != "0":
-        raise RuntimeError(f"OKX API error: {payload}")
+# ============================================================
+# TELEGRAM
+# ============================================================
 
-    return parse_candle_rows(payload.get("data", []))
-
-
-def fetch_candles(bar, limit):
-    candles = request_candle_page(
-        bar=bar,
-        limit=limit,
-        history=False,
-    )
-
-    if not candles:
-        raise RuntimeError(f"No confirmed candles returned for {bar}")
-
-    return candles
-
-
-def fetch_candles_since(bar, initial_candles, last_processed, interval):
-    if not initial_candles:
-        raise RuntimeError(
-            "No initial candles available for history recovery."
-        )
-
-    candles_by_timestamp = {
-        candle["timestamp"]: candle
-        for candle in initial_candles
-    }
-
-    if len(candles_by_timestamp) != len(initial_candles):
-        log("Duplicate candle timestamps detected and removed.")
-
-    if last_processed is None:
-        return sorted(
-            candles_by_timestamp.values(),
-            key=lambda item: item["timestamp"],
-        )
-
-    if isinstance(last_processed, bool) or not isinstance(
-        last_processed, int
-    ):
-        raise RuntimeError("Invalid last processed timestamp.")
-
-    def find_gaps(candles):
-        ordered = sorted(
-            candles,
-            key=lambda item: item["timestamp"],
-        )
-
-        gaps = []
-
-        for index in range(1, len(ordered)):
-            previous_timestamp = ordered[index - 1]["timestamp"]
-            current_timestamp = ordered[index]["timestamp"]
-
-            difference = current_timestamp - previous_timestamp
-
-            if difference != interval:
-                if difference < interval or difference % interval != 0:
-                    raise RuntimeError(
-                        "Invalid candle timestamp sequence detected."
-                    )
-
-                gaps.append({
-                    "start": previous_timestamp,
-                    "end": current_timestamp,
-                    "missing": difference // interval - 1,
-                })
-
-        return ordered, gaps
-
-    pages = 0
-
-    while True:
-        ordered, gaps = find_gaps(
-            list(candles_by_timestamp.values())
-        )
-
-        oldest_timestamp = ordered[0]["timestamp"]
-        required_oldest = last_processed + interval
-
-        if oldest_timestamp > required_oldest:
-            if pages >= MAX_HISTORY_PAGES:
-                raise RuntimeError(
-                    "History recovery exceeded the page limit. "
-                    "Checkpoint will not advance."
-                )
-
-            log(
-                "Historical coverage gap detected. "
-                "Recovering older candles from OKX."
-            )
-
-            older_candles = request_candle_page(
-                bar=bar,
-                limit=300,
-                after=oldest_timestamp * 1000,
-                history=True,
-            )
-
-            older_candles = [
-                candle
-                for candle in older_candles
-                if candle["timestamp"] < oldest_timestamp
-            ]
-
-            if not older_candles:
-                raise RuntimeError(
-                    "OKX returned no older candles during recovery. "
-                    "Checkpoint will not advance."
-                )
-
-            previous_oldest = oldest_timestamp
-
-            for candle in older_candles:
-                candles_by_timestamp[candle["timestamp"]] = candle
-
-            new_oldest = min(candles_by_timestamp)
-
-            if new_oldest >= previous_oldest:
-                raise RuntimeError(
-                    "History pagination made no progress."
-                )
-
-            pages += 1
-
-            log(
-                f"History page {pages} recovered. "
-                f"Oldest candle: {new_oldest}"
-            )
-
-            continue
-
-        if not gaps:
-            break
-
-        gap = gaps[0]
-
-        log(
-            "Internal candle gap detected. "
-            f"Missing candles: {gap['missing']}"
-        )
-
-        if pages >= MAX_HISTORY_PAGES:
-            raise RuntimeError(
-                "History recovery exceeded the page limit "
-                "while repairing an internal gap."
-            )
-
-        # OKX 'after' returns candles older than the supplied timestamp.
-        # Use the end of the gap to retrieve candles inside that gap.
-        recovered_page = request_candle_page(
-            bar=bar,
-            limit=300,
-            after=gap["end"] * 1000,
-            history=True,
-        )
-
-        recovered_page = [
-            candle
-            for candle in recovered_page
-            if gap["start"] < candle["timestamp"] < gap["end"]
-        ]
-
-        if not recovered_page:
-            raise RuntimeError(
-                "OKX could not recover an internal candle gap. "
-                "Checkpoint will not advance."
-            )
-
-        previous_count = len(candles_by_timestamp)
-
-        for candle in recovered_page:
-            candles_by_timestamp[candle["timestamp"]] = candle
-
-        if len(candles_by_timestamp) == previous_count:
-            raise RuntimeError(
-                "Internal gap recovery made no progress."
-            )
-
-        pages += 1
-
-    ordered, remaining_gaps = find_gaps(
-        list(candles_by_timestamp.values())
-    )
-
-    if remaining_gaps:
-        raise RuntimeError(
-            "Candle history still contains unresolved gaps. "
-            "Checkpoint will not advance."
-        )
-
-    if ordered[-1]["timestamp"] < last_processed:
-        raise RuntimeError(
-            "Latest available candle is older than the checkpoint."
-        )
-
-    log(
-        f"History validation completed. "
-        f"Total candles: {len(ordered)}. "
-        f"Recovered pages: {pages}."
-    )
-
-    return ordered
-
-
-def make_fingerprint(direction, plan):
-    fields = [
-        MONITOR_LOGIC_VERSION,
-        direction,
-        plan.get("setup_type"),
-        plan.get("entry_zone_low"),
-        plan.get("entry_zone_high"),
-        plan.get("stop_loss"),
-        plan.get("take_profit_1"),
-        plan.get("take_profit_2"),
-        plan.get("take_profit_3"),
-        plan.get("activation_condition"),
-        plan.get("invalidation_condition"),
-    ]
-
-    raw = json.dumps(fields, sort_keys=True)
+def make_notification_id(event, identifier):
+    raw = f"{event}|{identifier}"
 
     return hashlib.sha256(
         raw.encode("utf-8")
     ).hexdigest()
 
 
-def validate_plan(direction, plan):
-    if direction not in DIRECTIONS:
-        raise ValueError(f"Invalid direction: {direction}")
-
-    if not isinstance(plan, dict):
-        raise ValueError("Plan must be a JSON object.")
-
-    required_fields = [
-        "entry_zone_low",
-        "entry_zone_high",
-        "stop_loss",
-        "take_profit_1",
-        "take_profit_2",
-        "take_profit_3",
-    ]
-
-    for field in required_fields:
-        value = plan.get(field)
-
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"Invalid numeric value: {field}")
-
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError(f"Invalid positive finite value: {field}")
-
-    low = float(plan["entry_zone_low"])
-    high = float(plan["entry_zone_high"])
-    stop = float(plan["stop_loss"])
-
-    tp1 = float(plan["take_profit_1"])
-    tp2 = float(plan["take_profit_2"])
-    tp3 = float(plan["take_profit_3"])
-
-    if low >= high:
-        raise ValueError("Entry zone low must be below entry zone high.")
-
-    if direction == "LONG":
-        if not stop < low:
-            raise ValueError("LONG stop-loss must be below the entry zone.")
-
-        if not high < tp1 < tp2 < tp3:
-            raise ValueError(
-                "LONG targets must be above the entry zone and ascending."
-            )
-
-    elif direction == "SHORT":
-        if not stop > high:
-            raise ValueError("SHORT stop-loss must be above the entry zone.")
-
-        if not low > tp1 > tp2 > tp3:
-            raise ValueError(
-                "SHORT targets must be below the entry zone and descending."
-            )
-
-    return True
-
-
-def load_state():
-    if not STATE_FILE.exists():
-        return {
-            "version": 1,
-            "scenarios": {},
-            "sent_fingerprints": [],
-            "last_processed_5m_timestamp": None,
-        }
-
-    state = load_json(STATE_FILE)
-
-    if not isinstance(state, dict):
-        raise ValueError("Monitor state must be a JSON object.")
-
-    state.setdefault("version", 1)
-    state.setdefault("scenarios", {})
-    state.setdefault("sent_fingerprints", [])
-    state.setdefault("last_processed_5m_timestamp", None)
-
-    if not isinstance(state["scenarios"], dict):
-        raise ValueError("Invalid scenarios state.")
-
-    if not isinstance(state["sent_fingerprints"], list):
-        raise ValueError("Invalid sent fingerprints state.")
-
-    return state
-
-
-def initialize_scenario(direction, plan, latest_4h, state):
-    fingerprint = make_fingerprint(direction, plan)
-
-    previous = state["scenarios"].get(direction)
-
-    if previous and previous.get("fingerprint") == fingerprint:
-        previous.setdefault("sweep_timestamp", None)
-        previous.setdefault("breakout_timestamp", None)
-        previous.setdefault("pending_retest", None)
-        previous.setdefault("alert_sent", False)
-        previous.setdefault("invalidated", False)
-        return previous
-
-    already_sent = fingerprint in state["sent_fingerprints"]
-
-    scenario = {
-        "fingerprint": fingerprint,
-        "baseline_4h_timestamp": latest_4h["timestamp"],
-        "sweep_timestamp": None,
-        "breakout_timestamp": None,
-        "pending_retest": None,
-        "alert_sent": already_sent,
-        "invalidated": False,
-        "created_at": utc_now(),
-    }
-
-    state["scenarios"][direction] = scenario
-
-    log(
-        f"{direction}: new scenario registered. "
-        "Waiting for a new confirmed 4H activation."
-    )
-
-    return scenario
-
-
-def find_long_activation(plan, scenario, candles_4h):
-    existing_timestamp = scenario.get("breakout_timestamp")
-
-    if existing_timestamp is not None:
-        return existing_timestamp
-
-    baseline = scenario["baseline_4h_timestamp"]
-
-    zone_low = float(plan["entry_zone_low"])
-    zone_high = float(plan["entry_zone_high"])
-    stop_loss = float(plan["stop_loss"])
-
-    for candle in candles_4h:
-        timestamp = candle["timestamp"]
-
-        if timestamp <= baseline:
-            continue
-
-        if scenario.get("sweep_timestamp") is None:
-            if candle["low"] < zone_low:
-                scenario["sweep_timestamp"] = timestamp
-
-                log(
-                    "LONG liquidity sweep detected. "
-                    f"Low: {candle['low']:.2f}"
-                )
-
-                if candle["close"] < stop_loss:
-                    scenario["invalidated"] = True
-                    return "INVALIDATED"
-
-            continue
-
-        if timestamp <= scenario["sweep_timestamp"]:
-            continue
-
-        if candle["close"] < stop_loss:
-            scenario["invalidated"] = True
-            return "INVALIDATED"
-
-        if candle["close"] > zone_high:
-            breakout_close_time = timestamp + FOUR_HOURS_SECONDS
-
-            scenario["breakout_timestamp"] = breakout_close_time
-
-            log(
-                "LONG reclaim confirmed after liquidity sweep. "
-                f"4H close: {candle['close']:.2f}"
-            )
-
-            return breakout_close_time
-
-    return None
-
-
-def find_short_breakdown(plan, scenario, candles_4h):
-    existing_timestamp = scenario.get("breakout_timestamp")
-
-    if existing_timestamp is not None:
-        return existing_timestamp
-
-    baseline = scenario["baseline_4h_timestamp"]
-    trigger_level = float(plan["entry_zone_low"])
-
-    for candle in candles_4h:
-        if candle["timestamp"] <= baseline:
-            continue
-
-        if candle["close"] < trigger_level:
-            breakout_close_time = (
-                candle["timestamp"] + FOUR_HOURS_SECONDS
-            )
-
-            scenario["breakout_timestamp"] = breakout_close_time
-
-            log(
-                "SHORT breakdown confirmed. "
-                f"4H close: {candle['close']:.2f}"
-            )
-
-            return breakout_close_time
-
-    return None
-
-
-def find_invalidation(direction, plan, scenario, candles_4h):
-    stop_loss = float(plan["stop_loss"])
-
-    if direction == "LONG":
-        reference_timestamp = scenario.get("sweep_timestamp")
-    elif direction == "SHORT":
-        reference_timestamp = scenario.get("breakout_timestamp")
-    else:
-        raise ValueError(f"Invalid direction: {direction}")
-
-    if reference_timestamp is None:
-        return None
-
-    for candle in candles_4h:
-        candle_close_time = (
-            candle["timestamp"] + FOUR_HOURS_SECONDS
-        )
-
-        if direction == "LONG":
-            if candle["timestamp"] < reference_timestamp:
-                continue
-
-            if candle["close"] < stop_loss:
-                return candle
-
-        else:
-            if candle_close_time < reference_timestamp:
-                continue
-
-            if candle["close"] > stop_loss:
-                return candle
-
-    return None
-
-
-def find_retest(direction, plan, breakout_timestamp, candles_5m):
-    zone_low = float(plan["entry_zone_low"])
-    zone_high = float(plan["entry_zone_high"])
-
-    for candle in candles_5m:
-        candle_close_time = (
-            candle["timestamp"] + FIVE_MINUTES_SECONDS
-        )
-
-        if candle_close_time <= breakout_timestamp:
-            continue
-
-        overlaps_zone = (
-            candle["low"] <= zone_high
-            and candle["high"] >= zone_low
-        )
-
-        if not overlaps_zone:
-            continue
-
-        if direction == "LONG":
-            confirmed = (
-                candle["close"] > candle["open"]
-                and candle["close"] > zone_high
-            )
-
-            if confirmed:
-                return candle
-
-        elif direction == "SHORT":
-            confirmed = (
-                candle["close"] < candle["open"]
-                and candle["close"] < zone_low
-            )
-
-            if confirmed:
-                return candle
-
-        else:
-            raise ValueError(f"Invalid direction: {direction}")
-
-    return None
-
-
-def build_alert(direction, plan, candle):
-    entry_low = float(plan["entry_zone_low"])
-    entry_high = float(plan["entry_zone_high"])
-
-    confirmation_time = datetime.fromtimestamp(
-        candle["timestamp"] + FIVE_MINUTES_SECONDS,
-        tz=timezone.utc,
-    ).strftime("%Y-%m-%d %H:%M UTC")
-
-    return (
-        f"BTC {direction} SIGNAL CONFIRMED\n\n"
-        f"Symbol: BTC-USDT\n"
-        f"Confirmation: {confirmation_time}\n"
-        f"Timeframes: 4H + 5M\n\n"
-        f"Entry Zone: {entry_low:.2f} - {entry_high:.2f}\n"
-        f"Stop Loss: {float(plan['stop_loss']):.2f}\n"
-        f"Take Profit 1: {float(plan['take_profit_1']):.2f}\n"
-        f"Take Profit 2: {float(plan['take_profit_2']):.2f}\n"
-        f"Take Profit 3: {float(plan['take_profit_3']):.2f}\n\n"
-        f"5M Candle Close: {candle['close']:.2f}\n"
-        f"Source: OKX\n\n"
-        "Paper trade recorded automatically for tracking. "
-        "No exchange order was submitted."
-    )
-
-
-def send_telegram(message):
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+def send_telegram(message, event_id, state):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
-        log("Telegram credentials are missing.")
+        print(
+            "Telegram skipped: credentials are not configured."
+        )
         return False
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    sent_ids = state.setdefault(
+        "notification_ids",
+        [],
+    )
 
-    body = json.dumps({
+    if event_id in sent_ids:
+        return False
+
+    url = (
+        f"https://api.telegram.org/bot{token}/sendMessage"
+    )
+
+    payload = urllib.parse.urlencode({
         "chat_id": chat_id,
         "text": message,
+        "disable_web_page_preview": "true",
     }).encode("utf-8")
 
     request = urllib.request.Request(
         url,
-        data=body,
-        headers={"Content-Type": "application/json"},
+        data=payload,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=20) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=REQUEST_TIMEOUT,
+        ) as response:
+            result = json.loads(
+                response.read().decode("utf-8")
+            )
 
-    if not result.get("ok"):
-        raise RuntimeError("Telegram rejected the message.")
+        if not result.get("ok"):
+            print(
+                f"Telegram rejected notification: {result}"
+            )
+            return False
+
+        sent_ids.append(event_id)
+
+        # Keep the state file reasonably small.
+        state["notification_ids"] = sent_ids[-500:]
+
+        save_state(state)
+
+        return True
+
+    except Exception as exc:
+        print(
+            f"Telegram notification failed: {exc}"
+        )
+        return False
+
+
+# ============================================================
+# OKX MARKET DATA
+# ============================================================
+
+def okx_request(endpoint, params):
+    query = urllib.parse.urlencode(params)
+
+    url = (
+        f"{OKX_BASE_URL}{endpoint}"
+        f"?{query}"
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "BTC-AI-Paper-Monitor/2.0",
+        },
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=REQUEST_TIMEOUT,
+    ) as response:
+        payload = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if payload.get("code") != "0":
+        raise RuntimeError(
+            "OKX API error: "
+            f"{payload.get('msg', 'Unknown error')}"
+        )
+
+    return payload.get("data", [])
+
+
+def fetch_okx_page(before=None):
+    params = {
+        "instId": OKX_SYMBOL,
+        "bar": OKX_BAR,
+        "limit": str(OKX_PAGE_SIZE),
+    }
+
+    if before is not None:
+        params["after"] = str(before)
+
+    return okx_request(
+        "/api/v5/market/history-candles",
+        params,
+    )
+
+
+def normalize_okx_candle(raw):
+    if not isinstance(raw, list) or len(raw) < 9:
+        raise ValueError(
+            "Unexpected OKX candle format."
+        )
+
+    # Only confirmed candles are allowed.
+    if str(raw[8]) != "1":
+        return None
+
+    timestamp_ms = int(raw[0])
+
+    candle = {
+        "timestamp": timestamp_ms // 1000,
+        "open": float(raw[1]),
+        "high": float(raw[2]),
+        "low": float(raw[3]),
+        "close": float(raw[4]),
+        "volume": float(raw[5]),
+    }
+
+    if (
+        candle["open"] <= 0
+        or candle["high"] <= 0
+        or candle["low"] <= 0
+        or candle["close"] <= 0
+    ):
+        raise ValueError(
+            "OKX returned an invalid candle price."
+        )
+
+    if candle["high"] < candle["low"]:
+        raise ValueError(
+            "OKX returned invalid candle high/low values."
+        )
+
+    return candle
+
+
+def fetch_new_confirmed_candles(last_timestamp):
+    """Recover missing candles from the last saved checkpoint."""
+
+    collected = {}
+    before = None
+    reached_checkpoint = False
+
+    for page_number in range(MAX_HISTORY_PAGES):
+        page = fetch_okx_page(
+            before=before,
+        )
+
+        if not page:
+            break
+
+        oldest_timestamp_ms = min(
+            int(row[0])
+            for row in page
+        )
+
+        for raw in page:
+            candle = normalize_okx_candle(raw)
+
+            if candle is None:
+                continue
+
+            timestamp = candle["timestamp"]
+
+            if timestamp > last_timestamp:
+                collected[timestamp] = candle
+
+            elif timestamp <= last_timestamp:
+                reached_checkpoint = True
+
+        if reached_checkpoint:
+            break
+
+        if last_timestamp <= 0 and page_number == MAX_HISTORY_PAGES - 1:
+            break
+
+        before = oldest_timestamp_ms
+
+        time.sleep(REQUEST_DELAY_SECONDS)
+
+    if last_timestamp > 0 and not reached_checkpoint:
+        raise RuntimeError(
+            "Checkpoint recovery was incomplete. "
+            "The monitor will not advance its checkpoint."
+        )
+
+    return [
+        collected[timestamp]
+        for timestamp in sorted(collected)
+    ]
+
+
+# ============================================================
+# AI REPORT VALIDATION
+# ============================================================
+
+def load_ai_report():
+    report = read_json(REPORT_FILE)
+
+    if not isinstance(report, dict):
+        raise ValueError(
+            "AI report is missing or invalid."
+        )
+
+    if str(report.get("schema_version")) != REPORT_SCHEMA_VERSION:
+        raise ValueError(
+            "Unsupported AI report schema version."
+        )
+
+    if report.get("symbol") not in (
+        "BTC-USDT",
+        "BTC_USDT",
+    ):
+        raise ValueError(
+            "AI report symbol must be BTC-USDT."
+        )
+
+    analysis_id = report.get("analysis_id")
+
+    if (
+        not isinstance(analysis_id, str)
+        or not analysis_id.strip()
+    ):
+        raise ValueError(
+            "AI report analysis_id is missing."
+        )
+
+    decision = report.get("decision")
+
+    if decision not in (
+        "LONG",
+        "SHORT",
+        "WAIT",
+    ):
+        raise ValueError(
+            "AI decision must be LONG, SHORT, or WAIT."
+        )
+
+    generated_at = parse_timestamp(
+        report.get("generated_at"),
+        "generated_at",
+    )
+
+    now = utc_now().timestamp()
+
+    if generated_at > now + 60:
+        raise ValueError(
+            "AI report timestamp is in the future."
+        )
+
+    return report, analysis_id, generated_at
+
+
+def report_entry(report):
+    entry = report.get("entry")
+
+    if not isinstance(entry, dict):
+        raise ValueError(
+            "AI report entry must be an object."
+        )
+
+    # Support the prompt's possible field naming variants.
+    entry_type = (
+        entry.get("type")
+        or entry.get("entry_type")
+    )
+
+    entry_price = (
+        entry.get("price")
+        if entry.get("price") is not None
+        else entry.get("entry_price")
+    )
+
+    expires_at = (
+        entry.get("expires_at")
+        or entry.get("entry_expires_at")
+        or report.get("entry_expires_at")
+    )
+
+    if entry_type not in (
+        "MARKET",
+        "LIMIT",
+        "NONE",
+    ):
+        raise ValueError(
+            "AI entry type must be MARKET, LIMIT, or NONE."
+        )
+
+    if entry_type == "NONE":
+        return None
+
+    if (
+        isinstance(entry_price, bool)
+        or not isinstance(entry_price, (int, float))
+        or entry_price <= 0
+    ):
+        raise ValueError(
+            "AI entry price must be a positive number."
+        )
+
+    return {
+        "type": entry_type,
+        "price": float(entry_price),
+        "zone": entry.get("zone"),
+        "expires_at": expires_at,
+    }
+
+
+def report_levels(report):
+    aliases = {
+        "stop_loss": ("stop_loss", "sl"),
+        "take_profit_1": ("take_profit_1", "tp1"),
+        "take_profit_2": ("take_profit_2", "tp2"),
+        "take_profit_3": ("take_profit_3", "tp3"),
+    }
+
+    levels = {}
+
+    for output_name, candidates in aliases.items():
+        value = None
+
+        for candidate in candidates:
+            if report.get(candidate) is not None:
+                value = report[candidate]
+                break
+
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or value <= 0
+        ):
+            raise ValueError(
+                f"AI report has an invalid {output_name}."
+            )
+
+        levels[output_name] = float(value)
+
+    return levels
+
+
+def validate_ai_plan(report):
+    decision = report["decision"]
+
+    if decision == "WAIT":
+        return None
+
+    entry = report_entry(report)
+
+    if entry is None:
+        raise ValueError(
+            "LONG/SHORT requires a MARKET or LIMIT entry."
+        )
+
+    levels = report_levels(report)
+
+    paper_trading._validate_trade_levels(
+        decision,
+        entry["price"],
+        levels["stop_loss"],
+        levels["take_profit_1"],
+        levels["take_profit_2"],
+        levels["take_profit_3"],
+    )
+
+    return {
+        "direction": decision,
+        "entry": entry,
+        "levels": levels,
+    }
+
+
+# ============================================================
+# SIGNAL MANAGEMENT
+# ============================================================
+
+def build_pending_signal(report, analysis_id, generated_at):
+    plan = validate_ai_plan(report)
+
+    if plan is None:
+        return None
+
+    entry = plan["entry"]
+
+    if entry["type"] == "LIMIT":
+        if not entry.get("expires_at"):
+            raise ValueError(
+                "LIMIT entry requires an expiry timestamp."
+            )
+
+        expiry = parse_timestamp(
+            entry["expires_at"],
+            "entry.expires_at",
+        )
+
+        if expiry <= generated_at:
+            raise ValueError(
+                "LIMIT expiry must be after report generation."
+            )
+
+    return {
+        "analysis_id": analysis_id,
+        "generated_at": report["generated_at"],
+        "generated_at_timestamp": generated_at,
+        "symbol": "BTC-USDT",
+        "direction": plan["direction"],
+        "entry": entry,
+        "levels": plan["levels"],
+        "confidence": report.get("confidence"),
+        "market_bias": report.get("market_bias"),
+        "reasoning": report.get("reasoning"),
+        "status": "PENDING",
+        "created_at": utc_now().isoformat(),
+    }
+
+
+def format_signal_message(signal):
+    entry = signal["entry"]
+    levels = signal["levels"]
+
+    reasoning = signal.get("reasoning")
+
+    if isinstance(reasoning, (dict, list)):
+        reasoning_text = json.dumps(
+            reasoning,
+            ensure_ascii=False,
+        )
+    else:
+        reasoning_text = str(
+            reasoning or "Not provided."
+        )
+
+    return (
+        "BTC AI PAPER SIGNAL\n"
+        f"Decision: {signal['direction']}\n"
+        f"Entry type: {entry['type']}\n"
+        f"Entry price: {entry['price']}\n"
+        f"Stop loss: {levels['stop_loss']}\n"
+        f"TP1: {levels['take_profit_1']}\n"
+        f"TP2: {levels['take_profit_2']}\n"
+        f"TP3: {levels['take_profit_3']}\n"
+        f"Confidence: {signal.get('confidence')}\n"
+        f"Reasoning: {reasoning_text}\n"
+        "Paper trading only. No exchange order submitted."
+    )
+
+
+def notify_signal(event, signal, state):
+    event_id = make_notification_id(
+        event,
+        signal["analysis_id"],
+    )
+
+    send_telegram(
+        format_signal_message(signal),
+        event_id,
+        state,
+    )
+
+
+def get_open_trades(ledger):
+    return [
+        trade
+        for trade in ledger["trades"]
+        if trade.get("status") == "OPEN"
+    ]
+
+
+def get_updated_levels(report):
+    levels = report.get(
+        "open_trade_updated_levels"
+    )
+
+    if not isinstance(levels, dict):
+        raise ValueError(
+            "AI updated levels must be an object."
+        )
+
+    return levels
+
+
+def process_new_ai_report(
+    report,
+    analysis_id,
+    generated_at,
+    state,
+    ledger,
+):
+    if state.get("last_analysis_id") == analysis_id:
+        return
+
+    previous_action = report.get(
+        "previous_signal_action"
+    )
+
+    if previous_action not in (
+        "NONE",
+        "KEEP",
+        "REPLACE",
+        "CANCEL",
+    ):
+        raise ValueError(
+            "Invalid previous_signal_action."
+        )
+
+    current_pending = state.get(
+        "pending_signal"
+    )
+
+    if previous_action == "CANCEL":
+        state["pending_signal"] = None
+        save_current_signal(None)
+
+        send_telegram(
+            "BTC AI signal cancelled.\n"
+            f"Analysis ID: {analysis_id}",
+            make_notification_id(
+                "signal_cancelled",
+                analysis_id,
+            ),
+            state,
+        )
+
+    elif previous_action == "REPLACE":
+        new_signal = build_pending_signal(
+            report,
+            analysis_id,
+            generated_at,
+        )
+
+        state["pending_signal"] = new_signal
+        save_current_signal(new_signal)
+
+        if new_signal is not None:
+            notify_signal(
+                "signal_replaced",
+                new_signal,
+                state,
+            )
+
+    elif previous_action == "NONE":
+        if current_pending is None:
+            new_signal = build_pending_signal(
+                report,
+                analysis_id,
+                generated_at,
+            )
+
+            state["pending_signal"] = new_signal
+            save_current_signal(new_signal)
+
+            if new_signal is not None:
+                notify_signal(
+                    "signal_created",
+                    new_signal,
+                    state,
+                )
+
+    elif previous_action == "KEEP":
+        # The existing pending signal remains unchanged.
+        pass
+
+    open_action = report.get(
+        "open_trade_action"
+    )
+
+    if open_action not in (
+        "NONE",
+        "HOLD",
+        "CLOSE",
+        "UPDATE_LEVELS",
+    ):
+        raise ValueError(
+            "Invalid open_trade_action."
+        )
+
+    open_trades = get_open_trades(ledger)
+
+    if not open_trades:
+        if open_action != "NONE":
+            raise ValueError(
+                "AI requested an open-trade action, "
+                "but there is no open trade."
+            )
+
+    else:
+        if open_action == "NONE":
+            raise ValueError(
+                "AI report must specify an action "
+                "for the existing open trade."
+            )
+
+        if open_action == "UPDATE_LEVELS":
+            if len(open_trades) != 1:
+                raise ValueError(
+                    "UPDATE_LEVELS requires exactly one open trade."
+                )
+
+            levels = get_updated_levels(report)
+
+            paper_trading.update_trade_levels(
+                open_trades[0],
+                stop_loss=levels.get("stop_loss"),
+                take_profit_1=levels.get("take_profit_1"),
+                take_profit_2=levels.get("take_profit_2"),
+                take_profit_3=levels.get("take_profit_3"),
+            )
+
+            paper_trading.save_ledger(ledger)
+
+            send_telegram(
+                "BTC PAPER TRADE LEVELS UPDATED BY AI\n"
+                f"Trade ID: {open_trades[0]['trade_id']}",
+                make_notification_id(
+                    "levels_updated",
+                    analysis_id,
+                ),
+                state,
+            )
+
+        elif open_action == "CLOSE":
+            state["pending_ai_close"] = {
+                "analysis_id": analysis_id,
+                "reason": "AI_CLOSE",
+            }
+
+        elif open_action == "HOLD":
+            state["pending_ai_close"] = None
+
+    state["last_analysis_id"] = analysis_id
+    save_state(state)
+
+
+# ============================================================
+# PAPER ENTRY EXECUTION
+# ============================================================
+
+def expire_pending_signal(state, reason):
+    signal = state.get("pending_signal")
+
+    if signal is None:
+        return
+
+    signal["status"] = "EXPIRED"
+    signal["expiry_reason"] = reason
+    signal["expired_at"] = utc_now().isoformat()
+
+    state["last_expired_signal"] = signal
+    state["pending_signal"] = None
+
+    save_current_signal(None)
+    save_state(state)
+
+
+def determine_entry_fill(signal, candle):
+    entry = signal["entry"]
+    entry_type = entry["type"]
+
+    generated_at = signal["generated_at_timestamp"]
+    candle_timestamp = candle["timestamp"]
+
+    if candle_timestamp <= generated_at:
+        return None
+
+    if entry_type == "MARKET":
+        delay = candle_timestamp - generated_at
+
+        if delay > MARKET_ENTRY_MAX_DELAY_SECONDS:
+            expire_pending_signal(
+                state=ACTIVE_STATE,
+                reason="MARKET_ENTRY_WINDOW_MISSED",
+            )
+            return None
+
+        return candle["open"]
+
+    if entry_type == "LIMIT":
+        expiry = parse_timestamp(
+            entry["expires_at"],
+            "entry.expires_at",
+        )
+
+        if candle_timestamp >= expiry:
+            expire_pending_signal(
+                state=ACTIVE_STATE,
+                reason="LIMIT_ENTRY_EXPIRED",
+            )
+            return None
+
+        limit_price = entry["price"]
+
+        if not (
+            candle["low"] <= limit_price <= candle["high"]
+        ):
+            return None
+
+        direction = signal["direction"]
+
+        # Use the opening price when it gives a better limit fill.
+        if direction == "LONG" and candle["open"] <= limit_price:
+            return candle["open"]
+
+        if direction == "SHORT" and candle["open"] >= limit_price:
+            return candle["open"]
+
+        return limit_price
+
+    raise ValueError(
+        "Unsupported AI entry type."
+    )
+
+
+def try_open_pending_signal(candle, state, ledger):
+    signal = state.get("pending_signal")
+
+    if not signal:
+        return False
+
+    if signal.get("status") != "PENDING":
+        return False
+
+    global ACTIVE_STATE
+    ACTIVE_STATE = state
+
+    reference_price = determine_entry_fill(
+        signal,
+        candle,
+    )
+
+    if reference_price is None:
+        return False
+
+    entry = signal["entry"]
+    levels = signal["levels"]
+
+    fingerprint = paper_trading.make_signal_fingerprint(
+        signal["analysis_id"],
+        signal["direction"],
+        entry["type"],
+        entry["price"],
+    )
+
+    trade, created = paper_trading.open_trade_from_ai(
+        ledger=ledger,
+        direction=signal["direction"],
+        entry_type=entry["type"],
+        entry_price=reference_price,
+        stop_loss=levels["stop_loss"],
+        take_profit_1=levels["take_profit_1"],
+        take_profit_2=levels["take_profit_2"],
+        take_profit_3=levels["take_profit_3"],
+        signal_fingerprint=fingerprint,
+        timestamp=candle["timestamp"] + FIVE_MINUTES_SECONDS,
+    )
+
+    if not created:
+        signal["status"] = "ALREADY_PROCESSED"
+        state["pending_signal"] = None
+
+        save_current_signal(None)
+        save_state(state)
+
+        return False
+
+    signal["status"] = "OPENED"
+    signal["trade_id"] = trade["trade_id"]
+    signal["opened_at"] = utc_iso(
+        candle["timestamp"] + FIVE_MINUTES_SECONDS
+    )
+
+    state["last_opened_analysis_id"] = signal["analysis_id"]
+    state["pending_signal"] = None
+
+    save_current_signal(None)
+
+    paper_trading.save_ledger(ledger)
+    save_state(state)
+
+    send_telegram(
+        "BTC PAPER TRADE OPENED\n"
+        f"Direction: {trade['direction']}\n"
+        f"Entry type: {trade['entry_type']}\n"
+        f"Entry reference: {trade['entry_reference_price']}\n"
+        f"Entry fill: {trade['entry_fill_price']}\n"
+        f"Stop loss: {trade['stop_loss_current']}\n"
+        f"TP1: {trade['take_profit_1']}\n"
+        f"Trade ID: {trade['trade_id']}\n"
+        "No exchange order submitted.",
+        make_notification_id(
+            "trade_opened",
+            trade["trade_id"],
+        ),
+        state,
+    )
 
     return True
 
 
-def process_scenario(
-    direction,
-    plan,
-    state,
-    candles_4h,
-    new_candles_5m,
-):
-    validate_plan(direction, plan)
+# ============================================================
+# OPEN TRADE MANAGEMENT
+# ============================================================
 
-    scenario = initialize_scenario(
-        direction,
-        plan,
-        candles_4h[-1],
+def notify_closed_trades(
+    ledger,
+    previous_status,
+    state,
+):
+    for trade in ledger["trades"]:
+        trade_id = trade["trade_id"]
+
+        if previous_status.get(trade_id) != "OPEN":
+            continue
+
+        if trade.get("status") != "CLOSED":
+            continue
+
+        send_telegram(
+            "BTC PAPER TRADE CLOSED\n"
+            f"Direction: {trade['direction']}\n"
+            f"Reason: {trade['exit_reason']}\n"
+            f"Exit reference: {trade['exit_price']}\n"
+            f"Exit fill: {trade['exit_fill_price']}\n"
+            f"Net PnL: {trade['realized_pnl_usd']:.2f} USD\n"
+            f"Trade ID: {trade_id}",
+            make_notification_id(
+                "trade_closed",
+                trade_id,
+            ),
+            state,
+        )
+
+
+def process_ai_close(candle, state, ledger):
+    request = state.get(
+        "pending_ai_close"
+    )
+
+    if not request:
+        return
+
+    open_trades = get_open_trades(ledger)
+
+    for trade in open_trades:
+        paper_trading.close_trade_at_market(
+            trade,
+            reference_price=candle["close"],
+            timestamp=candle["timestamp"] + FIVE_MINUTES_SECONDS,
+            reason="AI_CLOSE",
+        )
+
+    paper_trading.save_ledger(ledger)
+
+    notify_closed_trades(
+        ledger,
+        {
+            trade["trade_id"]: "OPEN"
+            for trade in open_trades
+        },
         state,
     )
 
-    if scenario["alert_sent"]:
-        log(f"{direction}: alert already sent.")
-        return
+    state["pending_ai_close"] = None
+    state["last_completed_ai_close_id"] = request["analysis_id"]
 
-    if scenario["invalidated"]:
-        log(f"{direction}: scenario is invalidated.")
-        return
+    save_state(state)
 
-    if direction == "LONG":
-        breakout_timestamp = find_long_activation(
-            plan,
-            scenario,
-            candles_4h,
-        )
-    else:
-        breakout_timestamp = find_short_breakdown(
-            plan,
-            scenario,
-            candles_4h,
-        )
 
-    if breakout_timestamp == "INVALIDATED":
-        scenario["invalidated"] = True
-        scenario["pending_retest"] = None
-        log("LONG: scenario invalidated during activation.")
-        return
+def process_one_candle(candle, state, ledger):
+    previous_status = {
+        trade["trade_id"]: trade.get("status")
+        for trade in ledger["trades"]
+    }
 
-    if breakout_timestamp is None:
-        if direction == "LONG":
-            if scenario.get("sweep_timestamp") is None:
-                log("LONG: waiting for a liquidity sweep.")
-            else:
-                log("LONG: waiting for a confirmed 4H reclaim.")
-        else:
-            log("SHORT: waiting for a confirmed 4H breakdown.")
-        return
-
-    invalidation = find_invalidation(
-        direction,
-        plan,
-        scenario,
-        candles_4h,
-    )
-
-    if invalidation is not None:
-        scenario["invalidated"] = True
-        scenario["pending_retest"] = None
-
-        log(
-            f"{direction}: scenario invalidated by 4H candle. "
-            f"Close: {invalidation['close']:.2f}"
-        )
-        return
-
-    retest = scenario.get("pending_retest")
-
-    if retest is None:
-        retest = find_retest(
-            direction,
-            plan,
-            breakout_timestamp,
-            new_candles_5m,
-        )
-
-    if retest is None:
-        log(f"{direction}: waiting for a confirmed 5M retest.")
-        return
-
-    scenario["pending_retest"] = retest
-
-    ledger = paper_trading.load_ledger()
-    trade, created = paper_trading.open_trade(
+    # Manage existing positions first.
+    paper_trading.process_candle(
         ledger,
-        direction,
-        plan,
-        retest,
-        scenario["fingerprint"],
+        candle,
     )
-    if created:
-        paper_trading.save_ledger(ledger)
-        log(
-            f"{direction}: paper trade opened. "
-            f"Entry reference: {trade['entry_reference_price']:.2f}; "
-            f"notional: ${trade['notional_usd']:.2f}."
-        )
-    else:
-        log(f"{direction}: matching paper trade already exists; no duplicate created.")
 
-    message = build_alert(direction, plan, retest)
+    paper_trading.save_ledger(ledger)
 
-    log(f"{direction}: retest confirmed.")
-    log(message)
+    notify_closed_trades(
+        ledger,
+        previous_status,
+        state,
+    )
 
-    try:
-        sent = send_telegram(message)
-    except Exception as error:
-        log(f"{direction}: Telegram delivery error: {error}")
-        sent = False
+    # Apply AI close at the latest confirmed candle close.
+    process_ai_close(
+        candle,
+        state,
+        ledger,
+    )
 
-    if sent:
-        scenario["alert_sent"] = True
-        scenario["pending_retest"] = None
+    # Only then consider a new AI-approved pending entry.
+    try_open_pending_signal(
+        candle,
+        state,
+        ledger,
+    )
 
-        fingerprint = scenario["fingerprint"]
 
-        if fingerprint not in state["sent_fingerprints"]:
-            state["sent_fingerprints"].append(fingerprint)
-
-        save_json(STATE_FILE, state)
-
-        log(f"{direction}: Telegram alert sent successfully.")
-
-    else:
-        log(
-            f"{direction}: alert remains pending. "
-            "It will be retried on the next run."
-        )
-
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
-    log("Starting BTC signal monitor.")
+    print(
+        "Starting BTC AI paper-trading monitor."
+    )
 
-    signal = load_json(SIGNAL_FILE)
     state = load_state()
+    ledger = paper_trading.load_ledger()
 
-    candles_4h = fetch_candles(
-        "4H",
-        CANDLE_LIMIT_4H,
-    )
+    if REPORT_FILE.exists():
+        report, analysis_id, generated_at = load_ai_report()
 
-    candles_5m = fetch_candles(
-        "5m",
-        CANDLE_LIMIT_5M,
-    )
-
-    log(
-        f"Loaded {len(candles_4h)} confirmed 4H candles "
-        f"and {len(candles_5m)} confirmed 5M candles."
-    )
-
-    latest_5m_timestamp = candles_5m[-1]["timestamp"]
-    last_processed = state["last_processed_5m_timestamp"]
-
-    if last_processed is None:
-        new_candles_5m = []
-
-        log(
-            "Initial run: establishing 5M baseline. "
-            "No historical retest will trigger an alert."
+        process_new_ai_report(
+            report,
+            analysis_id,
+            generated_at,
+            state,
+            ledger,
         )
 
-    else:
-        recovered_candles = fetch_candles_since(
-            "5m",
-            candles_5m,
-            last_processed,
-            FIVE_MINUTES_SECONDS,
+    last_timestamp = int(
+        state.get(
+            "last_processed_5m_timestamp",
+            0,
         )
+    )
 
-        new_candles_5m = [
-            candle
-            for candle in recovered_candles
-            if candle["timestamp"] > last_processed
-        ]
+    candles = fetch_new_confirmed_candles(
+        last_timestamp
+    )
 
-    log(f"New confirmed 5M candles: {len(new_candles_5m)}")
-
-    processing_successful = True
-
-    try:
-        ledger = paper_trading.load_ledger()
-        if new_candles_5m:
-            paper_trading.process_candles(ledger, new_candles_5m)
-            paper_trading.save_ledger(ledger)
-        report = paper_trading.summary(ledger)
-        log(
-            "Paper trading: "
-            f"{report['open_trades']} open, "
-            f"{report['closed_trades']} closed, "
-            f"net PnL ${report['combined_net_pnl_usd']:.2f}."
+    if not candles:
+        print(
+            "No new confirmed 5M candles."
         )
-    except Exception as error:
-        processing_successful = False
-        log(f"Paper trading processing error: {error}")
+        return
 
-    for direction, settings in DIRECTIONS.items():
-        if not processing_successful:
-            log("Scenario processing skipped because paper ledger processing failed.")
-            break
-        plan = signal.get(settings["plan_key"])
+    processed_count = 0
 
-        if not isinstance(plan, dict):
-            processing_successful = False
-
-            log(
-                f"{direction}: plan is missing or invalid. "
-                "Checkpoint will not advance."
-            )
+    for candle in candles:
+        if candle["timestamp"] <= last_timestamp:
             continue
 
-        try:
-            process_scenario(
-                direction,
-                plan,
-                state,
-                candles_4h,
-                new_candles_5m,
-            )
-
-        except Exception as error:
-            processing_successful = False
-
-            log(
-                f"{direction}: scenario processing error: {error}"
-            )
-
-    try:
-        final_ledger = paper_trading.load_ledger()
-        final_ledger["summary"] = paper_trading.summary(final_ledger)
-        paper_trading.save_ledger(final_ledger)
-    except Exception as error:
-        processing_successful = False
-        log(f"Paper trading summary save error: {error}")
-
-    if processing_successful:
-        state["last_processed_5m_timestamp"] = latest_5m_timestamp
-        log("All scenarios processed successfully.")
-
-    else:
-        log(
-            "WARNING: Scenario processing failed. "
-            "The 5M checkpoint will not advance."
+        process_one_candle(
+            candle,
+            state,
+            ledger,
         )
 
-    save_json(STATE_FILE, state)
+        last_timestamp = candle["timestamp"]
 
-    log("BTC signal monitoring completed.")
+        state["last_processed_5m_timestamp"] = (
+            last_timestamp
+        )
+
+        save_state(state)
+
+        processed_count += 1
+
+    paper_trading.save_ledger(ledger)
+
+    result = paper_trading.summary(
+        ledger
+    )
+
+    print(
+        f"Candles processed: {processed_count}"
+    )
+
+    print(
+        f"Total trades: {result['total_trades']}"
+    )
+
+    print(
+        f"Open trades: {result['open_trades']}"
+    )
+
+    print(
+        f"Closed trades: {result['closed_trades']}"
+    )
+
+    print(
+        "Realized net PnL: "
+        f"{result['realized_net_pnl_usd']:.2f} USD"
+    )
+
+    print(
+        "Unrealized net PnL: "
+        f"{result['unrealized_net_pnl_usd']:.2f} USD"
+    )
+
+    print(
+        "Combined net PnL: "
+        f"{result['combined_net_pnl_usd']:.2f} USD"
+    )
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        log(f"MONITOR ERROR: {error}")
-        sys.exit(1)
+    ACTIVE_STATE = None
+    main()
