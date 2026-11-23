@@ -31,6 +31,7 @@ DATA_FILES = {
 }
 
 CURRENT_SIGNAL_FILE = SIGNAL_DIR / "current_btc_signal.json"
+STATE_FILE = SIGNAL_DIR / "daily_btc_analysis_state.json"
 
 CHART_FILE = OUTPUT_DIR / "BTC_4H_Vision_Chart.png"
 CONTEXT_FILE = OUTPUT_DIR / "BTC_MultiTF_Market_Context.json"
@@ -62,31 +63,26 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
-def atomic_write_json(path, data):
-    """Write JSON atomically to avoid publishing partial files."""
-
+def atomic_write_text(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    temporary_path.write_text(content, encoding="utf-8")
+    temporary_path.replace(path)
 
-    temporary_path = path.with_suffix(
-        path.suffix + ".tmp"
-    )
 
-    temporary_path.write_text(
+def atomic_write_json(path, data):
+    atomic_write_text(
+        path,
         json.dumps(
             data,
             indent=2,
             ensure_ascii=False,
             allow_nan=False,
         ),
-        encoding="utf-8",
     )
-
-    temporary_path.replace(path)
 
 
 def json_safe(value):
-    """Convert pandas and numeric values into JSON-safe values."""
-
     if value is None:
         return None
 
@@ -97,22 +93,13 @@ def json_safe(value):
         }
 
     if isinstance(value, (list, tuple)):
-        return [
-            json_safe(item)
-            for item in value
-        ]
+        return [json_safe(item) for item in value]
 
     if isinstance(value, (pd.Timestamp, datetime)):
         timestamp = value
-
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(
-                tzinfo=timezone.utc
-            )
-
-        return timestamp.astimezone(
-            timezone.utc
-        ).isoformat()
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc).isoformat()
 
     if hasattr(value, "item"):
         value = value.item()
@@ -122,13 +109,10 @@ def json_safe(value):
 
     if isinstance(value, (int, float)):
         number = float(value)
-
         if not math.isfinite(number):
             return None
-
         if number.is_integer():
             return int(number)
-
         return number
 
     try:
@@ -141,47 +125,26 @@ def json_safe(value):
 
 
 def safe_float(value, field_name, allow_none=False):
-    """Validate a finite numeric value."""
-
     if value is None and allow_none:
         return None
 
-    if isinstance(value, bool):
-        raise ValueError(
-            f"{field_name} must be numeric, not boolean."
-        )
-
-    if not isinstance(value, (int, float)):
-        raise ValueError(
-            f"{field_name} must be numeric."
-        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be numeric.")
 
     number = float(value)
 
     if not math.isfinite(number):
-        raise ValueError(
-            f"{field_name} must be finite."
-        )
+        raise ValueError(f"{field_name} must be finite.")
 
     return number
 
 
 def normalize_market_data(df, timeframe):
-    """Sort and validate the candle data without inventing candles."""
-
     required_columns = {
-        "timestamp",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
+        "timestamp", "open", "high", "low", "close", "volume"
     }
 
-    missing = required_columns.difference(
-        df.columns
-    )
-
+    missing = required_columns.difference(df.columns)
     if missing:
         raise ValueError(
             f"{timeframe}: missing candle columns: {sorted(missing)}"
@@ -190,55 +153,28 @@ def normalize_market_data(df, timeframe):
     data = df.copy()
 
     data["timestamp"] = pd.to_numeric(
-        data["timestamp"],
-        errors="raise",
+        data["timestamp"], errors="raise"
     )
 
-    for column in (
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ):
-        data[column] = pd.to_numeric(
-            data[column],
-            errors="raise",
-        )
+    for column in ("open", "high", "low", "close", "volume"):
+        data[column] = pd.to_numeric(data[column], errors="raise")
 
     if data["timestamp"].isna().any():
-        raise ValueError(
-            f"{timeframe}: candle timestamps contain null values."
-        )
+        raise ValueError(f"{timeframe}: null timestamps.")
 
     if data["timestamp"].duplicated().any():
-        raise ValueError(
-            f"{timeframe}: duplicate candle timestamps detected."
-        )
+        raise ValueError(f"{timeframe}: duplicate timestamps.")
 
-    data = data.sort_values(
-        "timestamp"
-    ).reset_index(drop=True)
+    data = data.sort_values("timestamp").reset_index(drop=True)
 
     if data.empty:
-        raise ValueError(
-            f"{timeframe}: candle data is empty."
-        )
+        raise ValueError(f"{timeframe}: empty candle data.")
 
-    if not data["timestamp"].apply(
-        lambda value: math.isfinite(float(value))
-    ).all():
-        raise ValueError(
-            f"{timeframe}: invalid candle timestamps."
-        )
+    numeric_columns = [
+        "timestamp", "open", "high", "low", "close", "volume"
+    ]
 
-    for column in (
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ):
+    for column in numeric_columns:
         if not data[column].apply(
             lambda value: math.isfinite(float(value))
         ).all():
@@ -246,21 +182,13 @@ def normalize_market_data(df, timeframe):
                 f"{timeframe}: non-finite values in {column}."
             )
 
-    if (
-        (data[["open", "high", "low", "close"]] <= 0)
-        .any()
-        .any()
-    ):
-        raise ValueError(
-            f"{timeframe}: prices must be positive."
-        )
+    if (data[["open", "high", "low", "close"]] <= 0).any().any():
+        raise ValueError(f"{timeframe}: prices must be positive.")
 
     if (data["volume"] < 0).any():
-        raise ValueError(
-            f"{timeframe}: volume cannot be negative."
-        )
+        raise ValueError(f"{timeframe}: negative volume.")
 
-    invalid_ohlc = (
+    invalid = (
         (data["high"] < data["low"])
         | (data["high"] < data["open"])
         | (data["high"] < data["close"])
@@ -268,49 +196,31 @@ def normalize_market_data(df, timeframe):
         | (data["low"] > data["close"])
     )
 
-    if invalid_ohlc.any():
-        raise ValueError(
-            f"{timeframe}: invalid OHLC candle geometry."
-        )
+    if invalid.any():
+        raise ValueError(f"{timeframe}: invalid OHLC geometry.")
 
     return data
 
 
 def filter_closed_candles(df, timeframe, now):
-    """Exclude the currently forming candle for a timeframe."""
-
     interval_ms = TIMEFRAME_INTERVALS_MS[timeframe]
     now_ms = int(now.timestamp() * 1000)
+    current_open = (now_ms // interval_ms) * interval_ms
 
-    current_candle_open = (
-        now_ms // interval_ms
-    ) * interval_ms
-
-    closed = df[
-        df["timestamp"] < current_candle_open
-    ].copy()
+    closed = df[df["timestamp"] < current_open].copy()
 
     if closed.empty:
-        raise ValueError(
-            f"{timeframe}: no fully closed candles found."
-        )
+        raise ValueError(f"{timeframe}: no closed candles.")
 
     return closed.reset_index(drop=True)
 
 
 def get_data_freshness(df, timeframe, now):
-    """Calculate freshness from the latest confirmed candle close."""
-
     interval_ms = TIMEFRAME_INTERVALS_MS[timeframe]
-
-    latest_timestamp = int(
-        df.iloc[-1]["timestamp"]
-    )
+    latest_timestamp = int(df.iloc[-1]["timestamp"])
 
     latest_open = pd.to_datetime(
-        latest_timestamp,
-        unit="ms",
-        utc=True,
+        latest_timestamp, unit="ms", utc=True
     )
 
     latest_close = latest_open + pd.Timedelta(
@@ -329,36 +239,24 @@ def get_data_freshness(df, timeframe, now):
         "latest_candle_close_utc": latest_close.isoformat(),
         "age_minutes": round(age_minutes, 2),
         "max_age_minutes": max_age,
-        "is_fresh": (
-            0 <= age_minutes <= max_age
-        ),
+        "is_fresh": 0 <= age_minutes <= max_age,
     }
 
 
 def get_interval_gaps(df, timeframe):
-    """Report missing intervals without silently filling them."""
-
     interval_ms = TIMEFRAME_INTERVALS_MS[timeframe]
-
     differences = df["timestamp"].diff().dropna()
-
-    gaps = differences[
-        differences > interval_ms
-    ]
+    gaps = differences[differences > interval_ms]
 
     return {
         "missing_interval_count": int(len(gaps)),
         "largest_interval_ms": (
-            int(gaps.max())
-            if not gaps.empty
-            else interval_ms
+            int(gaps.max()) if not gaps.empty else interval_ms
         ),
     }
 
 
 def load_timeframe_data(timeframe, now):
-    """Load, feature-engineer, and validate one timeframe."""
-
     file_path = DATA_FILES[timeframe]
 
     if not file_path.is_file():
@@ -366,45 +264,21 @@ def load_timeframe_data(timeframe, now):
             f"{timeframe} archive not found: {file_path}"
         )
 
-    raw_data = pd.read_csv(
-        file_path
-    )
-
     raw_data = normalize_market_data(
-        raw_data,
-        timeframe,
+        pd.read_csv(file_path), timeframe
     )
 
-    features = prepare_market_features(
-        file_path
-    )
-
-    features = normalize_market_data(
-        features,
-        timeframe,
-    )
-
-    closed = filter_closed_candles(
-        features,
-        timeframe,
-        now,
-    )
+    features = prepare_market_features(file_path)
+    features = normalize_market_data(features, timeframe)
+    closed = filter_closed_candles(features, timeframe, now)
 
     if len(closed) < 30:
         raise ValueError(
             f"{timeframe}: insufficient confirmed candle history."
         )
 
-    freshness = get_data_freshness(
-        closed,
-        timeframe,
-        now,
-    )
-
-    gaps = get_interval_gaps(
-        closed,
-        timeframe,
-    )
+    freshness = get_data_freshness(closed, timeframe, now)
+    gaps = get_interval_gaps(closed, timeframe)
 
     return {
         "data": closed,
@@ -416,60 +290,36 @@ def load_timeframe_data(timeframe, now):
 
 
 def draw_candlesticks(ax, df):
-    """Draw OHLC candles."""
-
     candle_width = 0.65
 
-    for index, row in enumerate(
-        df.itertuples(index=False)
-    ):
+    for index, row in enumerate(df.itertuples(index=False)):
         bullish = row.close >= row.open
-
-        candle_color = (
-            "green" if bullish else "red"
-        )
+        color = "green" if bullish else "red"
 
         ax.vlines(
-            index,
-            row.low,
-            row.high,
-            color=candle_color,
-            linewidth=0.8,
+            index, row.low, row.high,
+            color=color, linewidth=0.8
         )
 
-        body_bottom = min(
-            row.open,
-            row.close,
-        )
-
-        body_height = abs(
-            row.close - row.open
-        )
+        body_bottom = min(row.open, row.close)
+        body_height = abs(row.close - row.open)
 
         if body_height == 0:
-            body_height = max(
-                row.close * 0.0001,
-                0.01,
+            body_height = max(row.close * 0.0001, 0.01)
+
+        ax.add_patch(
+            Rectangle(
+                (index - candle_width / 2, body_bottom),
+                candle_width,
+                body_height,
+                facecolor=color,
+                edgecolor=color,
+                linewidth=0.7,
             )
-
-        candle = Rectangle(
-            (
-                index - candle_width / 2,
-                body_bottom,
-            ),
-            candle_width,
-            body_height,
-            facecolor=candle_color,
-            edgecolor=candle_color,
-            linewidth=0.7,
         )
-
-        ax.add_patch(candle)
 
 
 def generate_4h_chart(df):
-    """Generate the 4H chart used as visual context by the AI."""
-
     chart_data = (
         df.tail(MAX_CONTEXT_CANDLES["4H"])
         .copy()
@@ -477,127 +327,78 @@ def generate_4h_chart(df):
     )
 
     if len(chart_data) < 50:
-        raise ValueError(
-            "Not enough 4H candles to generate the chart."
-        )
+        raise ValueError("Not enough 4H candles for chart.")
 
-    required_features = (
-        "ema_20",
-        "ema_50",
-        "ema_200",
-        "timestamp_utc",
-    )
-
-    missing = [
-        field
-        for field in required_features
-        if field not in chart_data.columns
-    ]
+    required = ("ema_20", "ema_50", "ema_200", "timestamp_utc")
+    missing = [field for field in required if field not in chart_data.columns]
 
     if missing:
-        raise ValueError(
-            f"Missing chart features: {missing}"
-        )
+        raise ValueError(f"Missing chart features: {missing}")
 
-    fig, ax = plt.subplots(
-        figsize=(18, 10)
-    )
+    fig, ax = plt.subplots(figsize=(18, 10))
 
     try:
-        draw_candlesticks(
-            ax,
-            chart_data,
-        )
+        draw_candlesticks(ax, chart_data)
 
-        ax.plot(
-            chart_data.index,
-            chart_data["ema_20"],
-            label="EMA 20",
-            linewidth=1.2,
-        )
-
-        ax.plot(
-            chart_data.index,
-            chart_data["ema_50"],
-            label="EMA 50",
-            linewidth=1.2,
-        )
-
-        ax.plot(
-            chart_data.index,
-            chart_data["ema_200"],
-            label="EMA 200",
-            linewidth=1.2,
-        )
+        for column, label in (
+            ("ema_20", "EMA 20"),
+            ("ema_50", "EMA 50"),
+            ("ema_200", "EMA 200"),
+        ):
+            ax.plot(
+                chart_data.index,
+                chart_data[column],
+                label=label,
+                linewidth=1.2,
+            )
 
         latest = chart_data.iloc[-1]
 
-        if (
-            "support" in chart_data.columns
-            and pd.notna(latest["support"])
+        for column, label in (
+            ("support", "Latest Support"),
+            ("resistance", "Latest Resistance"),
         ):
-            ax.axhline(
-                latest["support"],
-                linestyle="--",
-                linewidth=1,
-                label="Latest Support",
-            )
+            if column in chart_data.columns and pd.notna(latest[column]):
+                ax.axhline(
+                    latest[column],
+                    linestyle="--",
+                    linewidth=1,
+                    label=label,
+                )
 
-        if (
-            "resistance" in chart_data.columns
-            and pd.notna(latest["resistance"])
-        ):
-            ax.axhline(
-                latest["resistance"],
-                linestyle="--",
-                linewidth=1,
-                label="Latest Resistance",
-            )
+        step = max(1, len(chart_data) // 12)
+        ticks = list(range(0, len(chart_data), step))
 
-        tick_positions = list(
-            range(
-                0,
-                len(chart_data),
-                max(1, len(chart_data) // 12),
-            )
-        )
-
-        tick_labels = [
-            chart_data.iloc[index][
-                "timestamp_utc"
-            ].strftime("%m-%d %H:%M")
-            for index in tick_positions
-        ]
-
-        ax.set_xticks(tick_positions)
-
+        ax.set_xticks(ticks)
         ax.set_xticklabels(
-            tick_labels,
+            [
+                chart_data.iloc[index]["timestamp_utc"].strftime(
+                    "%m-%d %H:%M"
+                )
+                for index in ticks
+            ],
             rotation=35,
             ha="right",
         )
 
-        ax.set_title(
-            "BTC-USDT | 4H Market Context",
-            fontsize=16,
-        )
-
+        ax.set_title("BTC-USDT | 4H Market Context", fontsize=16)
         ax.set_ylabel("Price (USDT)")
         ax.set_xlabel("UTC Time")
         ax.grid(True, alpha=0.25)
         ax.legend(loc="upper left")
         fig.tight_layout()
 
-        OUTPUT_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        temporary_chart = CHART_FILE.with_name(
+            CHART_FILE.stem + ".tmp.png"
         )
 
         fig.savefig(
-            CHART_FILE,
+            temporary_chart,
             dpi=180,
             bbox_inches="tight",
         )
+        temporary_chart.replace(CHART_FILE)
 
     finally:
         plt.close(fig)
@@ -605,66 +406,43 @@ def generate_4h_chart(df):
     return chart_data
 
 
-def build_timeframe_context(timeframe, timeframe_result):
-    """Build structured numerical context for one timeframe."""
+def build_timeframe_context(timeframe, result):
+    df = result["data"]
+    recent = []
 
-    df = timeframe_result["data"]
-    latest = df.iloc[-1]
-
-    excluded_columns = {
-        "timestamp_utc",
-    }
-
-    candle_columns = [
-        column
-        for column in df.columns
-        if column not in excluded_columns
-    ]
-
-    recent_candles = []
-
-    for _, row in df.tail(
-        MAX_CONTEXT_CANDLES[timeframe]
-    ).iterrows():
+    for _, row in df.tail(MAX_CONTEXT_CANDLES[timeframe]).iterrows():
         candle = {
             column: json_safe(row[column])
-            for column in candle_columns
+            for column in df.columns
+            if column != "timestamp_utc"
         }
 
-        candle["timestamp_utc"] = (
-            pd.to_datetime(
-                int(row["timestamp"]),
-                unit="ms",
-                utc=True,
-            ).isoformat()
-        )
+        candle["timestamp_utc"] = pd.to_datetime(
+            int(row["timestamp"]), unit="ms", utc=True
+        ).isoformat()
 
-        recent_candles.append(candle)
+        recent.append(candle)
 
     return {
         "timeframe": timeframe,
         "source": "OKX",
-        "freshness": timeframe_result["freshness"],
-        "data_quality": timeframe_result["gaps"],
-        "raw_candle_count": timeframe_result["raw_candle_count"],
-        "closed_candle_count": timeframe_result["closed_candle_count"],
-        "latest_confirmed_candle": recent_candles[-1],
-        "recent_confirmed_candles": recent_candles,
-        "latest_close": json_safe(latest["close"]),
+        "freshness": result["freshness"],
+        "data_quality": result["gaps"],
+        "raw_candle_count": result["raw_candle_count"],
+        "closed_candle_count": result["closed_candle_count"],
+        "latest_confirmed_candle": recent[-1],
+        "recent_confirmed_candles": recent,
+        "latest_close": json_safe(df.iloc[-1]["close"]),
     }
 
 
 def load_previous_signal():
-    """Load the previously published signal when available."""
-
     if not CURRENT_SIGNAL_FILE.is_file():
         return None
 
     try:
         signal = json.loads(
-            CURRENT_SIGNAL_FILE.read_text(
-                encoding="utf-8"
-            )
+            CURRENT_SIGNAL_FILE.read_text(encoding="utf-8")
         )
     except (json.JSONDecodeError, OSError) as error:
         raise RuntimeError(
@@ -672,53 +450,38 @@ def load_previous_signal():
         ) from error
 
     if not isinstance(signal, dict):
-        raise ValueError(
-            "Previous signal file must contain a JSON object."
-        )
+        raise ValueError("Previous signal must be a JSON object.")
 
     return signal
 
 
 def load_open_trades():
-    """Read open paper trades using the paper-trading module."""
-
     ledger = load_ledger()
 
     if not isinstance(ledger, dict):
-        raise ValueError(
-            "Paper-trading ledger must be a JSON object."
-        )
+        raise ValueError("Paper-trading ledger must be a JSON object.")
 
     trades = ledger.get("trades", [])
 
     if not isinstance(trades, list):
-        raise ValueError(
-            "Paper-trading ledger trades must be a list."
-        )
+        raise ValueError("Ledger trades must be a list.")
 
-    open_trades = [
-        trade
-        for trade in trades
+    opened = [
+        trade for trade in trades
         if isinstance(trade, dict)
         and str(trade.get("status", "")).upper() == "OPEN"
     ]
 
-    if not open_trades:
-        return None
+    if len(opened) == 1:
+        return opened[0]
 
-    if len(open_trades) == 1:
-        return open_trades[0]
-
-    return open_trades
+    return opened or None
 
 
-def build_multi_timeframe_context(timeframe_results, now):
-    """Combine all timeframe evidence into one AI input object."""
-
-    timeframe_contexts = {
+def build_multi_timeframe_context(results, now):
+    contexts = {
         timeframe: build_timeframe_context(
-            timeframe,
-            timeframe_results[timeframe],
+            timeframe, results[timeframe]
         )
         for timeframe in ("4H", "15M", "5M")
     }
@@ -728,462 +491,274 @@ def build_multi_timeframe_context(timeframe_results, now):
         "source": "OKX",
         "analysis_trigger": "CLOSED_15M_CANDLE",
         "analysis_time_utc": now.isoformat(),
-        "timeframes": timeframe_contexts,
+        "timeframes": contexts,
         "data_status": {
-            timeframe: timeframe_results[timeframe]["freshness"]
+            timeframe: results[timeframe]["freshness"]
             for timeframe in ("4H", "15M", "5M")
         },
         "data_quality": {
-            timeframe: timeframe_results[timeframe]["gaps"]
+            timeframe: results[timeframe]["gaps"]
             for timeframe in ("4H", "15M", "5M")
         },
     }
 
 
-def validate_timestamp(value, field_name, required=False):
-    """Validate an ISO 8601 UTC timestamp."""
+def load_state():
+    if not STATE_FILE.is_file():
+        return {}
 
+    try:
+        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Cannot read analysis state: {error}") from error
+
+    if not isinstance(state, dict):
+        raise ValueError("Analysis state must be a JSON object.")
+
+    return state
+
+
+def get_candle_id(timestamp_ms):
+    return str(int(timestamp_ms))
+
+
+def already_analyzed(candle_id):
+    state = load_state()
+    return state.get("last_successful_15m_candle_id") == candle_id
+
+
+def save_successful_analysis(candle_id, analysis_id):
+    state = load_state()
+
+    state["last_successful_15m_candle_id"] = candle_id
+    state["last_successful_analysis_id"] = analysis_id
+    state["last_successful_analysis_utc"] = utc_now().isoformat()
+
+    atomic_write_json(STATE_FILE, state)
+
+
+def validate_timestamp(value, field_name, required=False):
     if value is None:
         if required:
-            raise ValueError(
-                f"{field_name} is required."
-            )
+            raise ValueError(f"{field_name} is required.")
         return None
 
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(
-            f"{field_name} must be an ISO 8601 timestamp."
-        )
+        raise ValueError(f"{field_name} must be an ISO timestamp.")
 
     try:
-        parsed = datetime.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
-        raise ValueError(
-            f"{field_name} is not a valid ISO 8601 timestamp."
-        ) from error
+        raise ValueError(f"{field_name} is invalid.") from error
 
-    if parsed.tzinfo is None:
-        raise ValueError(
-            f"{field_name} must include a UTC timezone."
-        )
-
-    if parsed.utcoffset().total_seconds() != 0:
-        raise ValueError(
-            f"{field_name} must use UTC."
-        )
+    if parsed.tzinfo is None or parsed.utcoffset().total_seconds() != 0:
+        raise ValueError(f"{field_name} must use UTC.")
 
     return parsed
 
 
-def validate_trade_geometry(
-    direction,
-    entry_price,
-    stop_loss,
-    targets,
-    field_prefix,
-):
-    """Validate directional trade-price geometry."""
-
+def validate_trade_geometry(direction, entry, stop, targets, label):
     if direction == "LONG":
-        if stop_loss >= entry_price:
-            raise ValueError(
-                f"{field_prefix}: LONG stop loss must be below entry."
-            )
-
-        if not all(
-            target > entry_price
-            for target in targets
-        ):
-            raise ValueError(
-                f"{field_prefix}: LONG targets must be above entry."
-            )
-
-        if not (
-            targets[0] <= targets[1] <= targets[2]
-        ):
-            raise ValueError(
-                f"{field_prefix}: LONG targets must be ordered."
-            )
-
-    elif direction == "SHORT":
-        if stop_loss <= entry_price:
-            raise ValueError(
-                f"{field_prefix}: SHORT stop loss must be above entry."
-            )
-
-        if not all(
-            target < entry_price
-            for target in targets
-        ):
-            raise ValueError(
-                f"{field_prefix}: SHORT targets must be below entry."
-            )
-
-        if not (
-            targets[0] >= targets[1] >= targets[2]
-        ):
-            raise ValueError(
-                f"{field_prefix}: SHORT targets must be ordered."
-            )
-
-    else:
-        raise ValueError(
-            f"{field_prefix}: unsupported direction."
+        valid = (
+            stop < entry
+            and all(target > entry for target in targets)
+            and targets[0] <= targets[1] <= targets[2]
         )
+    elif direction == "SHORT":
+        valid = (
+            stop > entry
+            and all(target < entry for target in targets)
+            and targets[0] >= targets[1] >= targets[2]
+        )
+    else:
+        raise ValueError(f"{label}: invalid direction.")
+
+    if not valid:
+        raise ValueError(f"{label}: invalid trade price geometry.")
 
 
 def validate_vision_analysis(analysis, previous_signal, open_trade):
-    """Validate the AI response against schema version 2.0."""
-
     if not isinstance(analysis, dict):
-        raise ValueError(
-            "AI response must be a JSON object."
-        )
+        raise ValueError("AI response must be a JSON object.")
 
-    required_fields = {
-        "schema_version",
-        "symbol",
-        "timeframes",
-        "decision",
-        "confidence",
-        "market_bias",
-        "entry",
-        "stop_loss",
-        "take_profit_1",
-        "take_profit_2",
-        "take_profit_3",
-        "reasoning",
-        "main_risks",
-        "data_limitations",
-        "previous_signal_action",
-        "open_trade_action",
+    required = {
+        "schema_version", "symbol", "timeframes", "decision",
+        "confidence", "market_bias", "entry", "stop_loss",
+        "take_profit_1", "take_profit_2", "take_profit_3",
+        "reasoning", "main_risks", "data_limitations",
+        "previous_signal_action", "open_trade_action",
         "open_trade_updated_levels",
     }
 
-    missing = required_fields.difference(
-        analysis.keys()
-    )
-
+    missing = required.difference(analysis)
     if missing:
-        raise ValueError(
-            f"AI response is missing fields: {sorted(missing)}"
-        )
+        raise ValueError(f"AI response missing fields: {sorted(missing)}")
 
     if analysis["schema_version"] != SCHEMA_VERSION:
-        raise ValueError(
-            "Unsupported AI response schema version."
-        )
+        raise ValueError("Unsupported AI schema version.")
 
     if analysis["symbol"] != "BTC-USDT":
-        raise ValueError(
-            "AI returned an unexpected symbol."
-        )
+        raise ValueError("Unexpected AI symbol.")
 
     if analysis["timeframes"] != ["4H", "15M", "5M"]:
-        raise ValueError(
-            "AI returned an unexpected timeframe list."
-        )
+        raise ValueError("Unexpected AI timeframe list.")
 
     decision = analysis["decision"]
-
     if decision not in ("LONG", "SHORT", "WAIT"):
-        raise ValueError(
-            "decision must be LONG, SHORT, or WAIT."
-        )
+        raise ValueError("Decision must be LONG, SHORT, or WAIT.")
 
-    if analysis["market_bias"] not in (
-        "BULLISH",
-        "BEARISH",
-        "NEUTRAL",
-    ):
-        raise ValueError(
-            "market_bias must be BULLISH, BEARISH, or NEUTRAL."
-        )
+    if analysis["market_bias"] not in ("BULLISH", "BEARISH", "NEUTRAL"):
+        raise ValueError("Invalid market bias.")
 
-    confidence = safe_float(
-        analysis["confidence"],
-        "confidence",
-    )
-
+    confidence = safe_float(analysis["confidence"], "confidence")
     if not 0 <= confidence <= 100:
-        raise ValueError(
-            "confidence must be between 0 and 100."
-        )
+        raise ValueError("Confidence must be between 0 and 100.")
 
     if not isinstance(analysis["reasoning"], str) or not analysis["reasoning"].strip():
-        raise ValueError(
-            "reasoning must be a non-empty string."
-        )
+        raise ValueError("Reasoning must be a non-empty string.")
 
-    for field_name in ("main_risks", "data_limitations"):
-        if not isinstance(analysis[field_name], list):
-            raise ValueError(
-                f"{field_name} must be a JSON array."
-            )
+    for field in ("main_risks", "data_limitations"):
+        if not isinstance(analysis[field], list):
+            raise ValueError(f"{field} must be an array.")
 
     entry = analysis["entry"]
-
     if not isinstance(entry, dict):
-        raise ValueError(
-            "entry must be a JSON object."
-        )
+        raise ValueError("entry must be an object.")
 
-    entry_fields = {
-        "entry_type",
-        "entry_price",
-        "entry_zone_low",
-        "entry_zone_high",
+    entry_type = entry.get("entry_type", entry.get("type"))
+    entry_price = entry.get("entry_price", entry.get("price"))
+    zone_low = entry.get("entry_zone_low")
+    zone_high = entry.get("entry_zone_high")
+    expiry = entry.get(
         "entry_expires_at",
-    }
-
-    if not entry_fields.issubset(entry):
-        raise ValueError(
-            "entry is missing required fields."
-        )
-
-    entry_type = entry["entry_type"]
-
-    if entry_type not in ("MARKET", "LIMIT", "NONE"):
-        raise ValueError(
-            "entry_type must be MARKET, LIMIT, or NONE."
-        )
-
-    price_fields = (
-        "stop_loss",
-        "take_profit_1",
-        "take_profit_2",
-        "take_profit_3",
+        entry.get("expires_at"),
     )
 
     if decision == "WAIT":
-        if entry_type != "NONE":
-            raise ValueError(
-                "WAIT requires entry_type NONE."
-            )
+        if entry_type not in (None, "NONE"):
+            raise ValueError("WAIT requires NONE entry type.")
 
-        if any(
-            entry.get(field) is not None
-            for field in (
-                "entry_price",
-                "entry_zone_low",
-                "entry_zone_high",
-            )
-        ):
-            raise ValueError(
-                "WAIT requires null entry prices."
-            )
-
-        if any(
-            analysis.get(field) is not None
-            for field in price_fields
-        ):
-            raise ValueError(
-                "WAIT requires null stop loss and targets."
-            )
-
-        if entry.get("entry_expires_at") is not None:
-            raise ValueError(
-                "WAIT requires null entry expiry."
-            )
+        if any(value is not None for value in (
+            entry_price, zone_low, zone_high,
+            analysis["stop_loss"],
+            analysis["take_profit_1"],
+            analysis["take_profit_2"],
+            analysis["take_profit_3"],
+        )):
+            raise ValueError("WAIT requires null trade prices.")
 
     else:
         if entry_type not in ("MARKET", "LIMIT"):
-            raise ValueError(
-                "LONG and SHORT require MARKET or LIMIT entry."
-            )
+            raise ValueError("LONG/SHORT requires MARKET or LIMIT entry.")
 
-        entry_price = safe_float(
-            entry.get("entry_price"),
-            "entry.entry_price",
-        )
-
-        entry_low = safe_float(
-            entry.get("entry_zone_low"),
-            "entry.entry_zone_low",
-        )
-
-        entry_high = safe_float(
-            entry.get("entry_zone_high"),
-            "entry.entry_zone_high",
-        )
-
-        if entry_low > entry_high:
-            raise ValueError(
-                "Entry zone low cannot exceed entry zone high."
-            )
-
-        if not entry_low <= entry_price <= entry_high:
-            raise ValueError(
-                "Entry price must be inside the entry zone."
-            )
-
-        stop_loss = safe_float(
-            analysis["stop_loss"],
-            "stop_loss",
-        )
+        entry_price = safe_float(entry_price, "entry price")
+        stop = safe_float(analysis["stop_loss"], "stop_loss")
 
         targets = [
-            safe_float(
-                analysis[field],
-                field,
-            )
+            safe_float(analysis[field], field)
             for field in (
-                "take_profit_1",
-                "take_profit_2",
-                "take_profit_3",
+                "take_profit_1", "take_profit_2", "take_profit_3"
             )
         ]
 
         validate_trade_geometry(
-            decision,
-            entry_price,
-            stop_loss,
-            targets,
-            "new trade",
+            decision, entry_price, stop, targets, "new trade"
         )
+
+        if zone_low is not None:
+            zone_low = safe_float(zone_low, "entry zone low")
+        if zone_high is not None:
+            zone_high = safe_float(zone_high, "entry zone high")
+
+        if (zone_low is None) != (zone_high is None):
+            raise ValueError("Entry zone requires both low and high.")
+
+        if zone_low is not None and (
+            zone_low > zone_high or not zone_low <= entry_price <= zone_high
+        ):
+            raise ValueError("Invalid entry zone.")
 
         if entry_type == "LIMIT":
-            validate_timestamp(
-                entry.get("entry_expires_at"),
-                "entry.entry_expires_at",
-                required=True,
-            )
-
-        elif entry.get("entry_expires_at") is not None:
-            validate_timestamp(
-                entry.get("entry_expires_at"),
-                "entry.entry_expires_at",
-            )
+            validate_timestamp(expiry, "entry expiry", required=True)
+        elif expiry is not None:
+            validate_timestamp(expiry, "entry expiry")
 
     previous_action = analysis["previous_signal_action"]
+    if previous_action not in ("NONE", "KEEP", "REPLACE", "CANCEL"):
+        raise ValueError("Invalid previous signal action.")
 
-    if previous_action not in (
-        "NONE",
-        "KEEP",
-        "REPLACE",
-        "CANCEL",
-    ):
-        raise ValueError(
-            "Invalid previous_signal_action."
-        )
+    if previous_signal is None and previous_action != "NONE":
+        raise ValueError("No previous signal exists; action must be NONE.")
 
-    if previous_signal is None:
-        if previous_action != "NONE":
-            raise ValueError(
-                "No previous signal exists; previous_signal_action must be NONE."
-            )
-    elif previous_action == "NONE":
-        raise ValueError(
-            "A previous signal exists; AI must evaluate it."
-        )
+    if previous_signal is not None and previous_action == "NONE":
+        raise ValueError("Previous signal exists; AI must evaluate it.")
 
     open_action = analysis["open_trade_action"]
+    if open_action not in ("NONE", "HOLD", "CLOSE", "UPDATE_LEVELS"):
+        raise ValueError("Invalid open trade action.")
 
-    if open_action not in (
-        "NONE",
-        "HOLD",
-        "CLOSE",
-        "UPDATE_LEVELS",
-    ):
-        raise ValueError(
-            "Invalid open_trade_action."
-        )
+    if open_trade is None and open_action != "NONE":
+        raise ValueError("No open trade exists; action must be NONE.")
 
-    if open_trade is None:
-        if open_action != "NONE":
-            raise ValueError(
-                "No open trade exists; open_trade_action must be NONE."
-            )
-    elif open_action == "NONE":
-        raise ValueError(
-            "An open trade exists; AI must evaluate it."
-        )
+    if open_trade is not None and open_action == "NONE":
+        raise ValueError("Open trade exists; AI must evaluate it.")
 
-    updated_levels = analysis["open_trade_updated_levels"]
+    updated = analysis["open_trade_updated_levels"]
+    if not isinstance(updated, dict):
+        raise ValueError("Updated levels must be an object.")
 
-    if not isinstance(updated_levels, dict):
-        raise ValueError(
-            "open_trade_updated_levels must be a JSON object."
-        )
-
-    update_fields = (
-        "stop_loss",
-        "take_profit_1",
-        "take_profit_2",
-        "take_profit_3",
+    fields = (
+        "stop_loss", "take_profit_1",
+        "take_profit_2", "take_profit_3",
     )
 
-    if not all(
-        field in updated_levels
-        for field in update_fields
-    ):
-        raise ValueError(
-            "open_trade_updated_levels is missing fields."
-        )
+    if any(field not in updated for field in fields):
+        raise ValueError("Updated levels are incomplete.")
 
     if open_action != "UPDATE_LEVELS":
-        if any(
-            updated_levels[field] is not None
-            for field in update_fields
-        ):
-            raise ValueError(
-                "Updated levels must be null unless action is UPDATE_LEVELS."
-            )
-
+        if any(updated[field] is not None for field in fields):
+            raise ValueError("Updated levels must be null unless updating.")
     else:
-        if open_trade is None:
-            raise ValueError(
-                "Cannot update levels without an open trade."
-            )
-
         if isinstance(open_trade, list):
             if len(open_trade) != 1:
-                raise ValueError(
-                    "UPDATE_LEVELS is not supported for multiple open trades in one response."
-                )
+                raise ValueError("Cannot update multiple open trades.")
             trade = open_trade[0]
         else:
             trade = open_trade
 
-        direction = str(
-            trade.get("direction", "")
-        ).upper()
-
-        entry_price = safe_float(
+        direction = str(trade.get("direction", "")).upper()
+        entry_reference = safe_float(
             trade.get("entry_reference_price", trade.get("entry_price")),
-            "open_trade.entry_price",
+            "open trade entry",
         )
 
-        current_levels = {
-            "stop_loss": trade.get("stop_loss"),
+        current_stop = trade.get(
+            "stop_loss_current",
+            trade.get("stop_loss"),
+        )
+
+        current = {
+            "stop_loss": current_stop,
             "take_profit_1": trade.get("take_profit_1"),
             "take_profit_2": trade.get("take_profit_2"),
             "take_profit_3": trade.get("take_profit_3"),
         }
 
-        resolved_levels = {}
-
-        for field in update_fields:
-            proposed = updated_levels[field]
-
+        resolved = {}
+        for field in fields:
+            proposed = updated[field]
             if proposed is None:
-                proposed = current_levels[field]
-
-            resolved_levels[field] = safe_float(
-                proposed,
-                f"open_trade_updated_levels.{field}",
-            )
+                proposed = current[field]
+            resolved[field] = safe_float(proposed, field)
 
         validate_trade_geometry(
             direction,
-            entry_price,
-            resolved_levels["stop_loss"],
+            entry_reference,
+            resolved["stop_loss"],
             [
-                resolved_levels["take_profit_1"],
-                resolved_levels["take_profit_2"],
-                resolved_levels["take_profit_3"],
+                resolved["take_profit_1"],
+                resolved["take_profit_2"],
+                resolved["take_profit_3"],
             ],
             "updated open trade",
         )
@@ -1192,55 +767,31 @@ def validate_vision_analysis(analysis, previous_signal, open_trade):
 
 
 def extract_json_object(raw_content):
-    """Extract exactly one JSON object from the model response."""
-
     content = raw_content.strip()
 
     if content.startswith("```"):
         lines = content.splitlines()
-
         if lines and lines[0].startswith("```"):
             lines = lines[1:]
-
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
-
         content = "\n".join(lines).strip()
 
     start = content.find("{")
-
     if start < 0:
-        raise ValueError(
-            "No JSON object found in AI response."
-        )
+        raise ValueError("No JSON object found in AI response.")
 
-    decoder = json.JSONDecoder()
+    result, end = json.JSONDecoder().raw_decode(content[start:])
 
-    result, end = decoder.raw_decode(
-        content[start:]
-    )
-
-    trailing = content[start + end:].strip()
-
-    if trailing:
-        raise ValueError(
-            "Unexpected text found after the JSON object."
-        )
+    if content[start + end:].strip():
+        raise ValueError("Unexpected text after AI JSON object.")
 
     return result
 
 
-def run_vision_analysis(
-    market_context,
-    previous_signal,
-    open_trade,
-):
-    """Ask the AI for one multi-timeframe decision."""
-
+def run_vision_analysis(market_context, previous_signal, open_trade):
     if not CHART_FILE.is_file():
-        raise FileNotFoundError(
-            f"Vision chart not found: {CHART_FILE}"
-        )
+        raise FileNotFoundError(f"Vision chart not found: {CHART_FILE}")
 
     prompt = build_btc_analysis_prompt(
         market_context=market_context,
@@ -1254,125 +805,91 @@ def run_vision_analysis(
     )
 
     if not isinstance(result, dict):
-        raise RuntimeError(
-            "Invalid response from vision provider."
-        )
+        raise RuntimeError("Invalid vision provider response.")
 
     raw_content = result.get("content")
 
     if isinstance(raw_content, str) and raw_content.strip():
-        OUTPUT_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        VISION_RAW_FILE.write_text(
-            raw_content,
-            encoding="utf-8",
-        )
+        atomic_write_text(VISION_RAW_FILE, raw_content)
 
     if result.get("status") != "success":
         raise RuntimeError(
-            "Vision analysis failed: "
-            + str(result.get("error"))
+            "Vision analysis failed: " + str(result.get("error"))
         )
 
     if not isinstance(raw_content, str) or not raw_content.strip():
-        raise RuntimeError(
-            "AI returned empty content."
-        )
+        raise RuntimeError("AI returned empty content.")
 
-    analysis = extract_json_object(
-        raw_content
-    )
+    analysis = extract_json_object(raw_content)
 
     validate_vision_analysis(
-        analysis,
-        previous_signal,
-        open_trade,
+        analysis, previous_signal, open_trade
     )
 
-    now = utc_now()
-
-    # These metadata fields are controlled by Python.
     analysis["analysis_id"] = str(uuid.uuid4())
-    analysis["generated_at"] = now.isoformat()
+    analysis["generated_at"] = utc_now().isoformat()
     analysis["model"] = result.get("model")
 
     return analysis
 
 
 def run_daily_btc_analysis():
-    """Run one BTC analysis after a confirmed 15M candle."""
-
     now = utc_now()
 
     print("=" * 65)
     print("BTC MULTI-TIMEFRAME AI ANALYSIS")
     print("=" * 65)
 
-    timeframe_results = {}
+    results = {}
 
     for timeframe in ("4H", "15M", "5M"):
         print(f"Loading {timeframe} market data...")
+        results[timeframe] = load_timeframe_data(timeframe, now)
 
-        timeframe_results[timeframe] = load_timeframe_data(
-            timeframe,
-            now,
-        )
-
-        freshness = timeframe_results[timeframe]["freshness"]
-
+        freshness = results[timeframe]["freshness"]
         print(
-            f"{timeframe}: "
-            f"{timeframe_results[timeframe]['closed_candle_count']} "
-            f"closed candles | "
-            f"age={freshness['age_minutes']} minutes | "
-            f"fresh={freshness['is_fresh']}"
+            f"{timeframe}: {results[timeframe]['closed_candle_count']} "
+            f"closed candles | age={freshness['age_minutes']}m"
         )
 
-    stale_timeframes = [
-        timeframe
-        for timeframe in ("4H", "15M", "5M")
-        if not timeframe_results[timeframe]["freshness"]["is_fresh"]
+    stale = [
+        timeframe for timeframe in ("4H", "15M", "5M")
+        if not results[timeframe]["freshness"]["is_fresh"]
     ]
 
-    if stale_timeframes:
+    if stale:
         raise RuntimeError(
-            "Analysis stopped because these timeframes are stale: "
-            + ", ".join(stale_timeframes)
+            "Stale market data: " + ", ".join(stale)
         )
 
-    # The 15M archive must contain a newly closed candle.
-    latest_15m_close = pd.to_datetime(
-        int(timeframe_results["15M"]["data"].iloc[-1]["timestamp"]),
-        unit="ms",
-        utc=True,
-    ) + pd.Timedelta(minutes=15)
-
-    latest_15m_close_dt = latest_15m_close.to_pydatetime()
-
-    if (now - latest_15m_close_dt).total_seconds() < 0:
-        raise RuntimeError(
-            "Latest 15M candle close is in the future."
-        )
-
-    generate_4h_chart(
-        timeframe_results["4H"]["data"]
+    latest_15m_open_ms = int(
+        results["15M"]["data"].iloc[-1]["timestamp"]
     )
 
-    market_context = build_multi_timeframe_context(
-        timeframe_results,
-        now,
+    latest_15m_close_ms = (
+        latest_15m_open_ms + TIMEFRAME_INTERVALS_MS["15M"]
     )
 
+    candle_id = get_candle_id(latest_15m_open_ms)
+
+    if now.timestamp() * 1000 < latest_15m_close_ms:
+        raise RuntimeError("Latest 15M candle is not closed.")
+
+    if already_analyzed(candle_id):
+        print(f"SKIPPED: 15M candle {candle_id} was already analyzed.")
+        return {
+            "status": "skipped",
+            "reason": "duplicate_15m_candle",
+            "candle_id": candle_id,
+        }
+
+    generate_4h_chart(results["4H"]["data"])
+
+    market_context = build_multi_timeframe_context(results, now)
     previous_signal = load_previous_signal()
     open_trade = load_open_trades()
 
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     atomic_write_json(
         CONTEXT_FILE,
@@ -1383,36 +900,29 @@ def run_daily_btc_analysis():
         },
     )
 
-    print("All timeframe data passed freshness checks.")
-    print(
-        "Previous signal:",
-        "available" if previous_signal is not None else "none",
-    )
-    print(
-        "Open paper trade:",
-        "available" if open_trade is not None else "none",
-    )
     print("Sending market context to AI...")
 
     analysis = run_vision_analysis(
-        market_context=market_context,
-        previous_signal=previous_signal,
-        open_trade=open_trade,
+        market_context,
+        previous_signal,
+        open_trade,
     )
 
-    # Publish only after the complete AI response passes validation.
-    atomic_write_json(
-        VISION_REPORT_FILE,
-        analysis,
+    # Publish the report only after successful AI validation.
+    atomic_write_json(VISION_REPORT_FILE, analysis)
+
+    # Save the candle checkpoint only after the report is published.
+    save_successful_analysis(
+        candle_id,
+        analysis["analysis_id"],
     )
 
     print("-" * 65)
     print("AI ANALYSIS COMPLETED")
     print(f"Decision: {analysis['decision']}")
-    print(f"Market bias: {analysis['market_bias']}")
+    print(f"Bias: {analysis['market_bias']}")
     print(f"Confidence: {analysis['confidence']}")
     print(f"Analysis ID: {analysis['analysis_id']}")
-    print(f"Generated at: {analysis['generated_at']}")
     print(f"Report: {VISION_REPORT_FILE}")
     print("=" * 65)
 
@@ -1421,15 +931,13 @@ def run_daily_btc_analysis():
         "analysis": analysis,
         "report_path": str(VISION_REPORT_FILE),
         "context_path": str(CONTEXT_FILE),
+        "candle_id": candle_id,
     }
 
 
 if __name__ == "__main__":
     try:
         run_daily_btc_analysis()
-
     except Exception as error:
-        print(
-            f"ERROR: {type(error).__name__}: {error}"
-        )
+        print(f"ERROR: {type(error).__name__}: {error}")
         raise
