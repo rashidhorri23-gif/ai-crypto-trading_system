@@ -359,5 +359,96 @@ class TestCandleExecution(unittest.TestCase):
         self.assertEqual(trade["exit_reason"], "STOP_LOSS")
 
 
+class TestDailyTargetWatch(unittest.TestCase):
+
+    def setUp(self):
+        self.state = {
+            "target_watch": {
+                "analysis_id": "daily-plan-001",
+                "trade_id": "paper-trade-001",
+                "direction": "LONG",
+                "entry_price": 100.0,
+                "entry_timestamp": 1000,
+                "stop_loss": 95.0,
+                "targets": {"TP1": 105.0, "TP2": 110.0, "TP3": 115.0},
+                "reached": {"TP1": False, "TP2": False, "TP3": False},
+                "notification_sent": {
+                    "TP1": False, "TP2": False, "TP3": False,
+                    "STOP_LOSS": False,
+                },
+                "status": "ACTIVE",
+                "expires_at": 50000,
+            }
+        }
+
+    def candle(self, timestamp, high, low):
+        return {
+            "timestamp": timestamp,
+            "open": 100.0,
+            "high": high,
+            "low": low,
+            "close": 100.0,
+            "volume": 10.0,
+        }
+
+    def test_tp1_then_tp2_then_tp3_are_tracked_independently(self):
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send:
+            monitor.process_target_watch(self.candle(1200, 106.0, 99.0), self.state)
+            self.assertTrue(self.state["target_watch"]["reached"]["TP1"])
+            self.assertEqual(self.state["target_watch"]["status"], "ACTIVE")
+
+            monitor.process_target_watch(self.candle(1500, 111.0, 99.0), self.state)
+            self.assertTrue(self.state["target_watch"]["reached"]["TP2"])
+            self.assertEqual(self.state["target_watch"]["status"], "ACTIVE")
+
+            monitor.process_target_watch(self.candle(1800, 116.0, 99.0), self.state)
+            self.assertTrue(self.state["target_watch"]["reached"]["TP3"])
+            self.assertEqual(
+                self.state["target_watch"]["status"],
+                "TARGETS_COMPLETED",
+            )
+            self.assertEqual(send.call_count, 3)
+
+    def test_stop_loss_invalidates_plan_before_tp1(self):
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send:
+            monitor.process_target_watch(self.candle(1200, 106.0, 94.0), self.state)
+
+        watch = self.state["target_watch"]
+        self.assertEqual(watch["status"], "INVALIDATED")
+        self.assertFalse(watch["reached"]["TP1"])
+        send.assert_called_once()
+        self.assertIn("STOP LOSS", send.call_args.args[0])
+
+    def test_failed_target_notification_is_retried(self):
+        with patch.object(monitor, "save_state"), \
+             patch.object(
+                 monitor,
+                 "send_telegram",
+                 side_effect=[False, True],
+             ) as send:
+            monitor.process_target_watch(self.candle(1200, 106.0, 99.0), self.state)
+            self.assertTrue(self.state["target_watch"]["reached"]["TP1"])
+            self.assertFalse(
+                self.state["target_watch"]["notification_sent"]["TP1"]
+            )
+
+            monitor.process_target_watch(self.candle(1500, 104.0, 99.0), self.state)
+
+        self.assertTrue(
+            self.state["target_watch"]["notification_sent"]["TP1"]
+        )
+        self.assertEqual(send.call_count, 2)
+
+    def test_target_watch_expires_at_next_daily_window(self):
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send:
+            monitor.process_target_watch(self.candle(50000, 104.0, 99.0), self.state)
+
+        self.assertEqual(self.state["target_watch"]["status"], "EXPIRED")
+        send.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
