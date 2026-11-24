@@ -1436,24 +1436,33 @@ def process_target_watch(candle, state):
             watch["reached_at"][target_name] = utc_iso(candle_close_timestamp)
             newly_reached.append(target_name)
 
-    if not newly_reached:
+    if newly_reached:
+        save_state(state)
+
+    pending_notifications = [
+        name for name in ("TP1", "TP2", "TP3")
+        if watch["reached"].get(name)
+        and not watch["notification_sent"].get(name)
+    ]
+    if not pending_notifications:
+        if all(watch["reached"].values()):
+            watch["status"] = "TARGETS_COMPLETED"
+            watch["completed_at"] = utc_iso(candle_close_timestamp)
+            save_state(state)
         return
 
-    save_state(state)
     multiple = len(newly_reached) > 1
-    for target_name in newly_reached:
-        if watch["notification_sent"].get(target_name):
-            continue
+    for target_name in pending_notifications:
         note = (
-            "\\nNote: one 5M candle crossed multiple targets; "
+            "\nNote: one 5M candle crossed multiple targets; "
             "the exact intrabar order cannot be determined from OHLC data."
             if multiple else ""
         )
         message = (
-            f"BTC {target_name} REACHED\\n"
-            f"Direction: {direction}\\n"
+            f"BTC {target_name} REACHED\n"
+            f"Direction: {direction}\n"
             f"Target: {watch['targets'][target_name']}\\n"
-            f"Analysis ID: {watch['analysis_id']}\\n"
+            f"Analysis ID: {watch['analysis_id']}\n"
             "Daily target monitoring remains active until the next 08:00 Baku analysis."
             f"{note}"
         )
