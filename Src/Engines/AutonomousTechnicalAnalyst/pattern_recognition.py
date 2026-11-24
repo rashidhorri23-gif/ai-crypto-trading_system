@@ -229,6 +229,64 @@ def _trend_patterns(highs, lows, close):
                 {"time": lower[-1]["time"], "value": lower[-1]["price"]}]}],
             upper_now + (upper[-1]["price"] - lower[-1]["price"]),
             lower_now, "شکست ضلع بالایی کنج نزولی"))
+    initial_channel_width = upper[0]["price"] - lower[0]["price"]
+    final_channel_width = upper_now - lower_now
+    parallel = (
+        max(abs(upper_slope), abs(lower_slope)) > 0
+        and abs(upper_slope - lower_slope)
+        / max(abs(upper_slope), abs(lower_slope)) <= 0.35
+    )
+    stable_width = (
+        initial_channel_width > 0
+        and final_channel_width > 0
+        and 0.70 <= final_channel_width / initial_channel_width <= 1.30
+        and final_channel_width <= close["price"] * 0.12
+    )
+    if parallel and stable_width and upper_slope * lower_slope > 0:
+        rising = upper_slope > 0
+        if rising:
+            direction = (
+                "BULLISH" if close["price"] >= lower_now
+                else "BEARISH"
+            )
+            breakout = close["price"] > upper_now or close["price"] < lower_now
+            target = (
+                upper_now + final_channel_width
+                if direction == "BULLISH"
+                else lower_now - final_channel_width
+            )
+            invalidation = lower_now if direction == "BULLISH" else upper_now
+            name = "Ascending Channel"
+        else:
+            direction = (
+                "BEARISH" if close["price"] <= upper_now
+                else "BULLISH"
+            )
+            breakout = close["price"] < lower_now or close["price"] > upper_now
+            target = (
+                lower_now - final_channel_width
+                if direction == "BEARISH"
+                else upper_now + final_channel_width
+            )
+            invalidation = upper_now if direction == "BEARISH" else lower_now
+            name = "Descending Channel"
+        results.append(_make(
+            name, direction,
+            "CONFIRMED" if breakout else "DEVELOPING",
+            74 if breakout else 58,
+            [{"time": p["time"], "price": p["price"], "label": p["kind"]}
+             for p in upper + lower],
+            [
+                {"name": "Channel upper", "points": [
+                    {"time": upper[0]["time"], "value": upper[0]["price"]},
+                    {"time": upper[-1]["time"], "value": upper[-1]["price"]}]},
+                {"name": "Channel lower", "points": [
+                    {"time": lower[0]["time"], "value": lower[0]["price"]},
+                    {"time": lower[-1]["time"], "value": lower[-1]["price"]}]},
+            ],
+            target, invalidation,
+            "شکست یا حفظ مرز کانال با بسته‌شدن کندل",
+        ))
     return results
 
 
