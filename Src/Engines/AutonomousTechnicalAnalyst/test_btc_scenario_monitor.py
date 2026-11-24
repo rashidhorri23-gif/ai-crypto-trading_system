@@ -317,5 +317,68 @@ class TestScenarioPerformance(unittest.TestCase):
         self.assertEqual(report["scenarios"]["LONG"]["near_miss_horizons"]["4H"]["resolved_count"], 0)
 
 
+    def test_direction_report_includes_condition_rates_and_comparison(self):
+        observations = {"records": []}
+        for index in range(4):
+            observations["records"].append({
+                "record_id": f"sample:{index}",
+                "scenarios": {
+                    "LONG": {
+                        "status": "WAITING",
+                        "classification": (
+                            "MOMENTUM_READY_BREAKOUT_PENDING" if index == 0 else "WAITING"
+                        ),
+                        "near_miss": False,
+                        "checks": {
+                            "4H_BREAKOUT": {"known": True, "met": index == 0},
+                            "15M_MOMENTUM": {"known": True, "met": True},
+                            "5M_MOMENTUM": {"known": index != 3, "met": index != 3},
+                        },
+                    },
+                    "SHORT": {
+                        "status": "WAITING",
+                        "classification": (
+                            "UNCONFIRMED_BREAKOUT_NEAR_MISS" if index == 1 else "WAITING"
+                        ),
+                        "near_miss": index == 1,
+                        "checks": {
+                            "4H_BREAKOUT": {"known": True, "met": index == 1},
+                            "15M_MOMENTUM": {"known": True, "met": index != 1},
+                            "5M_MOMENTUM": {"known": True, "met": index != 1},
+                        },
+                    },
+                },
+            })
+        outcomes = {"records": []}
+        report = performance.build_performance_report(
+            observations, outcomes, generated_at=self.entry_time
+        )
+        long_report = report["scenarios"]["LONG"]
+        short_report = report["scenarios"]["SHORT"]
+        self.assertEqual(long_report["monitoring_observations"], 4)
+        self.assertEqual(
+            long_report["condition_statistics"]["15M_MOMENTUM"]["pass_rate_pct"],
+            100.0,
+        )
+        self.assertEqual(
+            long_report["condition_statistics"]["5M_MOMENTUM"]["known_count"],
+            3,
+        )
+        self.assertEqual(
+            long_report["momentum_ready_breakout_pending_observation_count"],
+            1,
+        )
+        self.assertEqual(
+            short_report["near_miss_observation_count"],
+            1,
+        )
+        self.assertEqual(
+            report["direction_comparison"]["by_horizon"]["4H"][
+                "higher_average_forward_return_direction"
+            ],
+            "INSUFFICIENT_DATA",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
