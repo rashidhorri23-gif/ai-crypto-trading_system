@@ -6,7 +6,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .tradingview_chart import render_tradingview_chart, _select_visible_patterns
+from .tradingview_chart import (
+    CHART_CANDLE_LIMIT,
+    FUTURE_SPACE_BARS,
+    _build_html,
+    _build_payload,
+    _select_visible_patterns,
+    render_tradingview_chart,
+)
 from .market_features import prepare_market_features
 from .daily_btc_analysis import build_rule_based_chart_analysis
 
@@ -67,6 +74,18 @@ def _build_frame(interval_ms, count=260):
     return frame
 
 
+def _test_future_projection_workspace():
+    assert CHART_CANDLE_LIMIT == 84
+    assert FUTURE_SPACE_BARS == 72
+    results = {
+        timeframe: {"data": _build_frame(interval_ms)}
+        for timeframe, interval_ms in TIMEFRAME_INTERVALS_MS.items()
+    }
+    html = _build_html(_build_payload(results, None))
+    assert "rightOffset:72" in html or "Math.max(72," in html
+    assert "const forecastBars=Math.max(72," in html
+
+
 def _test_pattern_selection():
     patterns = [
         {"name": "Developing A", "status": "DEVELOPING", "confidence": 90},
@@ -104,6 +123,7 @@ def _test_rule_based_forecast():
 
 
 def main():
+    _test_future_projection_workspace()
     _test_pattern_selection()
     _test_rule_based_forecast()
     results = {
