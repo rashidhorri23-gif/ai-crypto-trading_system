@@ -429,7 +429,9 @@ body{width:1780px;padding:14px}
   const low=Number(lowValue),high=Number(highValue);
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<=low)return;
   const start=m.candles[Math.max(0,m.candles.length-36)].time;
-  const end=m.candles[m.candles.length-1].time;
+  const lastTime=m.candles[m.candles.length-1].time;
+  const end=lastTime+FUTURE_SPACE_BARS*14400;
+  // A baseline band creates a visible rectangle between the validated low/high prices.
   const area=chart.addSeries(LightweightCharts.BaselineSeries,{
    baseValue:{type:"price",price:low},
    topFillColor:color,bottomFillColor:"rgba(0,0,0,0)",
@@ -438,6 +440,11 @@ body{width:1780px;padding:14px}
    crosshairMarkerVisible:false
   });
   area.setData([{time:start,value:high},{time:end,value:high}]);
+  const lower=chart.addSeries(LightweightCharts.LineSeries,{
+   color,lineWidth:1,lineStyle:2,title:"",
+   priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+  });
+  lower.setData([{time:start,value:low},{time:end,value:low}]);
  }
  drawZone(z.bullish_ob_low,z.bullish_ob_high,"rgba(56,189,248,0.20)","OB صعودی");
  drawZone(z.bearish_ob_low,z.bearish_ob_high,"rgba(245,158,11,0.20)","OB نزولی");
@@ -462,18 +469,35 @@ body{width:1780px;padding:14px}
    lastValueVisible:false,crosshairMarkerVisible:false
   });
   path.setData(points);
-  // Show the forecast target interval only in future time, not across historical candles.
-  [low,high].forEach((price,index)=>{
-   const edge=chart.addSeries(LightweightCharts.LineSeries,{
-    color, lineWidth:1, lineStyle:3, title:"",
+  // Draw a translucent target band in the future area, not over historical candles.
+  const targetBand=chart.addSeries(LightweightCharts.BaselineSeries,{
+   baseValue:{type:"price",price:low},
+   topFillColor:color+"22",bottomFillColor:"rgba(0,0,0,0)",
+   topLineColor:color,bottomLineColor:color,lineWidth:1,title:"",
+   priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+  });
+  targetBand.setData([{time:lastCandle.time,value:high},{time:futureTime,value:high}]);
+  const invalidation=Number(item.invalidation_price);
+  if(Number.isFinite(invalidation)&&invalidation>0){
+   const invalidationLine=chart.addSeries(LightweightCharts.LineSeries,{
+    color,lineWidth:1,lineStyle:3,title:"قیمت ابطال",
     priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
    });
-   edge.setData([{time:lastCandle.time,value:price},{time:futureTime,value:price}]);
-  });
-  if(Number.isFinite(confidence)&&confidence>=0&&confidence<=100){
-   LightweightCharts.createSeriesMarkers(path,[{
-    time:futureTime,position:markerPosition,color,shape:"circle",
-    text:Math.round(confidence)+"% AI"
+   invalidationLine.setData([
+    {time:lastCandle.time,value:invalidation},
+    {time:futureTime,value:invalidation}
+   ]);
+  }
+  const markerText=Number.isFinite(confidence)&&confidence>=0&&confidence<=100
+   ?Math.round(confidence)+"% AI":"هدف";
+  LightweightCharts.createSeriesMarkers(path,[{
+   time:futureTime,position:markerPosition,color,shape:"arrowUp",
+   text:markerText
+  }]);
+  if(item.trigger){
+   LightweightCharts.createSeriesMarkers(candles,[{
+    time:lastCandle.time,position:markerPosition,color,shape:"circle",
+    text:"شرط: "+String(item.trigger).slice(0,42)
    }]);
   }
  }
