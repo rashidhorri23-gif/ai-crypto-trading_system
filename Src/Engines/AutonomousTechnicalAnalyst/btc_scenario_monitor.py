@@ -349,6 +349,104 @@ def send_telegram(message, event_id, state):
         return False
 
 
+
+def telegram_get_updates(offset):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return []
+    params = {"timeout": "0", "allowed_updates": json.dumps(["message"])}
+    if offset is not None:
+        params["offset"] = str(int(offset))
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/getUpdates?{urllib.parse.urlencode(params)}",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as error:
+        print(f"Telegram command polling failed: {error}")
+        return []
+    if not payload.get("ok"):
+        print(f"Telegram command polling returned an API error: {payload.get('description', 'unknown')}")
+        return []
+    return payload.get("result", [])
+
+
+def poll_telegram_commands(state):
+    """Accept status controls only from the configured Telegram chat."""
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not chat_id:
+        return
+    updates = telegram_get_updates(state.get("telegram_update_offset"))
+    for update in updates:
+        update_id = int(update.get("update_id", -1))
+        if update_id < 0:
+            continue
+        state["telegram_update_offset"] = update_id + 1
+        message = update.get("message") or {}
+        chat = message.get("chat") or {}
+        if str(chat.get("id", "")) != str(chat_id):
+            continue
+        command_text = str(message.get("text", "")).strip().split()
+        if not command_text:
+            continue
+        command = command_text[0].split("@")[0].lower()
+        if command == "/status_on":
+            state["status_updates_enabled"] = True
+            reply = "BTC status updates are ON. You will receive one concise update per new 5-minute closed candle (approximately every 15-minute monitor cycle)."
+        elif command == "/status_off":
+            state["status_updates_enabled"] = False
+            reply = "BTC status updates are OFF. LONG/SHORT activation alerts remain enabled."
+        elif command == "/status":
+            enabled = bool(state.get("status_updates_enabled", False))
+            reply = (
+                "BTC periodic status: ON."
+                if enabled else
+                "BTC periodic status: OFF. Use /status_on to enable or /status_off to disable."
+            )
+        else:
+            continue
+        event_id = notification_id("status_command", str(update_id))
+        send_telegram(reply, event_id, state)
+
+
+def send_periodic_status(session, state):
+    if not state.get("status_updates_enabled", False):
+        return
+    checks = session.get("latest_checks")
+    if not isinstance(checks, dict):
+        return
+    observed = max(
+        (int(item.get("observed_timestamp") or 0) for item in checks.values()),
+        default=0,
+    )
+    if observed <= 0:
+        return
+    if state.get("status_update_last_candle") == observed:
+        return
+    price = next(
+        (item.get("observed_price") for item in checks.values() if item.get("observed_price") is not None),
+        None,
+    )
+    lines = [
+        "BTC MONITOR STATUS",
+        f"Price: {float(price):,.2f} USDT" if price is not None else "Price: unavailable",
+        f"Checked: {utc_iso(observed)}",
+    ]
+    for direction in ("LONG", "SHORT"):
+        scenario = session.get("scenarios", {}).get(direction, {})
+        evaluation = checks.get(direction, {})
+        status = scenario.get("status", "WAITING")
+        checks_map = evaluation.get("checks", {})
+        confirmations = sum(1 for item in checks_map.values() if item.get("known") and item.get("met"))
+        lines.append(f"{direction}: {status} ({confirmations}/3 conditions confirmed)")
+    lines.append("Monitoring only. No trade was opened.")
+    event_id = notification_id("periodic_status", session["analysis_id"], str(observed))
+    if send_telegram("\n".join(lines), event_id, state):
+        state["status_update_last_candle"] = observed
+
+
 def append_history(state, session):
     state.setdefault("history", []).append(session)
     state["history"] = state["history"][-MAX_SESSION_HISTORY:]
@@ -482,8 +580,10 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
 def main():
     report, generated_at = load_report()
     state = load_state()
+    poll_telegram_commands(state)
     now = utc_now().timestamp()
     session = process_session(report, generated_at, state, now_timestamp=now)
+    send_periodic_status(session, state)
     atomic_write_json(STATE_FILE, state)
     events = {
         "symbol": SYMBOL,
