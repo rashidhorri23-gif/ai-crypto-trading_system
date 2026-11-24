@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .tradingview_chart import render_tradingview_chart
+from .tradingview_chart import render_tradingview_chart, _select_visible_patterns
 
 
 TIMEFRAME_INTERVALS_MS = {
@@ -65,7 +65,20 @@ def _build_frame(interval_ms, count=260):
     return frame
 
 
+def _test_pattern_selection():
+    patterns = [
+        {"name": "Developing A", "status": "DEVELOPING", "confidence": 90},
+        {"name": "Confirmed B", "status": "CONFIRMED", "confidence": 65},
+        {"name": "Confirmed C", "status": "CONFIRMED", "confidence": 80},
+    ]
+    selected = _select_visible_patterns(patterns)
+    assert len(selected) == 2
+    assert selected[0]["name"] == "Confirmed C"
+    assert selected[1]["name"] == "Confirmed B"
+
+
 def main():
+    _test_pattern_selection()
     results = {
         timeframe: {
             "data": _build_frame(interval_ms),
