@@ -46,6 +46,11 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
+      - name: Validate TradingView Chart Renderer
+        run: |
+          python -m compileall -q Src/Engines/AutonomousTechnicalAnalyst
+          python -c "from Src.Engines.AutonomousTechnicalAnalyst.tradingview_chart import render_tradingview_chart; print('TradingView chart renderer import successful.')"
+
       - name: Update BTC 5M, 15M and 4H Data
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
