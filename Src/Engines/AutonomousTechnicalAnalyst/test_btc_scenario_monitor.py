@@ -43,6 +43,34 @@ class TestIndicators(unittest.TestCase):
         self.assertGreater(result["rsi"], 50)
 
 
+class TestStatusChart(unittest.TestCase):
+    def test_chart_renders_forward_scenario_paths_and_target_zones(self):
+        session = {
+            "breakout_levels": {"LONG": 64600.0, "SHORT": 55134.0},
+            "forecast": {
+                "4H": {
+                    "bullish": {
+                        "target_zone_low": 61200.0,
+                        "target_zone_high": 62600.0,
+                        "invalidation_price": 59455.0,
+                        "horizon_candles": 6,
+                        "confidence": 35,
+                    },
+                    "bearish": {
+                        "target_zone_low": 58000.0,
+                        "target_zone_high": 59023.0,
+                        "invalidation_price": 61683.9,
+                        "horizon_candles": 6,
+                        "confidence": 55,
+                    },
+                }
+            },
+        }
+        image = monitor.build_status_chart(candles(300, 48), session)
+        self.assertTrue(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertGreater(len(image), 10000)
+
+
 class TestScenarioEvaluation(unittest.TestCase):
     def setUp(self):
         self.generated_at = 1_700_000_000
