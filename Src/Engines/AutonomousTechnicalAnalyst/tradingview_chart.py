@@ -390,7 +390,15 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
 
     if (analysis && (analysis.decision === "LONG" || analysis.decision === "SHORT")) {
       const entry = analysis.entry || {};
-      addPriceLine(candles, Number(entry.entry_price), "#60a5fa", "AI Entry", 0);
+      const entryPrice = Number(entry.entry_price);
+      const zoneLow = Number(entry.entry_zone_low);
+      const zoneHigh = Number(entry.entry_zone_high);
+      addPriceLine(candles, entryPrice, "#60a5fa", "AI Entry", 0);
+      if (Number.isFinite(zoneLow) && Number.isFinite(zoneHigh) &&
+          zoneLow > 0 && zoneHigh > 0 && zoneLow !== zoneHigh) {
+        addPriceLine(candles, zoneLow, "#60a5fa", "Entry Zone Low", 1);
+        addPriceLine(candles, zoneHigh, "#60a5fa", "Entry Zone High", 1);
+      }
       addPriceLine(candles, Number(analysis.stop_loss), "#f23645", "Stop Loss", 2);
       addPriceLine(candles, Number(analysis.take_profit_1), "#089981", "TP1", 2);
       addPriceLine(candles, Number(analysis.take_profit_2), "#089981", "TP2", 2);
