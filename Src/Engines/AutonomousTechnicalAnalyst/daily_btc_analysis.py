@@ -905,6 +905,9 @@ def run_vision_analysis(market_context, previous_signal, open_trade):
     result = ask_openrouter_vision(
         image_path=CHART_FILE,
         prompt=prompt,
+        response_validator=lambda candidate: validate_vision_analysis(
+            candidate, previous_signal, open_trade, market_context
+        ),
     )
 
     if not isinstance(result, dict):
