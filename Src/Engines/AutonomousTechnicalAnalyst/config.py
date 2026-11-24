@@ -17,12 +17,12 @@ class Config:
     ]
 
     # AI request settings
-    MAX_OUTPUT_TOKENS = 3000
+    MAX_OUTPUT_TOKENS = 6000
     REQUEST_TIMEOUT = 60
     MAX_RETRIES = 2
     RETRY_BASE_SECONDS = 2
     RATE_LIMIT_MAX_WAIT_SECONDS = 30
-    MAX_VISION_MODELS = 5
+    MAX_VISION_MODELS = 6
     MIN_VISION_CONTEXT_LENGTH = 16000
 
     # Market configuration
