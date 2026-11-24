@@ -276,6 +276,7 @@ body{width:1800px;padding:22px}
    <div class="kv"><span class="muted">قیمت آخرین کندل 4H</span><strong class="value" id="last-price">—</strong></div>
    <div class="kv"><span class="muted">ساختار بازار</span><strong class="value" id="structure">—</strong></div>
    <div class="kv"><span class="muted">روند EMA</span><strong class="value" id="ema-trend">—</strong></div>
+   <div id="technical-metrics"></div>
   </section>
   <section class="side-section">
    <div class="side-title">برنامه معاملاتی</div>
@@ -314,6 +315,16 @@ body{width:1800px;padding:22px}
  set("last-price",fmt(m.metrics.close));
  set("structure",tfName(m.metrics.market_structure));
  set("ema-trend",tfName(m.metrics.ema_trend));
+ const technicalMetrics=root.getElementById("technical-metrics");
+ [["RSI 14",fmt(m.metrics.rsi)],["ADX 14",fmt(m.metrics.adx)],
+  ["Relative Volume",fmt(m.metrics.relative_volume)],["MACD Histogram",fmt(m.metrics.macd_histogram)],
+  ["UTC VWAP",fmt(m.metrics.vwap)],["Bollinger Upper",fmt(m.metrics.bb_upper)],
+  ["Bollinger Lower",fmt(m.metrics.bb_lower)]].forEach(metric=>{
+   const row=root.createElement("div");row.className="kv";
+   const label=root.createElement("span");label.className="muted";label.textContent=metric[0];
+   const value=root.createElement("strong");value.className="value";value.textContent=metric[1];
+   row.append(label,value);technicalMetrics.appendChild(row);
+  });
  const decision=a.decision||"WAIT";
  const badge=root.getElementById("decision-badge");
  badge.style.color=decision==="LONG"?"#22cfa7":decision==="SHORT"?"#fb7185":"#fbbf24";
