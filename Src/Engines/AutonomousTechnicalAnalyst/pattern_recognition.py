@@ -267,6 +267,88 @@ def _flag(frame):
         "شکست محدوده پرچم در جهت حرکت قبلی همراه با حجم")
 
 
+
+def _pennant(frame):
+    """Detect a compact converging consolidation after a strong impulse leg."""
+    if len(frame) < 28:
+        return None
+    recent = frame.tail(28).reset_index(drop=True)
+    impulse_start = _num(recent.iloc[0].get("close"))
+    impulse_end = _num(recent.iloc[9].get("close"))
+    if not impulse_start or not impulse_end:
+        return None
+    impulse = (impulse_end - impulse_start) / impulse_start
+    if abs(impulse) < 0.035:
+        return None
+
+    consolidation = recent.iloc[10:]
+    highs = [_num(value) for value in consolidation["high"]]
+    lows = [_num(value) for value in consolidation["low"]]
+    if any(value is None for value in highs + lows):
+        return None
+
+    count = len(consolidation)
+    x = list(range(count))
+    x_mean = sum(x) / count
+    denominator = sum((value - x_mean) ** 2 for value in x)
+    if denominator <= 0:
+        return None
+    high_mean = sum(highs) / count
+    low_mean = sum(lows) / count
+    high_slope = sum((x[i] - x_mean) * (highs[i] - high_mean) for i in x) / denominator
+    low_slope = sum((x[i] - x_mean) * (lows[i] - low_mean) for i in x) / denominator
+    upper_now = highs[-1] + high_slope * (count - 1)
+    lower_now = lows[-1] + low_slope * (count - 1)
+    initial_width = max(highs[0] - lows[0], 1e-9)
+    final_width = max(highs[-1] - lows[-1], 0)
+    if high_slope <= 0 or low_slope >= 0:
+        return None
+    if final_width >= initial_width * 0.8:
+        return None
+    if upper_now <= lower_now:
+        return None
+
+    direction = "BULLISH" if impulse > 0 else "BEARISH"
+    last_close = _num(recent.iloc[-1].get("close"))
+    if last_close is None:
+        return None
+    confirmed = last_close > upper_now if direction == "BULLISH" else last_close < lower_now
+    timestamps = [_num(value) for value in consolidation["timestamp"]]
+    if any(value is None for value in timestamps):
+        return None
+    start_time = int(timestamps[0] // 1000)
+    end_time = int(timestamps[-1] // 1000)
+    upper_start, upper_end = highs[0], highs[-1]
+    lower_start, lower_end = lows[0], lows[-1]
+    target = last_close + (impulse_end - impulse_start)
+    invalidation = lower_end if direction == "BULLISH" else upper_end
+
+    return _make(
+        "Bullish Pennant" if direction == "BULLISH" else "Bearish Pennant",
+        direction,
+        "CONFIRMED" if confirmed else "DEVELOPING",
+        74 if confirmed else 59,
+        [
+            {"time": start_time, "price": upper_start, "label": "P-U"},
+            {"time": end_time, "price": upper_end, "label": "P-U"},
+            {"time": start_time, "price": lower_start, "label": "P-L"},
+            {"time": end_time, "price": lower_end, "label": "P-L"},
+        ],
+        [
+            {"name": "Pennant upper", "points": [
+                {"time": start_time, "value": upper_start},
+                {"time": end_time, "value": upper_end},
+            ]},
+            {"name": "Pennant lower", "points": [
+                {"time": start_time, "value": lower_start},
+                {"time": end_time, "value": lower_end},
+            ]},
+        ],
+        target,
+        invalidation,
+        "بسته‌شدن کندل خارج از محدوده همگرا در جهت میله پرچم",
+    )
+
 def detect_chart_patterns(frame, swing_window=3):
     """Detect a small set of interpretable patterns on the supplied timeframe."""
     if frame is None or len(frame) < 30:
@@ -284,7 +366,8 @@ def detect_chart_patterns(frame, swing_window=3):
         _triangle(highs, lows, close),
         *_trend_patterns(highs, lows, close),
         _flag(frame),
+        _pennant(frame),
     ]
     patterns = [p for p in patterns if p is not None]
     patterns.sort(key=lambda p: (p["status"] != "CONFIRMED", -p["confidence"]))
-    return patterns[:6]
+    return patterns[:8]
