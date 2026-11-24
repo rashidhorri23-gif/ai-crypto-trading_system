@@ -2,6 +2,11 @@ name: BTC Dual Scenario Monitor
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "Src/Engines/AutonomousTechnicalAnalyst/btc_scenario_monitor.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_btc_scenario_monitor.py"
+      - ".github/workflows/btc_scenario_monitor.yml"
   schedule:
     - cron: "*/15 * * * *"
 
