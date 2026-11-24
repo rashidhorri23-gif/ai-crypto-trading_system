@@ -8,7 +8,7 @@ on:
       - "Src/Engines/AutonomousTechnicalAnalyst/test_btc_scenario_monitor.py"
       - ".github/workflows/btc_scenario_monitor.yml"
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "5,20,35,50 * * * *"
 
 permissions:
   contents: write
