@@ -1,0 +1,41 @@
+name: BTC Stage 5 Historical Research
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Src/Engines/AutonomousTechnicalAnalyst/btc_stage5_research.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_btc_stage5_research.py"
+      - ".github/workflows/btc_stage5_research.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Stage 5 Unit Tests
+        run: python -m unittest Src.Engines.AutonomousTechnicalAnalyst.test_btc_stage5_research -v
+
+      - name: Run Offline BTC Historical Research
+        run: python -m Src.Engines.AutonomousTechnicalAnalyst.btc_stage5_research
+
+      - name: Upload Research Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-stage5-historical-research
+          path: Data/Research/btc_stage5_research_report.json
+          if-no-files-found: error
+          retention-days: 30
