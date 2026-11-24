@@ -12,6 +12,9 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from io import BytesIO
+
+import requests
 from zoneinfo import ZoneInfo
 
 from Src.Engines.AutonomousTechnicalAnalyst import btc_scenario_performance as performance
@@ -352,6 +355,76 @@ def send_telegram(message, event_id, state):
 
 
 
+def build_status_chart(candles, session):
+    """Render a chart from confirmed OKX 5-minute candles and frozen scenario levels."""
+    if not isinstance(candles, list) or len(candles) < 2:
+        raise ValueError("At least two confirmed 5-minute candles are required for the status chart.")
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    selected = candles[-72:]
+    times = [datetime.fromtimestamp(item["timestamp"], timezone.utc) for item in selected]
+    closes = [float(item["close"]) for item in selected]
+    figure = Figure(figsize=(11, 6), dpi=150)
+    axis = figure.add_subplot(1, 1, 1)
+    axis.plot(times, closes, linewidth=1.8, label="BTC-USDT close (5m)")
+    axis.scatter(times[-1], closes[-1], s=24, zorder=3, label="Latest confirmed close")
+
+    levels = session.get("breakout_levels") or {}
+    for direction, color in (("LONG", "green"), ("SHORT", "red")):
+        level = levels.get(direction)
+        if level is not None:
+            axis.axhline(
+                float(level),
+                linestyle="--",
+                linewidth=1.2,
+                color=color,
+                label=f"{direction} breakout: {float(level):,.2f}",
+            )
+
+    axis.set_title("BTC-USDT | Scenario Monitor")
+    axis.set_ylabel("Price (USDT)")
+    axis.set_xlabel("Time (UTC)")
+    axis.grid(True, alpha=0.25)
+    axis.legend(loc="best", fontsize=8)
+    figure.autofmt_xdate()
+    figure.tight_layout()
+
+    output = BytesIO()
+    FigureCanvasAgg(figure).print_png(output)
+    return output.getvalue()
+
+
+def send_telegram_photo(image_bytes, caption, event_id, state):
+    sent_ids = state.setdefault("notification_ids", [])
+    if event_id in sent_ids:
+        return True
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        print("Telegram credentials are not configured; photo notification remains pending.")
+        return False
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{token}/sendPhoto",
+            data={"chat_id": chat_id, "caption": caption[:1024]},
+            files={"photo": ("btc_monitor_status.png", image_bytes, "image/png")},
+            timeout=45,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not result.get("ok"):
+            print(f"Telegram rejected monitor chart: {result}")
+            return False
+        sent_ids.append(event_id)
+        state["notification_ids"] = sent_ids[-500:]
+        return True
+    except Exception as error:
+        print(f"Telegram chart notification failed: {error}")
+        return False
+
+
 def telegram_get_updates(offset):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -421,7 +494,7 @@ def poll_telegram_commands(state):
         send_telegram(reply, event_id, state)
 
 
-def send_periodic_status(session, state):
+def send_periodic_status(session, state, candles_by_tf=None):
     if session.get("status") != "ACTIVE":
         return
     if not state.get("status_updates_enabled", False):
@@ -454,8 +527,20 @@ def send_periodic_status(session, state):
         confirmations = sum(1 for item in checks_map.values() if item.get("known") and item.get("met"))
         lines.append(f"{direction}: {status} ({confirmations}/3 conditions confirmed)")
     lines.append("Monitoring only. No trade was opened.")
+    message = "\n".join(lines)
     event_id = notification_id("periodic_status", session["analysis_id"], str(observed))
-    if send_telegram("\n".join(lines), event_id, state):
+
+    five_minute = (candles_by_tf or {}).get("5M", [])
+    sent = False
+    if len(five_minute) >= 2:
+        try:
+            chart = build_status_chart(five_minute, session)
+            sent = send_telegram_photo(chart, message, event_id, state)
+        except Exception as error:
+            print(f"Unable to build BTC monitor chart: {error}")
+    if not sent:
+        sent = send_telegram(message, event_id, state)
+    if sent:
         state["status_update_last_candle"] = observed
 
 
@@ -598,7 +683,7 @@ def main():
     session = process_session(
         report, generated_at, state, now_timestamp=now, candles_by_tf=candles_by_tf
     )
-    send_periodic_status(session, state)
+    send_periodic_status(session, state, candles_by_tf)
     performance.record_observation(session, now_timestamp=now)
     performance.update_outcomes(session, candles_by_tf, now_timestamp=now)
     performance.refresh_performance_report(generated_at=now)
