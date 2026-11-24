@@ -2,6 +2,11 @@ name: BTC Stage 5 Historical Research
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "Src/Engines/AutonomousTechnicalAnalyst/btc_stage5_research.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_btc_stage5_research.py"
+      - ".github/workflows/btc_stage5_research.yml"
 
 permissions:
   contents: read
