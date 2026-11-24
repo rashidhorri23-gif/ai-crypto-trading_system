@@ -24,7 +24,7 @@ def load_candles(path, interval):
             values = [candle[k] for k in ("open", "high", "low", "close", "volume")]
             if not all(math.isfinite(v) for v in values):
                 raise ValueError(f"Non-finite values in {path}")
-            if min(values[:4]) <= 0 or candle["high"] < max(values[:3]) or candle["low"] > min(candle["open"], candle["close"]):
+            if min(values[:4]) <= 0 or candle["high"] < max(candle["open"], candle["close"], candle["low"]) or candle["low"] > min(candle["open"], candle["close"]):
                 raise ValueError(f"Invalid OHLC geometry in {path}")
             rows.append(candle)
     rows.sort(key=lambda item: item["timestamp"])
@@ -108,7 +108,7 @@ def evaluate_variant(five, fifteen, four_hour, threshold):
     fifteen_close_times = [c["timestamp"] + TIMEFRAME_SECONDS["15m"] for c in fifteen]
     four_close_times = [c["timestamp"] + TIMEFRAME_SECONDS["4H"] for c in four_hour]
     signals = []
-    seen_breakouts = set()
+    seen_session_directions = set()
     j15 = -1
     j4h = -1
 
@@ -118,26 +118,37 @@ def evaluate_variant(five, fifteen, four_hour, threshold):
             j15 += 1
         while j4h + 1 < len(four_close_times) and four_close_times[j4h + 1] <= close_time:
             j4h += 1
-        if j4h < 20 or j15 < 0:
+        if j4h < 0 or j15 < 0:
             continue
+        # The daily BTC report is scheduled for 08:00 Baku (04:00 UTC).
+        session_start = close_time - ((close_time - 4 * 3600) % 86400)
+        baseline_index = -1
+        while baseline_index + 1 < len(four_close_times) and four_close_times[baseline_index + 1] <= session_start:
+            baseline_index += 1
+        if baseline_index < 19 or four_close_times[j4h] <= session_start:
+            continue
+        previous_20 = four_hour[baseline_index - 19:baseline_index + 1]
+        long_level = max(item["high"] for item in previous_20)
+        short_level = min(item["low"] for item in previous_20)
         current_4h = four_hour[j4h]
-        previous_20 = four_hour[j4h - 20:j4h]
-        long_breakout = current_4h["close"] > max(item["high"] for item in previous_20)
-        short_breakout = current_4h["close"] < min(item["low"] for item in previous_20)
+        long_breakout = current_4h["close"] > long_level
+        short_breakout = current_4h["close"] < short_level
         if not long_breakout and not short_breakout:
             continue
         for direction, breakout in (("LONG", long_breakout), ("SHORT", short_breakout)):
-            key = (j4h, direction)
-            if not breakout or key in seen_breakouts:
+            key = (session_start, direction)
+            if not breakout or key in seen_session_directions:
                 continue
             if is_aligned(fifteen_momentum[j15], direction, threshold) and is_aligned(five_momentum[i], direction, threshold):
                 signals.append({
                     "direction": direction, "entry_timestamp": close_time,
                     "entry_price": candle["close"],
                     "breakout_candle_close_timestamp": four_close_times[j4h],
+                    "frozen_breakout_level": long_level if direction == "LONG" else short_level,
+                    "daily_session_start_timestamp": session_start,
                     "rsi_threshold": threshold,
                 })
-                seen_breakouts.add(key)
+                seen_session_directions.add(key)
 
     for signal in signals:
         signal["horizons"] = {}
@@ -218,12 +229,12 @@ def run_research(data_dir, output_path):
             "four_hour_start": datetime.fromtimestamp(four_hour[0]["timestamp"], timezone.utc).isoformat(),
         },
         "rules": {
-            "breakout": "Confirmed 4H close above the previous 20 completed 4H highs for LONG, or below the previous 20 completed 4H lows for SHORT.",
+            "breakout": "Daily frozen breakout levels use the highest/lowest of the 20 completed 4H candles available at 08:00 Baku (04:00 UTC); a later confirmed 4H close must break that frozen level.",
             "momentum": "Both latest confirmed 15M and 5M snapshots require EMA50/EMA200 trend alignment, RSI threshold, and MACD histogram sign.",
             "baseline": "RSI > 50 for LONG and RSI < 50 for SHORT on both timeframes; other live filters unchanged.",
             "variants": "RSI thresholds 45, 50, and 55; short threshold is symmetric (100 - threshold).",
             "forward_windows": "1H, 4H, 12H, and 24H direction-adjusted close returns with MFE/MAE from confirmed 5M candles.",
-            "limitations": "Research sample is limited by archived 5M history. Results are descriptive, may contain correlated signals, and are not proof of profitability.",
+            "limitations": "Research sample is limited by archived 5M history. Historical daily sessions are anchored at 04:00 UTC to match the 08:00 Baku schedule. Results are descriptive, may contain correlated signals, and are not proof of profitability.",
             "live_system_changed": False,
             "orders_submitted": False,
         },
