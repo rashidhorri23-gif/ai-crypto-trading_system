@@ -26,10 +26,17 @@ def _build_caption(analysis, market_context):
     latest = timeframe_context.get("latest_confirmed_candle") or {}
     support = latest.get("support")
     resistance = latest.get("resistance")
+    is_rule_based = (
+        (analysis.get("forecast") or {}).get("source") == "RULE_BASED_TECHNICAL"
+    )
     lines = [
-        "📊 تحلیل هوشمند BTC-USDT | OKX",
+        "📊 تحلیل BTC-USDT | OKX",
         f"تصمیم: {decision} | جهت بازار: {bias}",
-        f"اطمینان تحلیل: {analysis.get('confidence', '—')}٪",
+        (
+            "سناریوها: تحلیل تکنیکال قانون‌محور؛ امتیاز همگرایی، نه احتمال آماری."
+            if is_rule_based
+            else f"اطمینان تحلیل AI: {analysis.get('confidence', '—')}٪"
+        ),
     ]
     if decision in ("LONG", "SHORT"):
         lines.extend([
