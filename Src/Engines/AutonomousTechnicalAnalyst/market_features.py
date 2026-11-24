@@ -475,6 +475,25 @@ def build_market_features(df):
         / result["volume_sma_20"].replace(0, np.nan)
     )
 
+    # Bollinger Bands and MACD provide complementary volatility/momentum context.
+    result["bb_middle"] = result["close"].rolling(20, min_periods=20).mean()
+    bb_std = result["close"].rolling(20, min_periods=20).std(ddof=0)
+    result["bb_upper"] = result["bb_middle"] + (2.0 * bb_std)
+    result["bb_lower"] = result["bb_middle"] - (2.0 * bb_std)
+
+    macd_fast = calculate_ema(result["close"], 12)
+    macd_slow = calculate_ema(result["close"], 26)
+    result["macd"] = macd_fast - macd_slow
+    result["macd_signal"] = calculate_ema(result["macd"], 9)
+    result["macd_histogram"] = result["macd"] - result["macd_signal"]
+
+    # UTC-session anchored VWAP. Zero-volume sessions remain unavailable.
+    typical_price = (result["high"] + result["low"] + result["close"]) / 3.0
+    session = pd.to_datetime(result["timestamp"], unit="ms", utc=True).dt.strftime("%Y-%m-%d")
+    cumulative_pv = (typical_price * result["volume"]).groupby(session).cumsum()
+    cumulative_volume = result["volume"].groupby(session).cumsum().replace(0, np.nan)
+    result["vwap_utc"] = cumulative_pv / cumulative_volume
+
     result = calculate_market_structure(
         result,
         swing_window=3,
