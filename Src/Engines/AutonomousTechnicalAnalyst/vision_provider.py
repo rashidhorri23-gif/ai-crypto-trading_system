@@ -33,6 +33,15 @@ def _read_error_body(error):
 
 
 
+def _is_shared_free_daily_limit(error_body):
+    """Detect OpenRouter's account-wide daily quota for free models."""
+    normalized = str(error_body).lower()
+    return (
+        "free-models-per-day" in normalized
+        or "openrouter_free_tier_daily" in normalized
+    )
+
+
 def _retry_after_seconds(error, fallback_seconds):
     """Read Retry-After as seconds or an HTTP date."""
     headers = getattr(error, "headers", None)
@@ -601,6 +610,23 @@ def ask_openrouter_vision(
 
             except urllib.error.HTTPError as error:
                 error_body = _read_error_body(error)
+
+                if error.code == 429 and _is_shared_free_daily_limit(error_body):
+                    model_error = (
+                        "OpenRouter account-wide free-model daily quota is exhausted "
+                        f"(first detected on {model_id}). Further free-model attempts "
+                        "were skipped because they share this quota. Wait for the "
+                        "provider reset or configure a funded model/API route. "
+                        f"Provider response: {error_body}"
+                    )
+                    model_errors.append(model_error)
+                    print("ERROR: " + model_error)
+                    return {
+                        "status": "error",
+                        "model": None,
+                        "content": None,
+                        "error": "\\n".join(model_errors),
+                    }
 
                 if error.code == 429 and not rate_limit_retried:
                     retry_delay = _retry_after_seconds(
