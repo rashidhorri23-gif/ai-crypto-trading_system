@@ -52,10 +52,15 @@ def _scenario_snapshot(session, direction):
         checks.get("15M_MOMENTUM", {}),
         checks.get("5M_MOMENTUM", {}),
     ]
+    momentum_ready = all(
+        item.get("known") and item.get("met") for item in momentum_checks
+    )
     if scenario.get("status") == "ACTIVATED":
         classification = "ACTIVATED"
     elif breakout.get("known") and breakout.get("met") and confirmations < 3:
         classification = "UNCONFIRMED_BREAKOUT_NEAR_MISS"
+    elif breakout.get("known") and not breakout.get("met") and momentum_ready:
+        classification = "MOMENTUM_READY_BREAKOUT_PENDING"
     elif confirmations == 3:
         classification = "ALL_CHECKS_MET"
     else:
@@ -276,18 +281,66 @@ def update_outcomes(session, candles_by_tf, outcomes_path=OUTCOMES_FILE, now_tim
     return store
 
 
+def _mean(values):
+    return sum(values) / len(values) if values else None
+
+
+def _condition_statistics(observation_records, direction, condition):
+    known = []
+    for observation in observation_records:
+        snapshot = observation.get("scenarios", {}).get(direction, {})
+        check = snapshot.get("checks", {}).get(condition, {})
+        if check.get("known"):
+            known.append(bool(check.get("met")))
+    passed = sum(1 for value in known if value)
+    return {
+        "known_count": len(known),
+        "passed_count": passed,
+        "failed_count": len(known) - passed,
+        "pass_rate_pct": round(passed / len(known) * 100.0, 4) if known else None,
+    }
+
+
+def _horizon_statistics(records, horizon):
+    resolved = [
+        item["windows"][horizon]
+        for item in records
+        if horizon in item.get("windows", {}) and item["windows"][horizon].get("resolved")
+    ]
+    returns = [item["forward_return_pct"] for item in resolved if "forward_return_pct" in item]
+    mfe = [item["max_favorable_excursion_pct"] for item in resolved if "max_favorable_excursion_pct" in item]
+    mae = [item["max_adverse_excursion_pct"] for item in resolved if "max_adverse_excursion_pct" in item]
+    return {
+        "resolved_count": len(resolved),
+        "positive_forward_return_count": sum(1 for value in returns if value > 0),
+        "positive_forward_return_rate_pct": (
+            round(sum(1 for value in returns if value > 0) / len(returns) * 100.0, 4)
+            if returns else None
+        ),
+        "average_forward_return_pct": _mean(returns),
+        "average_mfe_pct": _mean(mfe),
+        "average_mae_pct": _mean(mae),
+    }
+
+
 def build_performance_report(observations, outcomes, generated_at=None):
     observation_records = observations.get("records", [])
     outcome_records = outcomes.get("records", [])
     report = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "symbol": "BTC-USDT",
-        "generated_at": utc_iso(generated_at if generated_at is not None else datetime.now(timezone.utc).timestamp()),
+        "generated_at": utc_iso(
+            generated_at if generated_at is not None
+            else datetime.now(timezone.utc).timestamp()
+        ),
         "methodology": {
             "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
             "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
             "failed_breakout": "A failed 4H breakout is recorded only if a confirmed 4H candle closes back through the frozen breakout level within 4 hours.",
             "near_miss": "A frozen 4H breakout is met but one or both 15M/5M momentum confirmations are missing; this is a candidate, not an activated signal.",
+            "momentum_ready_breakout_pending": "Both 15M and 5M momentum checks pass while the frozen 4H breakout check does not; this is a pending setup candidate, not a confirmed missed trade.",
+            "condition_rates": "Pass rates use only observations where that condition was known; unknown/stale conditions are excluded from the denominator.",
+            "activation_rate": "Activations per 100 monitoring observations is descriptive only and is not a probability of trade success.",
             "not_a_trading_backtest": True,
         },
         "observations_count": len(observation_records),
@@ -301,15 +354,57 @@ def build_performance_report(observations, outcomes, generated_at=None):
         "scenarios": {},
     }
     for direction in ("LONG", "SHORT"):
+        direction_observations = [
+            item for item in observation_records
+            if direction in item.get("scenarios", {})
+        ]
+        snapshots = [
+            item["scenarios"][direction] for item in direction_observations
+        ]
         direction_records = [
-            item for item in outcome_records
-            if item.get("direction") == direction
+            item for item in outcome_records if item.get("direction") == direction
         ]
         activated = [item for item in direction_records if item.get("kind") == "ACTIVATED"]
-        near_misses = [item for item in direction_records if item.get("kind") == "UNCONFIRMED_NEAR_MISS"]
+        near_misses = [
+            item for item in direction_records
+            if item.get("kind") == "UNCONFIRMED_NEAR_MISS"
+        ]
+        momentum_ready = sum(
+            1 for item in snapshots
+            if item.get("classification") == "MOMENTUM_READY_BREAKOUT_PENDING"
+        )
+        near_miss_observations = sum(
+            1 for item in snapshots
+            if item.get("classification") == "UNCONFIRMED_BREAKOUT_NEAR_MISS"
+        )
+        activated_observations = sum(
+            1 for item in snapshots
+            if item.get("status") == "ACTIVATED"
+            or item.get("classification") == "ACTIVATED"
+        )
+        condition_statistics = {
+            "4H_BREAKOUT": _condition_statistics(
+                observation_records, direction, "4H_BREAKOUT"
+            ),
+            "15M_MOMENTUM": _condition_statistics(
+                observation_records, direction, "15M_MOMENTUM"
+            ),
+            "5M_MOMENTUM": _condition_statistics(
+                observation_records, direction, "5M_MOMENTUM"
+            ),
+        }
         scenario_summary = {
+            "monitoring_observations": len(direction_observations),
             "activated_count": len(activated),
+            "activated_observation_count": activated_observations,
+            "activations_per_100_observations": (
+                round(len(activated) / len(direction_observations) * 100.0, 4)
+                if direction_observations else None
+            ),
             "near_miss_candidate_count": len(near_misses),
+            "near_miss_observation_count": near_miss_observations,
+            "momentum_ready_breakout_pending_observation_count": momentum_ready,
+            "potential_missed_opportunity_candidates": near_miss_observations + momentum_ready,
             "failed_breakout_count": sum(
                 1 for item in activated
                 if item.get("breakout_assessment", {}).get("status") == "FAILED_RECLAIM"
@@ -318,60 +413,54 @@ def build_performance_report(observations, outcomes, generated_at=None):
                 1 for item in activated
                 if item.get("breakout_assessment", {}).get("status") == "HELD_THROUGH_4H"
             ),
-            "horizons": {},
+            "breakout_assessment_pending_count": sum(
+                1 for item in activated
+                if item.get("breakout_assessment", {}).get("status") == "PENDING"
+            ),
+            "condition_statistics": condition_statistics,
+            "horizons": {
+                horizon: _horizon_statistics(activated, horizon)
+                for horizon in HORIZONS
+            },
+            "near_miss_horizons": {
+                horizon: _horizon_statistics(near_misses, horizon)
+                for horizon in NEAR_MISS_HORIZONS
+            },
         }
-        for horizon in HORIZONS:
-            resolved = [
-                item["windows"][horizon]
-                for item in activated
-                if horizon in item.get("windows", {}) and item["windows"][horizon].get("resolved")
-            ]
-            scenario_summary["horizons"][horizon] = {
-                "resolved_count": len(resolved),
-                "positive_forward_return_count": sum(
-                    1 for item in resolved if item.get("forward_return_pct", 0) > 0
-                ),
-                "average_forward_return_pct": (
-                    sum(item["forward_return_pct"] for item in resolved) / len(resolved)
-                    if resolved else None
-                ),
-                "average_mfe_pct": (
-                    sum(item["max_favorable_excursion_pct"] for item in resolved) / len(resolved)
-                    if resolved else None
-                ),
-                "average_mae_pct": (
-                    sum(item["max_adverse_excursion_pct"] for item in resolved) / len(resolved)
-                    if resolved else None
-                ),
-            }
-        scenario_summary["near_miss_horizons"] = {}
-        for horizon in NEAR_MISS_HORIZONS:
-            resolved_candidates = [
-                item["windows"][horizon]
-                for item in near_misses
-                if horizon in item.get("windows", {}) and item["windows"][horizon].get("resolved")
-            ]
-            scenario_summary["near_miss_horizons"][horizon] = {
-                "resolved_count": len(resolved_candidates),
-                "positive_forward_return_count": sum(
-                    1 for item in resolved_candidates if item.get("forward_return_pct", 0) > 0
-                ),
-                "average_forward_return_pct": (
-                    sum(item["forward_return_pct"] for item in resolved_candidates) / len(resolved_candidates)
-                    if resolved_candidates else None
-                ),
-                "average_mfe_pct": (
-                    sum(item["max_favorable_excursion_pct"] for item in resolved_candidates) / len(resolved_candidates)
-                    if resolved_candidates else None
-                ),
-                "average_mae_pct": (
-                    sum(item["max_adverse_excursion_pct"] for item in resolved_candidates) / len(resolved_candidates)
-                    if resolved_candidates else None
-                ),
-            }
         report["scenarios"][direction] = scenario_summary
-    return report
 
+    long_summary = report["scenarios"]["LONG"]
+    short_summary = report["scenarios"]["SHORT"]
+    comparison = {}
+    for horizon in HORIZONS:
+        long_return = long_summary["horizons"][horizon]["average_forward_return_pct"]
+        short_return = short_summary["horizons"][horizon]["average_forward_return_pct"]
+        if long_return is None or short_return is None:
+            preferred = "INSUFFICIENT_DATA"
+        elif long_return > short_return:
+            preferred = "LONG"
+        elif short_return > long_return:
+            preferred = "SHORT"
+        else:
+            preferred = "TIE"
+        comparison[horizon] = {
+            "long_average_forward_return_pct": long_return,
+            "short_average_forward_return_pct": short_return,
+            "higher_average_forward_return_direction": preferred,
+        }
+    report["direction_comparison"] = {
+        "higher_activation_count": (
+            "LONG" if long_summary["activated_count"] > short_summary["activated_count"]
+            else "SHORT" if short_summary["activated_count"] > long_summary["activated_count"]
+            else "TIE"
+        ),
+        "higher_4h_positive_return_rate": comparison["4H"][
+            "higher_average_forward_return_direction"
+        ],
+        "by_horizon": comparison,
+        "warning": "Do not rank LONG versus SHORT until each direction has a sufficient resolved sample.",
+    }
+    return report
 
 def refresh_performance_report(observations_path=OBSERVATIONS_FILE, outcomes_path=OUTCOMES_FILE,
                                report_path=PERFORMANCE_FILE, generated_at=None):
