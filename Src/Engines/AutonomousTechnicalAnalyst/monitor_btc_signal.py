@@ -161,6 +161,7 @@ def load_state():
     state.setdefault("pending_signal", None)
     state.setdefault("pending_ai_close", None)
     state.setdefault("notification_ids", [])
+    state.setdefault("target_watch", None)
 
     return state
 
@@ -1184,6 +1185,11 @@ def try_open_pending_signal(candle, state, ledger):
         candle["timestamp"] + FIVE_MINUTES_SECONDS
     )
 
+    state["target_watch"] = build_target_watch(
+        signal,
+        trade,
+    )
+
     state["last_opened_analysis_id"] = signal["analysis_id"]
     state["pending_signal"] = None
 
@@ -1307,7 +1313,172 @@ def process_ai_close(candle, state, ledger):
     save_state(state)
 
 
+
+# ============================================================
+# DAILY TARGET WATCH
+# ============================================================
+
+def next_baku_0800_timestamp(reference_timestamp):
+    from zoneinfo import ZoneInfo
+    from datetime import timedelta
+
+    baku = ZoneInfo("Asia/Baku")
+    local_time = datetime.fromtimestamp(
+        reference_timestamp,
+        timezone.utc,
+    ).astimezone(baku)
+    next_run = local_time.replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if local_time >= next_run:
+        next_run += timedelta(days=1)
+    return next_run.astimezone(timezone.utc).timestamp()
+
+
+def build_target_watch(signal, trade):
+    entry_timestamp = int(trade["entry_timestamp"])
+    return {
+        "analysis_id": signal["analysis_id"],
+        "trade_id": trade["trade_id"],
+        "direction": trade["direction"],
+        "entry_price": float(trade["entry_reference_price"]),
+        "entry_timestamp": entry_timestamp,
+        "stop_loss": float(trade["stop_loss_initial"]),
+        "targets": {
+            "TP1": float(trade["take_profit_1"]),
+            "TP2": float(trade["take_profit_2"]),
+            "TP3": float(trade["take_profit_3"]),
+        },
+        "reached": {
+            "TP1": False,
+            "TP2": False,
+            "TP3": False,
+        },
+        "notification_sent": {
+            "TP1": False,
+            "TP2": False,
+            "TP3": False,
+            "STOP_LOSS": False,
+        },
+        "status": "ACTIVE",
+        "expires_at": next_baku_0800_timestamp(entry_timestamp),
+        "created_at": utc_iso(),
+    }
+
+
+def _target_touched(direction, high, low, level, target_name):
+    if target_name == "STOP_LOSS":
+        return low <= level if direction == "LONG" else high >= level
+    return high >= level if direction == "LONG" else low <= level
+
+
+def process_target_watch(candle, state):
+    """Track daily plan milestones independently of paper position closure."""
+    watch = state.get("target_watch")
+    if not isinstance(watch, dict) or watch.get("status") != "ACTIVE":
+        return
+
+    candle_close_timestamp = int(candle["timestamp"]) + FIVE_MINUTES_SECONDS
+    if candle_close_timestamp <= int(watch["entry_timestamp"]):
+        return
+
+    if candle_close_timestamp >= float(watch["expires_at"]):
+        watch["status"] = "EXPIRED"
+        watch["expired_at"] = utc_iso(candle_close_timestamp)
+        save_state(state)
+        send_telegram(
+            "BTC DAILY TARGET WATCH EXPIRED\n"
+            f"Analysis ID: {watch['analysis_id']}\n"
+            "The daily monitoring window ended at 08:00 Baku.",
+            make_notification_id("target_watch_expired", watch["analysis_id"]),
+            state,
+        )
+        return
+
+    high = float(candle["high"])
+    low = float(candle["low"])
+    direction = watch["direction"]
+
+    # Before TP1, the original stop invalidates the target plan.
+    # If stop and TP1 are both touched in one OHLC candle, stop is assumed first.
+    if not watch["reached"]["TP1"] and _target_touched(
+        direction, high, low, float(watch["stop_loss"]), "STOP_LOSS"
+    ):
+        watch["status"] = "INVALIDATED"
+        watch["invalidated_at"] = utc_iso(candle_close_timestamp)
+        watch["notification_sent"]["STOP_LOSS"] = False
+        save_state(state)
+        sent = send_telegram(
+            "BTC DAILY PLAN INVALIDATED — STOP LOSS TOUCHED\n"
+            f"Direction: {direction}\n"
+            f"Stop loss: {watch['stop_loss']}\n"
+            f"Analysis ID: {watch['analysis_id']}\n"
+            "No further targets will be tracked for this plan.",
+            make_notification_id("target_watch_stop", watch["analysis_id"]),
+            state,
+        )
+        if sent:
+            watch["notification_sent"]["STOP_LOSS"] = True
+            save_state(state)
+        return
+
+    newly_reached = []
+    for target_name in ("TP1", "TP2", "TP3"):
+        if watch["reached"].get(target_name):
+            continue
+        target_price = float(watch["targets"][target_name])
+        if _target_touched(direction, high, low, target_price, target_name):
+            watch["reached"][target_name] = True
+            watch["reached_at"] = watch.get("reached_at", {})
+            watch["reached_at"][target_name] = utc_iso(candle_close_timestamp)
+            newly_reached.append(target_name)
+
+    if not newly_reached:
+        return
+
+    save_state(state)
+    multiple = len(newly_reached) > 1
+    for target_name in newly_reached:
+        if watch["notification_sent"].get(target_name):
+            continue
+        note = (
+            "\\nNote: one 5M candle crossed multiple targets; "
+            "the exact intrabar order cannot be determined from OHLC data."
+            if multiple else ""
+        )
+        message = (
+            f"BTC {target_name} REACHED\\n"
+            f"Direction: {direction}\\n"
+            f"Target: {watch['targets'][target_name']}\\n"
+            f"Analysis ID: {watch['analysis_id']}\\n"
+            "Daily target monitoring remains active until the next 08:00 Baku analysis."
+            f"{note}"
+        )
+        sent = send_telegram(
+            message,
+            make_notification_id(
+                "daily_target_reached",
+                f"{watch['analysis_id']}:{target_name}",
+            ),
+            state,
+        )
+        if sent:
+            watch["notification_sent"][target_name] = True
+            save_state(state)
+
+    if all(watch["reached"].values()):
+        watch["status"] = "TARGETS_COMPLETED"
+        watch["completed_at"] = utc_iso(candle_close_timestamp)
+        save_state(state)
+
+
+
 def process_one_candle(candle, state, ledger):
+    process_target_watch(candle, state)
+
     previous_status = {
         trade["trade_id"]: trade.get("status")
         for trade in ledger["trades"]
