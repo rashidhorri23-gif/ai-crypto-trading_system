@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
+from .pattern_recognition import detect_chart_patterns
+
 
 LIGHTWEIGHT_CHARTS_VERSION = "5.3.0"
 CHART_CANDLE_LIMIT = 120
@@ -41,6 +43,7 @@ def _prepare_timeframe(timeframe, result):
 
     candles = []
     ema = {"ema_20": [], "ema_50": [], "ema_200": []}
+    overlays = {"bb_upper": [], "bb_middle": [], "bb_lower": [], "vwap_utc": []}
     volume = []
     markers = []
     pivots_high = []
@@ -67,6 +70,10 @@ def _prepare_timeframe(timeframe, result):
             value = _number(row.get(field))
             if value is not None:
                 ema[field].append({"time": candle_time, "value": value})
+        for field in overlays:
+            value = _number(row.get(field))
+            if value is not None:
+                overlays[field].append({"time": candle_time, "value": value})
 
         volume.append({
             "time": candle_time,
@@ -119,8 +126,10 @@ def _prepare_timeframe(timeframe, result):
         "timeframe": timeframe,
         "candles": candles,
         "ema": ema,
+        "overlays": overlays,
         "volume": volume,
         "markers": markers,
+        "patterns": detect_chart_patterns(result["data"]),
         "levels": {
             "supports": nearest_levels(pivots_low, True),
             "resistances": nearest_levels(pivots_high, False),
@@ -134,6 +143,10 @@ def _prepare_timeframe(timeframe, result):
             "rsi": _number(latest.get("rsi_14")),
             "adx": _number(latest.get("adx_14")),
             "relative_volume": _number(latest.get("relative_volume")),
+            "macd_histogram": _number(latest.get("macd_histogram")),
+            "vwap": _number(latest.get("vwap_utc")),
+            "bb_upper": _number(latest.get("bb_upper")),
+            "bb_lower": _number(latest.get("bb_lower")),
         },
     }
 
@@ -238,6 +251,11 @@ body{width:1800px;padding:22px}
    <div id="levels"></div>
    <div class="trade-note">سطوح از پیوت‌های تأییدشده استخراج می‌شوند؛ در صورت نبود سطح معتبر، مقدار نمایش داده نمی‌شود.</div>
   </section>
+  <section class="side-section">
+   <div class="side-title">الگوهای شناسایی‌شده</div>
+   <div id="chart-patterns"></div>
+   <div class="trade-note">الگوها با الگوریتم هندسی روی کندل‌ها و سوئینگ‌های تأییدشده شناسایی می‌شوند؛ امتیاز ساختاری، احتمال آماری برد نیست.</div>
+  </section>
  </aside>
 </div>
 <div class="bottom-grid">
@@ -288,6 +306,11 @@ body{width:1800px;padding:22px}
    color:s[1],lineWidth:2,title:s[2],priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
   });line.setData(points);}
  });
+ [["bb_upper","#64748b","BB Upper"],["bb_middle","#475569","BB Mid"],["bb_lower","#64748b","BB Lower"],["vwap_utc","#facc15","UTC VWAP"]].forEach(s=>{
+  const points=m.overlays[s[0]]||[];if(points.length){const line=chart.addSeries(LightweightCharts.LineSeries,{
+   color:s[1],lineWidth:1,lineStyle:2,title:s[2],priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+  });line.setData(points);}
+ });
  const volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceScaleId:"volume",
   priceFormat:{type:"volume"},lastValueVisible:false,priceLineVisible:false});
  volume.setData(m.volume);chart.priceScale("volume").applyOptions({scaleMargins:{top:.84,bottom:0},visible:false});
@@ -317,7 +340,29 @@ body{width:1800px;padding:22px}
   addLine(candles,a.take_profit_2,"#22c55e","هدف ۲",1);
   addLine(candles,a.take_profit_3,"#22c55e","هدف ۳",1);
  }
- if(m.markers.length)LightweightCharts.createSeriesMarkers(candles,m.markers);
+ const patternMarkers=[];
+ (m.patterns||[]).slice(0,3).forEach((pattern,index)=>{
+  const color=pattern.direction==="BULLISH"?"#22cfa7":pattern.direction==="BEARISH"?"#fb7185":"#fbbf24";
+  (pattern.lines||[]).forEach(boundary=>{
+   const points=(boundary.points||[]).filter(point=>Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.value)));
+   if(points.length>=2){
+    const line=chart.addSeries(LightweightCharts.LineSeries,{
+     color,lineWidth:2,lineStyle:pattern.status==="CONFIRMED"?0:2,
+     title:pattern.name+" "+boundary.name,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+    });
+    line.setData(points.map(point=>({time:Number(point.time),value:Number(point.value)})));
+   }
+  });
+  (pattern.points||[]).forEach(point=>{
+   if(Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.price))){
+    patternMarkers.push({time:Number(point.time),position:pattern.direction==="BEARISH"?"aboveBar":"belowBar",color,shape:"circle",text:String(point.label||pattern.name).slice(0,8)});
+   }
+  });
+  if(index===0){addLine(candles,pattern.target,color,"هدف الگو",2);addLine(candles,pattern.invalidation,"#fbbf24","ابطال الگو",2);}
+ });
+ if(m.markers.length||patternMarkers.length){
+  LightweightCharts.createSeriesMarkers(candles,m.markers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
+ }
  chart.timeScale().fitContent();
  const plan=root.getElementById("trade-plan");
  function kv(label,value,cls){const row=root.createElement("div");row.className="kv";
@@ -334,6 +379,16 @@ body{width:1800px;padding:22px}
   kv("وضعیت","بدون ورود تأییدشده","amber");
   set("trade-note","تا زمان تأیید شرایط ورود، نقطه ورود و حد ضرر معاملاتی تعریف نمی‌شود. خطوط سناریو، پیش‌بینی مشروط‌اند.");
  }
+ const patternPanel=root.getElementById("chart-patterns");
+ (m.patterns||[]).forEach(pattern=>{
+  const item=root.createElement("div");item.className="kv";
+  const label=root.createElement("span");label.className="muted";
+  label.textContent=pattern.name+" · "+(pattern.direction==="BULLISH"?"صعودی":pattern.direction==="BEARISH"?"نزولی":"خنثی");
+  const status=root.createElement("strong");status.className="value "+(pattern.status==="CONFIRMED"?"green":"amber");
+  status.textContent=pattern.status==="CONFIRMED"?"تأییدشده":"در حال شکل‌گیری";
+  item.append(label,status);patternPanel.appendChild(item);
+ });
+ if(!(m.patterns||[]).length)patternPanel.textContent="در داده فعلی الگوی معتبر شناسایی نشد.";
  const levels=root.getElementById("levels");
  function levelRow(label,value,cls){const row=root.createElement("div");row.className="kv";
   const l=root.createElement("span");l.className="muted";l.textContent=label;
@@ -360,7 +415,7 @@ body{width:1800px;padding:22px}
   const d=p.confirmations[tf],box=root.createElement("div");box.className="confirm-row";
   const title=root.createElement("strong");title.textContent=tf;
   const detail=root.createElement("div");detail.className="sub";
-  detail.textContent="ساختار: "+tfName(d.market_structure)+" · روند EMA: "+tfName(d.ema_trend)+" · RSI: "+fmt(d.rsi)+" · ADX: "+fmt(d.adx);
+  detail.textContent="ساختار: "+tfName(d.market_structure)+" · روند EMA: "+tfName(d.ema_trend)+" · RSI: "+fmt(d.rsi)+" · ADX: "+fmt(d.adx)+" · MACD hist: "+fmt(d.macd_histogram);
   box.append(title,detail);conf.appendChild(box);
  });
  requestAnimationFrame(()=>requestAnimationFrame(()=>{window.__CHART_READY__=true;}));
