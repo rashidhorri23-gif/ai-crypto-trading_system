@@ -406,7 +406,23 @@ body{width:1536px;padding:10px}
  // SMC zones remain in the analysis payload and side report; avoid stacking four more price-axis lines.
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
- // Conditional forecast levels are shown in the scenario panels, not as competing full-width chart lines.
+ // Draw only the AI-provided 4H scenario destination as a conditional projection.
+ const lastCandle=m.candles[m.candles.length-1];
+ function drawScenarioPath(item,color,title){
+  if(!item||item.target_zone_low==null||item.target_zone_high==null)return;
+  const low=Number(item.target_zone_low),high=Number(item.target_zone_high);
+  if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<low)return;
+  const target=(low+high)/2;
+  const horizon=Math.max(1,Math.min(100,Number(item.horizon_candles)||6));
+  const futureTime=lastCandle.time+horizon*14400;
+  const path=chart.addSeries(LightweightCharts.LineSeries,{color,lineWidth:3,lineStyle:2,title,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
+  path.setData([{time:lastCandle.time,value:lastCandle.close},{time:futureTime,value:target}]);
+  addLine(candles,low,color,title+" zone low",2,false);
+  addLine(candles,high,color,title+" zone high",2,false);
+ }
+ drawScenarioPath(bull,"#20d6aa","سناریوی صعودی");
+ drawScenarioPath(bear,"#ff637e","سناریوی نزولی");
+ // Trade entry and risk levels remain separate from conditional forecast paths.
  if(decision==="LONG"||decision==="SHORT"){
   const e=a.entry||{};
   addLine(candles,e.entry_price,"#60a5fa","ورود",0,true);
