@@ -49,7 +49,7 @@ def _build_frame(interval_ms, count=260):
     frame["bos_bullish"] = False
     frame["bos_bearish"] = False
 
-    for position in range(12, count, 24):
+    for position in range(12, count - 8, 24):
         frame.loc[position, "swing_high"] = high[position - 3]
         frame.loc[position + 8, "swing_low"] = low[position + 5]
 
