@@ -263,6 +263,9 @@ def main():
                     f"Chart image was not generated correctly: {chart_path.name}"
                 )
 
+    qa_output = Path("Reports/BTC_Chart_QA.png")
+    render_tradingview_chart(results, qa_output, analysis=wait_analysis)
+    print(f"TRADINGVIEW CHART QA IMAGE: {qa_output}")
     print("TRADINGVIEW CHART RENDERER TEST PASSED")
     return 0
 
