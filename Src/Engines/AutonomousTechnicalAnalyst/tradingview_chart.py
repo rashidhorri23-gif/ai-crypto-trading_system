@@ -510,7 +510,8 @@ body{width:1780px;padding:14px}
   });
  });
  const markerCutoff=m.candles[Math.max(0,m.candles.length-40)].time;
- const markerPriority=marker=>/^(CH|BOS)/.test(marker.text||"")?0:/^SW/.test(marker.text||"")?1:2;\n const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time).slice(0,12);
+ const markerPriority=marker=>/^(CH|BOS)/.test(marker.text||"")?0:/^SW/.test(marker.text||"")?1:2;
+ const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time).slice(0,12);
  if(visibleMarkers.length||patternMarkers.length){
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
