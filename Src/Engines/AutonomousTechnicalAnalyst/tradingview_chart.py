@@ -417,8 +417,7 @@ body{width:1536px;padding:10px}
   const futureTime=lastCandle.time+horizon*14400;
   const path=chart.addSeries(LightweightCharts.LineSeries,{color,lineWidth:3,lineStyle:2,title,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
   path.setData([{time:lastCandle.time,value:lastCandle.close},{time:futureTime,value:target}]);
-  addLine(candles,low,color,title+" zone low",2,false);
-  addLine(candles,high,color,title+" zone high",2,false);
+
  }
  drawScenarioPath(bull,"#20d6aa","سناریوی صعودی");
  drawScenarioPath(bear,"#ff637e","سناریوی نزولی");
@@ -500,7 +499,7 @@ body{width:1536px;padding:10px}
   patternPanel.appendChild(detail);
   const card=root.createElement("div");card.className="pattern-item";
   const mini=root.createElement("canvas");mini.width=48;mini.height=20;mini.className="pattern-icon";
-  const ctx=mini.getContext("2d");ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(2,17);ctx.lineTo(45,3);ctx.moveTo(2,3);ctx.lineTo(45,17);ctx.stroke();
+  const ctx=mini.getContext("2d");ctx.strokeStyle=color;ctx.lineWidth=1.8;\n  const geometry=(pattern.lines||[]).flatMap(line=>line.points||[]);\n  const times=geometry.map(point=>Number(point.time)).filter(Number.isFinite);\n  const prices=geometry.map(point=>Number(point.value)).filter(Number.isFinite);\n  const minTime=Math.min(...times),maxTime=Math.max(...times),minPrice=Math.min(...prices),maxPrice=Math.max(...prices);\n  (pattern.lines||[]).forEach(boundary=>{const pts=boundary.points||[];if(pts.length<2)return;ctx.beginPath();pts.forEach((point,index)=>{const x=2+(Number(point.time)-minTime)/Math.max(1,maxTime-minTime)*44;const y=18-(Number(point.value)-minPrice)/Math.max(1e-9,maxPrice-minPrice)*16;if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();});
   const name=root.createElement("strong");name.textContent=pattern.name;const state=root.createElement("span");state.textContent=pattern.status==="CONFIRMED"?"تأیید شده":"در حال تشکیل";card.append(mini,name,state);patternCards.appendChild(card);
  });
  if(!(m.patterns||[]).length){patternPanel.textContent="در داده فعلی الگوی معتبر شناسایی نشد.";patternCards.textContent="الگوی معتبر یافت نشد";}
