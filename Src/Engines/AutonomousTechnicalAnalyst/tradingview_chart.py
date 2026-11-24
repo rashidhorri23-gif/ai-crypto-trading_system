@@ -45,6 +45,10 @@ def _prepare_timeframe(timeframe, result):
     ema = {"ema_20": [], "ema_50": [], "ema_200": []}
     overlays = {"bb_upper": [], "bb_middle": [], "bb_lower": [], "vwap_utc": []}
     volume = []
+    rsi_values = []
+    macd_values = []
+    macd_signal_values = []
+    macd_histogram_values = []
     markers = []
     pivots_high = []
     pivots_low = []
@@ -81,6 +85,15 @@ def _prepare_timeframe(timeframe, result):
             "color": "rgba(8,153,129,0.48)" if close_price >= open_price
             else "rgba(242,54,69,0.48)",
         })
+
+        for source, destination in (
+            ("rsi_14", rsi_values), ("macd", macd_values),
+            ("macd_signal", macd_signal_values),
+            ("macd_histogram", macd_histogram_values),
+        ):
+            value = _number(row.get(source))
+            if value is not None:
+                destination.append({"time": candle_time, "value": value})
 
         pivot_time = candle_time - SWING_CONFIRMATION_CANDLES * TIMEFRAME_SECONDS[timeframe]
         swing_high = _number(row.get("swing_high"))
@@ -154,6 +167,9 @@ def _prepare_timeframe(timeframe, result):
         "ema": ema,
         "overlays": overlays,
         "volume": volume,
+        "indicators": {"rsi": rsi_values, "macd": macd_values,
+            "macd_signal": macd_signal_values,
+            "macd_histogram": macd_histogram_values},
         "markers": markers,
         "patterns": detect_chart_patterns(result["data"].tail(CHART_CANDLE_LIMIT)),
         "levels": {
@@ -220,35 +236,44 @@ def _build_html(payload):
 <title>BTC-USDT AI Market Dashboard</title>
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:#050b14;color:#e2e8f0;font-family:Arial,Tahoma,sans-serif}
-body{width:1500px;padding:18px}
-.header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 22px;margin-bottom:16px;background:#0b1625;border:1px solid #26364c;border-radius:14px;flex-wrap:wrap}
-.brand{font-size:32px;font-weight:700}.sub{font-size:17px;color:#91a4bc;margin-top:7px}
-.pills{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:12px 16px;background:#101f32;border:1px solid #34465e;border-radius:9px;font-size:18px}
-.pill b{margin-left:6px;color:#f8fafc}
-.main-grid{display:grid;grid-template-columns:minmax(0,1.85fr) minmax(390px,1fr);gap:14px;align-items:start}
-.panel{background:#091422;border:1px solid #26364c;border-radius:13px;overflow:hidden}
-.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 19px;background:#101e30;border-bottom:1px solid #26364c;flex-wrap:wrap}
-.panel-title{font-size:23px;font-weight:700}.panel-sub{font-size:16px;color:#91a4bc;margin-top:5px}
-.chart{height:760px;width:100%}
-.sidebar{display:grid;grid-template-columns:1fr;gap:12px;margin:0}
-.side-section{padding:14px 16px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
-.side-title{font-size:20px;font-weight:700;margin-bottom:14px;color:#f1f5f9}
-.decision{display:inline-block;padding:8px 12px;border-radius:20px;border:1px solid #64748b;font-weight:700;margin-bottom:12px}
-.reason{direction:rtl;text-align:right;line-height:1.9;color:#dbeafe;font-size:18px}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #1e3045;font-size:17px}
-.kv:last-child{border-bottom:0}.muted{color:#9aabc0}.value{font-weight:700;text-align:left}
-.green{color:#22cfa7}.red{color:#fb7185}.amber{color:#fbbf24}.blue{color:#60a5fa}
-.trade-note{font-size:15px;color:#9aabc0;line-height:1.8;direction:rtl;text-align:right;margin-top:11px}
-.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
-.scenario{padding:19px;background:#0b1727;border:1px solid #26364c;border-radius:12px;direction:rtl;text-align:right}
-.scenario h3{margin:0 0 13px;font-size:23px}.scenario p{margin:9px 0;line-height:1.9;font-size:17px}
-.scenario.bull h3{color:#22cfa7}.scenario.bear h3{color:#fb7185}
-.confirm{grid-column:1/-1;padding:18px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
-.confirm h3{margin:0 0 12px;font-size:21px}
-.confirm-row{padding:10px 0;border-bottom:1px solid #1e3045}
-.confirm-row:last-child{border:0}.confirm-row strong{font-size:16px}
-.footer{text-align:right;color:#71839a;font-size:12px;padding:13px 4px 0}
+html,body{margin:0;padding:0;background:#030b18;color:#e5edf8;font-family:Arial,Tahoma,sans-serif}
+body{width:1536px;padding:10px}
+.header{height:54px;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:7px 12px;margin-bottom:8px;background:#061326;border:1px solid #1b3555;border-radius:9px}
+.brand{font-size:25px;font-weight:700}.sub{font-size:12px;color:#91a8c8;margin-top:4px}
+.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{padding:7px 11px;background:#0a1b32;border:1px solid #244364;border-radius:7px;font-size:13px}
+.pill b{margin-left:5px;color:#f8fafc}
+.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 365px;gap:10px;align-items:stretch}
+.panel{background:#061326;border:1px solid #1b3555;border-radius:9px;overflow:hidden}
+.panel-head{height:48px;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 12px;background:#091a30;border-bottom:1px solid #1b3555}
+.panel-title{font-size:17px;font-weight:700}.panel-sub{font-size:11px;color:#91a8c8;margin-top:3px}
+.chart{height:402px;width:100%}.indicator-chart{height:78px;width:100%;border-top:1px solid #1b3555}
+.chart-label{height:17px;padding:2px 10px;background:#07172b;color:#9db5d6;font-size:11px;border-top:1px solid #1b3555}
+.sidebar{display:grid;grid-template-columns:1fr;gap:7px;margin:0;align-content:start}
+.side-section{padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
+.side-title{font-size:15px;font-weight:700;margin-bottom:8px;color:#f1f5f9}
+.decision{display:inline-block;padding:5px 10px;border-radius:16px;border:1px solid #64748b;font-weight:700;margin-bottom:7px;font-size:16px}
+.reason{direction:rtl;text-align:right;line-height:1.65;color:#dbeafe;font-size:12px}
+.kv{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #172d49;font-size:12px}
+.kv:last-child{border-bottom:0}.muted{color:#9aafcc}.value{font-weight:700;text-align:left}
+.green{color:#20d6aa}.red{color:#ff637e}.amber{color:#fbbf24}.blue{color:#60b9ff}
+.trade-note{font-size:11px;color:#9aafcc;line-height:1.6;direction:rtl;text-align:right;margin-top:6px}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}
+.scenario{height:176px;padding:10px 12px;background:#07172b;border:1px solid #1b3555;border-radius:8px;direction:rtl;text-align:right;overflow:hidden}
+.scenario h3{margin:0 0 6px;font-size:17px}.scenario p{margin:5px 0;line-height:1.55;font-size:12px}
+.scenario.bull{border-color:#087b69;background:linear-gradient(110deg,#06221f,#07172b 65%)}
+.scenario.bear{border-color:#8b2841;background:linear-gradient(110deg,#260d1b,#07172b 65%)}
+.scenario.bull h3{color:#20d6aa}.scenario.bear h3{color:#ff637e}
+.summary-grid{display:grid;grid-template-columns:1.1fr 1.45fr 1.05fr 1fr;gap:9px;margin-top:9px}
+.summary-card{height:125px;padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px;overflow:hidden}
+.summary-card h3{font-size:13px;margin:0 0 7px;color:#e5edf8}
+.pattern-item{display:inline-flex;flex-direction:column;gap:3px;vertical-align:top;padding:5px 7px;margin:2px;background:#0a2038;border:1px solid #244364;border-radius:6px;font-size:10px;max-width:120px}
+.pattern-item strong{font-size:10px;color:#d9eaff}.pattern-item span{font-size:9px;color:#20d6aa}
+.pattern-icon{height:20px;width:48px}
+.confirm{grid-column:auto;padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
+.confirm h3{margin:0 0 6px;font-size:13px}
+.confirm-row{padding:4px 0;border-bottom:1px solid #172d49}
+.confirm-row:last-child{border:0}.confirm-row strong{font-size:11px}
+.footer{text-align:right;color:#7188a8;font-size:9px;padding:7px 3px 0}
 </style>
 </head>
 <body>
@@ -267,6 +292,8 @@ body{width:1500px;padding:18px}
   <div class="panel-sub" id="chart-sub">کندل‌ها · EMA 20 / 50 / 200 · حجم · ساختار بازار</div></div>
   <div class="panel-sub">سبز: حمایت و سناریوی صعودی | قرمز: مقاومت و سناریوی نزولی</div></div>
   <div id="main-chart" class="chart"></div>
+  <div class="chart-label">RSI 14 · مومنتوم</div><div id="rsi-chart" class="indicator-chart"></div>
+  <div class="chart-label">MACD 12 / 26 / 9 · شتاب روند</div><div id="macd-chart" class="indicator-chart"></div>
  </section>
  <aside class="sidebar">
   <section class="side-section">
@@ -299,6 +326,12 @@ body{width:1500px;padding:18px}
  <section class="scenario bull"><h3>↗ سناریوی صعودی</h3><div id="bull-scenario"><p>پیش‌بینی مشروط پس از تحلیل نمایش داده می‌شود.</p></div></section>
  <section class="scenario bear"><h3>↘ سناریوی نزولی</h3><div id="bear-scenario"><p>پیش‌بینی مشروط پس از تحلیل نمایش داده می‌شود.</p></div></section>
  <section class="confirm"><h3>تأیید چندتایم‌فریمی</h3><div id="confirmations"></div></section>
+</div>
+<div class="summary-grid">
+ <section class="summary-card"><h3>سطوح کلیدی</h3><div id="key-levels-compact"></div></section>
+ <section class="summary-card"><h3>الگوهای شکلی شناسایی‌شده</h3><div id="pattern-cards"></div></section>
+ <section class="summary-card"><h3>تأیید تایم‌فریم‌ها</h3><div id="timeframe-summary"></div></section>
+ <section class="summary-card"><h3>خلاصه تحلیل</h3><div id="analysis-summary" class="reason"></div></section>
 </div>
 <div class="footer">تحلیل و سناریوها تخمینی و مشروط هستند، نه تضمین حرکت قیمت یا دستور معامله. فقط در صورت LONG/SHORT معتبر، سطوح ورود و مدیریت معامله نمایش داده می‌شوند. نمودار بر پایه داده OKX و کتابخانه TradingView Lightweight Charts ساخته شده است.</div>
 <script src="https://unpkg.com/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js"></script>
@@ -335,7 +368,7 @@ body{width:1500px;padding:18px}
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
-  width:root.getElementById("main-chart").clientWidth,height:760,
+  width:root.getElementById("main-chart").clientWidth,height:402,
   layout:{background:{type:"solid",color:"#091422"},textColor:"#cbd5e1",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:true},
   grid:{vertLines:{color:"#1b2b40"},horzLines:{color:"#1b2b40"}},
   rightPriceScale:{borderColor:"#334155",scaleMargins:{top:.08,bottom:.2}},
@@ -406,12 +439,22 @@ body{width:1500px;padding:18px}
   });
   // Pattern geometry is drawn on the candles; targets and invalidations stay in the pattern panel.
  });
- const markerCutoff=m.candles[Math.max(0,m.candles.length-24)].time;
- const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||""));
+ const markerCutoff=m.candles[Math.max(0,m.candles.length-40)].time;
+ const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW|SH|SL)/.test(marker.text||""));
  if(visibleMarkers.length||patternMarkers.length){
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
  chart.timeScale().fitContent();
+ const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:78,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
+ const rsiSeries=rsiChart.addSeries(LightweightCharts.LineSeries,{color:"#b779ff",lineWidth:2,priceLineVisible:false,lastValueVisible:true});rsiSeries.setData(m.indicators.rsi||[]);
+ [30,50,70].forEach(v=>rsiSeries.createPriceLine({price:v,color:"#405675",lineWidth:1,lineStyle:2,axisLabelVisible:false,title:""}));rsiChart.timeScale().fitContent();
+ const macdChart=LightweightCharts.createChart(root.getElementById("macd-chart"),{width:root.getElementById("macd-chart").clientWidth,height:78,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{borderColor:"#1b3555",timeVisible:true,secondsVisible:false},handleScroll:false,handleScale:false});
+ const macdHist=macdChart.addSeries(LightweightCharts.HistogramSeries,{priceLineVisible:false,lastValueVisible:false});macdHist.setData((m.indicators.macd_histogram||[]).map(v=>({...v,color:v.value>=0?"rgba(8,153,129,.75)":"rgba(242,54,69,.75)"})));
+ const macdLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#38bdf8",lineWidth:1,priceLineVisible:false,lastValueVisible:false});macdLine.setData(m.indicators.macd||[]);
+ const signalLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#f59e0b",lineWidth:1,priceLineVisible:false,lastValueVisible:false});signalLine.setData(m.indicators.macd_signal||[]);macdChart.timeScale().fitContent();
+ let syncing=false;chart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(!range||syncing)return;syncing=true;rsiChart.timeScale().setVisibleLogicalRange(range);macdChart.timeScale().setVisibleLogicalRange(range);syncing=false;});
+ rsiChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(!range||syncing)return;syncing=true;chart.timeScale().setVisibleLogicalRange(range);macdChart.timeScale().setVisibleLogicalRange(range);syncing=false;});
+ macdChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(!range||syncing)return;syncing=true;chart.timeScale().setVisibleLogicalRange(range);rsiChart.timeScale().setVisibleLogicalRange(range);syncing=false;});
  const plan=root.getElementById("trade-plan");
  function kv(label,value,cls){const row=root.createElement("div");row.className="kv";
   const l=root.createElement("span");l.className="muted";l.textContent=label;
@@ -428,6 +471,7 @@ body{width:1500px;padding:18px}
   set("trade-note","تا زمان تأیید شرایط ورود، نقطه ورود و حد ضرر معاملاتی تعریف نمی‌شود. خطوط سناریو، پیش‌بینی مشروط‌اند.");
  }
  const patternPanel=root.getElementById("chart-patterns");
+ const patternCards=root.getElementById("pattern-cards");
  (m.patterns||[]).forEach(pattern=>{
   const item=root.createElement("div");item.className="kv";
   const label=root.createElement("span");label.className="muted";
@@ -438,8 +482,12 @@ body{width:1500px;padding:18px}
   const detail=root.createElement("div");detail.className="trade-note";
   detail.textContent="هدف هندسی: "+fmt(pattern.target)+" · ابطال: "+fmt(pattern.invalidation)+" · شرط: "+(pattern.trigger||"—");
   patternPanel.appendChild(detail);
+  const card=root.createElement("div");card.className="pattern-item";
+  const mini=root.createElement("canvas");mini.width=48;mini.height=20;mini.className="pattern-icon";
+  const ctx=mini.getContext("2d");ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(2,17);ctx.lineTo(45,3);ctx.moveTo(2,3);ctx.lineTo(45,17);ctx.stroke();
+  const name=root.createElement("strong");name.textContent=pattern.name;const state=root.createElement("span");state.textContent=pattern.status==="CONFIRMED"?"تأیید شده":"در حال تشکیل";card.append(mini,name,state);patternCards.appendChild(card);
  });
- if(!(m.patterns||[]).length)patternPanel.textContent="در داده فعلی الگوی معتبر شناسایی نشد.";
+ if(!(m.patterns||[]).length){patternPanel.textContent="در داده فعلی الگوی معتبر شناسایی نشد.";patternCards.textContent="الگوی معتبر یافت نشد";}
  const levels=root.getElementById("levels");
  function levelRow(label,value,cls){const row=root.createElement("div");row.className="kv";
   const l=root.createElement("span");l.className="muted";l.textContent=label;
@@ -461,6 +509,9 @@ body{width:1500px;padding:18px}
   rows.forEach(r=>{const p=root.createElement("p");p.textContent=r[0]+": "+r[1];el.appendChild(p);});
  }
  scenario("bull-scenario",bull,"bull");scenario("bear-scenario",bear,"bear");
+ const compactLevels=root.getElementById("key-levels-compact");
+ [...(m.levels.supports||[]).slice(0,2).map(v=>["حمایت",v,"green"]),...(m.levels.resistances||[]).slice(0,2).map(v=>["مقاومت",v,"red"])].forEach(item=>{const row=root.createElement("div");row.className="kv";const label=root.createElement("span");label.className="muted";label.textContent=item[0];const val=root.createElement("strong");val.className="value "+item[2];val.textContent=fmt(item[1]);row.append(label,val);compactLevels.appendChild(row);});
+ set("analysis-summary",a.reasoning||"خلاصه تحلیل در دسترس نیست.");
  const conf=root.getElementById("confirmations");
  ["15M","5M"].forEach(tf=>{
   const d=p.confirmations[tf],box=root.createElement("div");box.className="confirm-row";
@@ -468,6 +519,7 @@ body{width:1500px;padding:18px}
   const detail=root.createElement("div");detail.className="sub";
   detail.textContent="ساختار: "+tfName(d.market_structure)+" · روند EMA: "+tfName(d.ema_trend)+" · RSI: "+fmt(d.rsi)+" · ADX: "+fmt(d.adx)+" · MACD hist: "+fmt(d.macd_histogram);
   box.append(title,detail);conf.appendChild(box);
+  const compact=root.createElement("div");compact.className="kv";const ctitle=root.createElement("span");ctitle.className="muted";ctitle.textContent=tf;const cval=root.createElement("strong");cval.className="value";cval.textContent=tfName(d.ema_trend)+" / RSI "+fmt(d.rsi);compact.append(ctitle,cval);root.getElementById("timeframe-summary").appendChild(compact);
  });
  requestAnimationFrame(()=>requestAnimationFrame(()=>{window.__CHART_READY__=true;}));
 })();
@@ -493,7 +545,7 @@ def render_tradingview_chart(results, output_path, analysis=None):
         )
         try:
             page = browser.new_page(
-                viewport={"width": 1256, "height": 1500}, device_scale_factor=1
+                viewport={"width": 1556, "height": 1120}, device_scale_factor=1
             )
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.set_content(html, wait_until="load", timeout=60000)
