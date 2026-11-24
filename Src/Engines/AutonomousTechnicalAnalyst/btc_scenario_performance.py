@@ -344,19 +344,31 @@ def build_performance_report(observations, outcomes, generated_at=None):
                     if resolved else None
                 ),
             }
-        scenario_summary["near_miss_4h"] = {
-            "resolved_count": sum(
-                1 for item in near_misses
-                if item.get("windows", {}).get("4H", {}).get("resolved")
-            ),
-            "average_mfe_pct": (
-                sum(item["windows"]["4H"]["max_favorable_excursion_pct"]
-                    for item in near_misses if item.get("windows", {}).get("4H", {}).get("resolved"))
-                / sum(1 for item in near_misses if item.get("windows", {}).get("4H", {}).get("resolved"))
-                if any(item.get("windows", {}).get("4H", {}).get("resolved") for item in near_misses)
-                else None
-            ),
-        }
+        scenario_summary["near_miss_horizons"] = {}
+        for horizon in NEAR_MISS_HORIZONS:
+            resolved_candidates = [
+                item["windows"][horizon]
+                for item in near_misses
+                if horizon in item.get("windows", {}) and item["windows"][horizon].get("resolved")
+            ]
+            scenario_summary["near_miss_horizons"][horizon] = {
+                "resolved_count": len(resolved_candidates),
+                "positive_forward_return_count": sum(
+                    1 for item in resolved_candidates if item.get("forward_return_pct", 0) > 0
+                ),
+                "average_forward_return_pct": (
+                    sum(item["forward_return_pct"] for item in resolved_candidates) / len(resolved_candidates)
+                    if resolved_candidates else None
+                ),
+                "average_mfe_pct": (
+                    sum(item["max_favorable_excursion_pct"] for item in resolved_candidates) / len(resolved_candidates)
+                    if resolved_candidates else None
+                ),
+                "average_mae_pct": (
+                    sum(item["max_adverse_excursion_pct"] for item in resolved_candidates) / len(resolved_candidates)
+                    if resolved_candidates else None
+                ),
+            }
         report["scenarios"][direction] = scenario_summary
     return report
 
