@@ -211,7 +211,21 @@ def momentum_snapshot(candles):
     }
 
 
-def evaluate_scenarios(candles_by_tf, generated_at):
+def derive_breakout_levels(candles, generated_at):
+    baseline = [
+        candle for candle in candles
+        if candle["timestamp"] + TIMEFRAMES["4H"][1] <= generated_at
+    ]
+    if len(baseline) < 21:
+        raise ValueError("At least 21 confirmed pre-report 4H candles are required.")
+    previous_20 = baseline[-21:-1]
+    return {
+        "LONG": max(candle["high"] for candle in previous_20),
+        "SHORT": min(candle["low"] for candle in previous_20),
+    }
+
+
+def evaluate_scenarios(candles_by_tf, generated_at, breakout_levels=None):
     four_hour = candles_by_tf["4H"]
     fifteen = candles_by_tf["15M"]
     five = candles_by_tf["5M"]
@@ -219,9 +233,7 @@ def evaluate_scenarios(candles_by_tf, generated_at):
         raise ValueError("At least 21 confirmed 4H candles are required.")
     latest_4h = four_hour[-1]
     close_4h_timestamp = latest_4h["timestamp"] + TIMEFRAMES["4H"][1]
-    prior_20 = four_hour[-21:-1]
-    breakout_high = max(c["high"] for c in prior_20)
-    breakout_low = min(c["low"] for c in prior_20)
+    levels = breakout_levels or derive_breakout_levels(four_hour, generated_at)
     four_hour_fresh = close_4h_timestamp > generated_at
     momentum = {}
     for tf, candles in (("15M", fifteen), ("5M", five)):
@@ -238,16 +250,17 @@ def evaluate_scenarios(candles_by_tf, generated_at):
     results = {}
     for direction in ("LONG", "SHORT"):
         bullish = direction == "LONG"
+        breakout_level = float(levels[direction])
         breakout_met = (
             four_hour_fresh
-            and (latest_4h["close"] > breakout_high if bullish else latest_4h["close"] < breakout_low)
+            and (latest_4h["close"] > breakout_level if bullish else latest_4h["close"] < breakout_level)
         )
         checks = {
             "4H_BREAKOUT": {
                 "met": bool(breakout_met),
                 "known": four_hour_fresh,
                 "close": latest_4h["close"],
-                "level": breakout_high if bullish else breakout_low,
+                "level": breakout_level,
                 "candle_close_timestamp": close_4h_timestamp,
             }
         }
@@ -407,7 +420,21 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
             for tf, (bar, _) in TIMEFRAMES.items()
         }
 
-    evaluations = evaluate_scenarios(candles_by_tf, float(current["generated_at_timestamp"]))
+    if not isinstance(current.get("breakout_levels"), dict):
+        forecast_4h = report.get("forecast", {}).get("timeframes", {}).get("4H", {})
+        bullish = forecast_4h.get("bullish", {}).get("breakout_level")
+        bearish = forecast_4h.get("bearish", {}).get("breakout_level")
+        if bullish is not None and bearish is not None:
+            current["breakout_levels"] = {"LONG": float(bullish), "SHORT": float(bearish)}
+        else:
+            current["breakout_levels"] = derive_breakout_levels(
+                candles_by_tf["4H"], float(current["generated_at_timestamp"])
+            )
+    evaluations = evaluate_scenarios(
+        candles_by_tf,
+        float(current["generated_at_timestamp"]),
+        current["breakout_levels"],
+    )
     current["last_checked_at"] = utc_iso(now)
     current["latest_checks"] = evaluations
 
