@@ -18,6 +18,14 @@ TIMEFRAME_LABELS = {
     "5M": "Execution context",
 }
 
+TIMEFRAME_SECONDS = {
+    "4H": 4 * 60 * 60,
+    "15M": 15 * 60,
+    "5M": 5 * 60,
+}
+
+SWING_CONFIRMATION_CANDLES = 3
+
 
 def _number(value):
     try:
@@ -49,6 +57,9 @@ def _prepare_timeframe(timeframe, result):
     ema = {"ema_20": [], "ema_50": [], "ema_200": []}
     volume = []
     markers = []
+    chart_start_time = int(
+        _number(frame.iloc[0]["timestamp"]) // 1000
+    )
 
     for row in frame.to_dict(orient="records"):
         timestamp = _number(row.get("timestamp"))
@@ -90,17 +101,21 @@ def _prepare_timeframe(timeframe, result):
 
         swing_high = _number(row.get("swing_high"))
         swing_low = _number(row.get("swing_low"))
-        if swing_high is not None:
+        pivot_time = (
+            candle_time
+            - SWING_CONFIRMATION_CANDLES * TIMEFRAME_SECONDS[timeframe]
+        )
+        if swing_high is not None and pivot_time >= chart_start_time:
             markers.append({
-                "time": candle_time,
+                "time": pivot_time,
                 "position": "aboveBar",
                 "color": "#f59e0b",
                 "shape": "circle",
                 "text": "SH",
             })
-        if swing_low is not None:
+        if swing_low is not None and pivot_time >= chart_start_time:
             markers.append({
-                "time": candle_time,
+                "time": pivot_time,
                 "position": "belowBar",
                 "color": "#38bdf8",
                 "shape": "circle",
@@ -205,7 +220,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
   <div class="header-top">
     <div>
       <h1>BTC-USDT | Multi-Timeframe Technical Analysis</h1>
-      <div class="source">OKX market data · TradingView Lightweight Charts™ · UTC</div>
+      <div class="source">OKX confirmed candles · TradingView Lightweight Charts™ · UTC · SH: Swing High · SL: Swing Low · BOS: Break of Structure</div>
     </div>
     <div class="pills">
       <div class="pill">AI Decision <strong id="decision">PRE-ANALYSIS</strong></div>
@@ -232,6 +247,9 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
     document.getElementById("reasoning").textContent =
       analysis.reasoning || "AI analysis summary unavailable.";
     const decision = String(analysis.decision || "");
+    if (decision === "WAIT") {
+      document.getElementById("decision").textContent = "WAIT · NO VALIDATED ENTRY";
+    }
     document.getElementById("decision").style.color =
       decision === "LONG" ? "#089981" : decision === "SHORT" ? "#f23645" : "#fbbf24";
   }
