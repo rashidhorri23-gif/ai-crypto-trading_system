@@ -27,34 +27,36 @@
     "timeframes": {
       "4H": {
         "bullish": {
-          "target_zone_low": 61200.0,
-          "target_zone_high": 62600.0,
-          "invalidation_price": 59455.0,
+          "target_zone_low": 61200,
+          "target_zone_high": 62600,
+          "invalidation_price": 59455,
           "horizon_candles": 6,
           "confidence": 35,
-          "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20."
+          "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20.",
+          "breakout_level": 64600
         },
         "bearish": {
-          "target_zone_low": 58000.0,
-          "target_zone_high": 59023.0,
+          "target_zone_low": 58000,
+          "target_zone_high": 59023,
           "invalidation_price": 61683.9,
           "horizon_candles": 6,
           "confidence": 55,
-          "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023."
+          "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023.",
+          "breakout_level": 55134
         }
       },
       "15M": {
         "bullish": {
-          "target_zone_low": 60770.0,
-          "target_zone_high": 61090.0,
-          "invalidation_price": 60240.0,
+          "target_zone_low": 60770,
+          "target_zone_high": 61090,
+          "invalidation_price": 60240,
           "horizon_candles": 8,
           "confidence": 40,
           "trigger": "شکست و تثبیت بالای 60769.2 با حجم نسبی."
         },
         "bearish": {
-          "target_zone_low": 59455.0,
-          "target_zone_high": 59940.0,
+          "target_zone_low": 59455,
+          "target_zone_high": 59940,
           "invalidation_price": 60769.2,
           "horizon_candles": 8,
           "confidence": 55,
@@ -63,16 +65,16 @@
       },
       "5M": {
         "bullish": {
-          "target_zone_low": 60770.0,
-          "target_zone_high": 61060.0,
+          "target_zone_low": 60770,
+          "target_zone_high": 61060,
           "invalidation_price": 60315.4,
           "horizon_candles": 12,
           "confidence": 45,
           "trigger": "ادامه بالای 60692.9 با حجم و بازگشت به VWAP."
         },
         "bearish": {
-          "target_zone_low": 59842.0,
-          "target_zone_high": 60227.0,
+          "target_zone_low": 59842,
+          "target_zone_high": 60227,
           "invalidation_price": 60769.2,
           "horizon_candles": 12,
           "confidence": 45,
