@@ -1,6 +1,6 @@
 {
   "symbol": "BTC-USDT",
-  "updated_at": "2026-11-24T08:33:57.635741+00:00",
+  "updated_at": "2026-11-24T09:28:14.996293+00:00",
   "current_session": {
     "analysis_id": "b58b274a-382e-4fa3-a9a1-a78204d95fb0",
     "generated_at": "2026-11-24T06:41:06.805283+00:00",
@@ -19,7 +19,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T08:33:57.635741+00:00",
+    "last_checked_at": "2026-11-24T09:28:14.996293+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
@@ -33,25 +33,25 @@
           "15M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 60103.2,
-            "ema_trend": "NEUTRAL",
-            "rsi": 34.95460327919113,
-            "macd_histogram": -0.9550721406992295,
-            "candle_close_timestamp": 1795509000
+            "close": 59870.5,
+            "ema_trend": "BEARISH",
+            "rsi": 33.84580103374172,
+            "macd_histogram": -18.504062795741135,
+            "candle_close_timestamp": 1795511700
           },
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 60103.2,
+            "close": 59930.4,
             "ema_trend": "BEARISH",
-            "rsi": 33.24426487821569,
-            "macd_histogram": -24.626908142675823,
-            "candle_close_timestamp": 1795509000
+            "rsi": 36.35104874732759,
+            "macd_histogram": -31.607216097785795,
+            "candle_close_timestamp": 1795512300
           }
         },
         "ready": false,
-        "observed_price": 60103.2,
-        "observed_timestamp": 1795509000
+        "observed_price": 59930.4,
+        "observed_timestamp": 1795512300
       },
       "SHORT": {
         "checks": {
@@ -63,27 +63,27 @@
             "candle_close_timestamp": 1795507200
           },
           "15M_MOMENTUM": {
-            "met": false,
+            "met": true,
             "known": true,
-            "close": 60103.2,
-            "ema_trend": "NEUTRAL",
-            "rsi": 34.95460327919113,
-            "macd_histogram": -0.9550721406992295,
-            "candle_close_timestamp": 1795509000
+            "close": 59870.5,
+            "ema_trend": "BEARISH",
+            "rsi": 33.84580103374172,
+            "macd_histogram": -18.504062795741135,
+            "candle_close_timestamp": 1795511700
           },
           "5M_MOMENTUM": {
             "met": true,
             "known": true,
-            "close": 60103.2,
+            "close": 59930.4,
             "ema_trend": "BEARISH",
-            "rsi": 33.24426487821569,
-            "macd_histogram": -24.626908142675823,
-            "candle_close_timestamp": 1795509000
+            "rsi": 36.35104874732759,
+            "macd_histogram": -31.607216097785795,
+            "candle_close_timestamp": 1795512300
           }
         },
         "ready": false,
-        "observed_price": 60103.2,
-        "observed_timestamp": 1795509000
+        "observed_price": 59930.4,
+        "observed_timestamp": 1795512300
       }
     },
     "breakout_levels": {
