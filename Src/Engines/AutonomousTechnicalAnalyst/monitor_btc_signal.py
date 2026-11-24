@@ -1497,7 +1497,10 @@ def process_target_watch(candle, state):
             watch["notification_sent"][target_name] = True
             save_state(state)
 
-    if all(watch["reached"].values()):
+    if (
+        all(watch["reached"].values())
+        and all(watch["notification_sent"].get(name) for name in ("TP1", "TP2", "TP3"))
+    ):
         watch["status"] = "TARGETS_COMPLETED"
         watch["completed_at"] = utc_iso(candle_close_timestamp)
         save_state(state)
