@@ -314,6 +314,7 @@ class TestScenarioPerformance(unittest.TestCase):
         report = performance.build_performance_report({"records": []}, store)
         self.assertEqual(report["scenarios"]["LONG"]["activated_count"], 0)
         self.assertEqual(report["scenarios"]["LONG"]["near_miss_candidate_count"], 1)
+        self.assertEqual(report["scenarios"]["LONG"]["near_miss_horizons"]["4H"]["resolved_count"], 0)
 
 
 if __name__ == "__main__":
