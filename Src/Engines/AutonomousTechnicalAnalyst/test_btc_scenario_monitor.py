@@ -87,6 +87,42 @@ class TestScenarioEvaluation(unittest.TestCase):
         self.assertFalse(result["LONG"]["ready"])
 
 
+class TestReportBreakoutLevels(unittest.TestCase):
+    def test_reads_same_frozen_levels_as_daily_report(self):
+        report = {
+            "forecast": {
+                "timeframes": {
+                    "4H": {
+                        "bullish": {"breakout_level": 64600.0},
+                        "bearish": {"breakout_level": 55134.0},
+                    }
+                }
+            }
+        }
+        self.assertEqual(
+            monitor.report_breakout_levels(report),
+            {"LONG": 64600.0, "SHORT": 55134.0},
+        )
+
+    def test_rejects_missing_levels_instead_of_recalculating(self):
+        with self.assertRaisesRegex(ValueError, "missing frozen 4H breakout levels"):
+            monitor.report_breakout_levels({"forecast": {"timeframes": {"4H": {}}}})
+
+    def test_rejects_invalid_level_order(self):
+        report = {
+            "forecast": {
+                "timeframes": {
+                    "4H": {
+                        "bullish": {"breakout_level": 55000.0},
+                        "bearish": {"breakout_level": 56000.0},
+                    }
+                }
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "invalid ordering"):
+            monitor.report_breakout_levels(report)
+
+
 class TestSession(unittest.TestCase):
     def test_no_scenario_activated_is_recorded_at_expiry(self):
         report = {
