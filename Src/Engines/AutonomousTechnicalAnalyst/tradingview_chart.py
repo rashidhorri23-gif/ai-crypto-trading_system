@@ -317,6 +317,16 @@ body{width:1780px;padding:14px}
 .confirm h3{margin:0 0 6px;font-size:13px}
 .confirm-row{padding:4px 0;border-bottom:1px solid #172d49}
 .confirm-row:last-child{border:0}.confirm-row strong{font-size:11px}
+.activation-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px;direction:rtl}
+.activation-card{padding:11px 13px;background:#07172b;border:1px solid #244364;border-radius:8px;text-align:right}
+.activation-card h3{font-size:16px;margin:0 0 8px}
+.activation-card.long{border-color:#087b69}.activation-card.short{border-color:#8b2841}
+.activation-card.long h3{color:#20d6aa}.activation-card.short h3{color:#ff637e}
+.activation-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #172d49;font-size:12px;line-height:1.5}
+.activation-row:last-child{border:0}
+.activation-state{white-space:nowrap;font-weight:700}
+.activation-state.met{color:#20d6aa}.activation-state.unmet{color:#ffb454}.activation-state.unknown{color:#91a8c8}
+.activation-foot{font-size:10px;color:#91a8c8;margin-top:8px;line-height:1.5}
 .footer{text-align:right;color:#7188a8;font-size:9px;padding:7px 3px 0}
 </style>
 </head>
@@ -370,6 +380,10 @@ body{width:1780px;padding:14px}
  <section class="scenario bull"><h3>↗ سناریوی صعودی</h3><div id="bull-scenario"><p>پیش‌بینی مشروط پس از تحلیل نمایش داده می‌شود.</p></div></section>
  <section class="scenario bear"><h3>↘ سناریوی نزولی</h3><div id="bear-scenario"><p>پیش‌بینی مشروط پس از تحلیل نمایش داده می‌شود.</p></div></section>
  <section class="confirm"><h3>تأیید چندتایم‌فریمی</h3><div id="confirmations"></div></section>
+</div>
+<div class="activation-grid">
+ <section class="activation-card long"><h3>شرایط فعال‌سازی LONG</h3><div id="long-activation"></div><div class="activation-foot" id="long-activation-foot"></div></section>
+ <section class="activation-card short"><h3>شرایط فعال‌سازی SHORT</h3><div id="short-activation"></div><div class="activation-foot" id="short-activation-foot"></div></section>
 </div>
 <div class="summary-grid">
  <section class="summary-card"><h3>سطوح کلیدی</h3><div id="key-levels-compact"></div></section>
@@ -667,6 +681,50 @@ body{width:1780px;padding:14px}
   rows.forEach(r=>{const p=root.createElement("p");p.textContent=r[0]+": "+r[1];el.appendChild(p);});
  }
  scenario("bull-scenario",bull,"bull");scenario("bear-scenario",bear,"bear");
+
+ // Explicit, data-checked activation rules: breakout on 4H plus momentum alignment on 15M and 5M.
+ function activationChecklist(direction,item){
+  const bullish=direction==="long";
+  const fourHourClose=Number(m.metrics.close);
+  const breakout=Number(item&&item.breakout_level);
+  const fourHourKnown=Number.isFinite(fourHourClose)&&Number.isFinite(breakout)&&breakout>0;
+  const fourHourMet=fourHourKnown&&(bullish?fourHourClose>breakout:fourHourClose<breakout);
+  const checks=[{
+   label:"4H شکست سطح ۲۰ کندل قبلی: "+(fourHourKnown?fmt(breakout):"سطح شکست نامشخص"),
+   state:fourHourKnown?(fourHourMet?"met":"unmet"):"unknown"
+  }];
+  ["15M","5M"].forEach(tf=>{
+   const d=p.confirmations[tf]||{};
+   const trend=String(d.ema_trend||"").toUpperCase();
+   const rsi=Number(d.rsi),macd=Number(d.macd_histogram);
+   const trendMet=bullish?trend==="BULLISH":trend==="BEARISH";
+   const momentumKnown=Number.isFinite(rsi)&&Number.isFinite(macd);
+   const momentumMet=momentumKnown&&(bullish?(rsi>50&&macd>0):(rsi<50&&macd<0));
+   checks.push({
+    label:tf+" هم‌جهتی EMA و مومنتوم (RSI "+(bullish?"> 50":"< 50")+" و MACD "+(bullish?"> 0":"< 0")+")",
+    state:trendMet&&momentumMet?"met":momentumKnown?"unmet":"unknown"
+   });
+  });
+  return checks;
+ }
+ function renderActivation(id,footId,direction,item){
+  const el=root.getElementById(id),foot=root.getElementById(footId);
+  const checks=activationChecklist(direction,item);
+  checks.forEach((check,index)=>{
+   const row=root.createElement("div");row.className="activation-row";
+   const label=root.createElement("span");label.textContent=(index+1)+". "+check.label;
+   const state=root.createElement("strong");state.className="activation-state "+check.state;
+   state.textContent=check.state==="met"?"تأیید":check.state==="unmet"?"تأیید نشده":"داده ناکافی";
+   row.append(label,state);el.appendChild(row);
+  });
+  const ready=checks.every(x=>x.state==="met");
+  foot.textContent=ready
+   ?"تمام شروط تکنیکال فعلی برقرارند؛ این وضعیت به‌تنهایی مجوز ورود نیست و مدیریت ریسک جداگانه لازم است."
+   :"ورود فقط پس از تأیید همه شروط در کندل‌های بسته‌شده بررسی شود؛ تا آن زمان وضعیت WAIT است.";
+ }
+ renderActivation("long-activation","long-activation-foot","long",bull);
+ renderActivation("short-activation","short-activation-foot","short",bear);
+
  const compactLevels=root.getElementById("key-levels-compact");
  [...(m.levels.supports||[]).slice(0,2).map(v=>["حمایت",v,"green"]),...(m.levels.resistances||[]).slice(0,2).map(v=>["مقاومت",v,"red"])].forEach(item=>{const row=root.createElement("div");row.className="kv";const label=root.createElement("span");label.className="muted";label.textContent=item[0];const val=root.createElement("strong");val.className="value "+item[2];val.textContent=fmt(item[1]);row.append(label,val);compactLevels.appendChild(row);});
  set("analysis-summary",a.reasoning||"خلاصه تحلیل در دسترس نیست.");
