@@ -1045,10 +1045,17 @@ def build_rule_based_chart_analysis(results):
 
         ema_trend = str(latest.get("ema_trend", "NEUTRAL")).upper()
         structure = str(latest.get("market_structure", "NEUTRAL")).upper()
-        rsi = _number(latest.get("rsi_14"))
-        macd_hist = _number(latest.get("macd_histogram"))
-        bos_bull = bool(latest.get("bos_bullish", False))
-        bos_bear = bool(latest.get("bos_bearish", False))
+        def optional_number(value):
+            try:
+                number = float(value)
+                return number if math.isfinite(number) else None
+            except (TypeError, ValueError):
+                return None
+
+        rsi = optional_number(latest.get("rsi_14"))
+        macd_hist = optional_number(latest.get("macd_histogram"))
+        bos_bull = str(latest.get("bos_bullish", False)).strip().lower() in ("true", "1")
+        bos_bear = str(latest.get("bos_bearish", False)).strip().lower() in ("true", "1")
 
         bullish_score = 0
         bearish_score = 0
