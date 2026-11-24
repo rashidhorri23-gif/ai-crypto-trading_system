@@ -8,6 +8,7 @@ import pandas as pd
 
 from .tradingview_chart import render_tradingview_chart, _select_visible_patterns
 from .market_features import prepare_market_features
+from .daily_btc_analysis import build_rule_based_chart_analysis
 
 
 TIMEFRAME_INTERVALS_MS = {
@@ -78,8 +79,33 @@ def _test_pattern_selection():
     assert selected[1]["name"] == "Confirmed B"
 
 
+def _test_rule_based_forecast():
+    results = {
+        timeframe: {"data": _build_frame(interval_ms)}
+        for timeframe, interval_ms in TIMEFRAME_INTERVALS_MS.items()
+    }
+    analysis = build_rule_based_chart_analysis(results)
+    assert analysis["decision"] == "WAIT"
+    assert analysis["forecast"]["source"] == "RULE_BASED_TECHNICAL"
+    assert set(analysis["forecast"]["timeframes"]) == {"4H", "15M", "5M"}
+    for timeframe, scenarios in analysis["forecast"]["timeframes"].items():
+        close = float(results[timeframe]["data"].iloc[-1]["close"])
+        bullish = scenarios["bullish"]
+        bearish = scenarios["bearish"]
+        assert close < bullish["target_zone_low"] <= bullish["target_zone_high"]
+        assert bullish["invalidation_price"] < close
+        assert bearish["target_zone_low"] <= bearish["target_zone_high"] < close
+        assert bearish["invalidation_price"] > close
+        assert 1 <= bullish["horizon_candles"] <= 100
+        assert 0 <= bullish["confidence"] <= 100
+        assert "بسته‌شدن کندل" in bullish["trigger"]
+    assert analysis["entry"]["entry_type"] == "NONE"
+    assert analysis["stop_loss"] is None
+
+
 def main():
     _test_pattern_selection()
+    _test_rule_based_forecast()
     results = {
         timeframe: {
             "data": _build_frame(interval_ms),
@@ -279,7 +305,12 @@ def main():
         }.items()
     }
     qa_output = Path("Reports/BTC_Chart_QA.png")
-    render_tradingview_chart(live_results, qa_output)
+    fallback_analysis = build_rule_based_chart_analysis(live_results)
+    render_tradingview_chart(
+        live_results,
+        qa_output,
+        analysis=fallback_analysis,
+    )
     print(f"TRADINGVIEW CHART QA IMAGE: {qa_output}")
     print("TRADINGVIEW CHART RENDERER TEST PASSED")
     return 0
