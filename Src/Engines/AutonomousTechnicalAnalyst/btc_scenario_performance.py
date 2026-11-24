@@ -200,6 +200,7 @@ def update_outcomes(session, candles_by_tf, outcomes_path=OUTCOMES_FILE, now_tim
         observed_price = evaluation.get("observed_price")
         if (
             session.get("status") == "ACTIVE"
+            and scenario.get("status") != "ACTIVATED"
             and breakout.get("known") and breakout.get("met")
             and not all(item.get("known") and item.get("met") for item in momentum)
             and observed_time > 0 and observed_price is not None
