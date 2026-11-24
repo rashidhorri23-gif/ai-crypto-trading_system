@@ -376,34 +376,45 @@ def build_status_chart(candles, session):
     for index, (open_price, high, low, close) in enumerate(zip(opens, highs, lows, closes)):
         rising = close >= open_price
         candle_color = "green" if rising else "red"
-        axis.vlines(index, low, high, color=candle_color, linewidth=1.6, zorder=2)
+        axis.vlines(index, low, high, color=candle_color, linewidth=1.15, zorder=2)
         body_bottom = min(open_price, close)
         body_height = max(abs(close - open_price), max(highs) * 0.000025)
         axis.add_patch(
             Rectangle(
-                (index - 0.32, body_bottom),
-                0.64,
+                (index - 0.22, body_bottom),
+                0.44,
                 body_height,
                 facecolor=candle_color,
                 edgecolor=candle_color,
-                linewidth=0.8,
-                alpha=0.85,
+                linewidth=0.6,
+                alpha=0.82,
                 zorder=3,
             )
         )
 
-    axis.scatter(len(closes) - 1, closes[-1], s=55, marker="o",
-                 edgecolors="black", linewidths=0.8, zorder=5,
+    last_index = len(selected) - 1
+    forward_space = max(16, int(len(selected) * 0.35))
+    axis.scatter(last_index, closes[-1], s=38, marker="o",
+                 edgecolors="black", linewidths=0.7, zorder=5,
                  label=f"Latest close: {closes[-1]:,.2f} USDT")
 
     price_min = min(lows)
     price_max = max(highs)
     price_span = max(price_max - price_min, price_max * 0.001)
-    padding = price_span * 0.12
+    padding = price_span * 0.14
     visible_min = price_min - padding
     visible_max = price_max + padding
     axis.set_ylim(visible_min, visible_max)
-    axis.set_xlim(-1, len(selected))
+    axis.set_xlim(-1, len(selected) + forward_space)
+    axis.axvspan(last_index + 0.7, len(selected) + forward_space,
+                 color="gray", alpha=0.055, zorder=0)
+    axis.axvline(last_index + 0.7, color="gray", linewidth=1.0,
+                 linestyle=":", alpha=0.65, zorder=1)
+    axis.text(last_index + 0.7 + forward_space / 2,
+              visible_min + padding * 0.35,
+              "FORWARD SPACE",
+              ha="center", va="center", fontsize=10,
+              color="dimgray", alpha=0.8)
 
     levels = session.get("breakout_levels") or {}
     level_descriptions = []
