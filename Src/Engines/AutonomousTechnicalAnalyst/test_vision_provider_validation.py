@@ -1,6 +1,8 @@
+import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,6 +71,64 @@ class VisionProviderValidationTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["model"], "test/second-model:free")
         self.assertEqual(request_mock.call_count, 2)
+
+    def test_shared_free_daily_quota_stops_model_fallback_immediately(self):
+        error_body = json.dumps({
+            "error": {
+                "message": "Rate limit exceeded: free-models-per-day.",
+                "code": 429,
+                "metadata": {
+                    "limit_source": "openrouter_free_tier_daily",
+                    "headers": {
+                        "X-RateLimit-Remaining": "0",
+                    },
+                },
+            }
+        }).encode("utf-8")
+        quota_error = urllib.error.HTTPError(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            code=429,
+            msg="Too Many Requests",
+            hdrs={},
+            fp=io.BytesIO(error_body),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "chart.png"
+            image_path.write_bytes(b"test-image")
+
+            with (
+                patch.object(vision_provider.Config, "OPENROUTER_API_KEY", "test-key"),
+                patch.object(
+                    vision_provider,
+                    "build_vision_model_priority",
+                    return_value={
+                        "status": "success",
+                        "models": [
+                            {"id": "test/first-model:free", "supported_parameters": []},
+                            {"id": "test/second-model:free", "supported_parameters": []},
+                            {"id": "test/third-model:free", "supported_parameters": []},
+                        ],
+                        "error": None,
+                    },
+                ),
+                patch.object(
+                    vision_provider,
+                    "_request_json",
+                    side_effect=quota_error,
+                ) as request_mock,
+                patch.object(vision_provider.time, "sleep") as sleep_mock,
+            ):
+                result = vision_provider.ask_openrouter_vision(
+                    image_path=image_path,
+                    prompt="Return a JSON object.",
+                )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("account-wide free-model daily quota is exhausted", result["error"])
+        self.assertEqual(request_mock.call_count, 1)
+        sleep_mock.assert_not_called()
+
 
     def test_truncated_output_uses_next_model(self):
         responses = [
