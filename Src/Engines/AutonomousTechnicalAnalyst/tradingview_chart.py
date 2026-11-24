@@ -138,6 +138,8 @@ def _prepare_timeframe(timeframe, result):
                 "text": "BOS-",
             })
 
+    markers.sort(key=lambda marker: marker["time"])
+
     latest = frame.iloc[-1]
     return {
         "timeframe": timeframe,
