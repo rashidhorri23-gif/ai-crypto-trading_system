@@ -68,6 +68,8 @@ CONTEXT_CANDLE_COLUMNS = (
     "rsi_14",
     "atr_14",
     "adx_14",
+    "plus_di",
+    "minus_di",
     "relative_volume",
     "swing_high",
     "swing_low",
@@ -90,6 +92,13 @@ CONTEXT_CANDLE_COLUMNS = (
     "last_bullish_ob_high",
     "last_bearish_ob_low",
     "last_bearish_ob_high",
+    "bb_upper",
+    "bb_middle",
+    "bb_lower",
+    "macd",
+    "macd_signal",
+    "macd_histogram",
+    "vwap_utc",
 )
 
 SCHEMA_VERSION = "2.0"
