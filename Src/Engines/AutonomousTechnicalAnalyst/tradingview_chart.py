@@ -511,7 +511,14 @@ body{width:1780px;padding:14px}
  });
  const markerCutoff=m.candles[Math.max(0,m.candles.length-32)].time;
  const markerPriority=marker=>/^(CH|BOS)/.test(marker.text||"")?0:/^SW/.test(marker.text||"")?1:2;
- const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time).slice(0,8);
+ const markerCandidates=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time);
+ const visibleMarkers=[];
+ markerCandidates.forEach(marker=>{
+  if(visibleMarkers.length<6 && visibleMarkers.every(selected=>Math.abs(selected.time-marker.time)>=3*14400)){
+   visibleMarkers.push(marker);
+  }
+ });
+ visibleMarkers.sort((x,y)=>x.time-y.time);
  if(visibleMarkers.length||patternMarkers.length){
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
