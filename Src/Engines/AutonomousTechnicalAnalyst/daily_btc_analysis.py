@@ -1079,6 +1079,7 @@ def build_rule_based_chart_analysis(results):
                 "invalidation_price": round(close - distance * 0.65, 8),
                 "horizon_candles": settings["horizon"],
                 "confidence": bullish_score,
+                "breakout_level": round(breakout_high, 8),
                 "trigger": (
                     f"بسته‌شدن کندل بالای سقف ۲۰ کندل قبلی ({breakout_high:.2f}) "
                     "و حفظ آن در پولبک"
@@ -1090,6 +1091,7 @@ def build_rule_based_chart_analysis(results):
                 "invalidation_price": round(close + distance * 0.65, 8),
                 "horizon_candles": settings["horizon"],
                 "confidence": bearish_score,
+                "breakout_level": round(breakout_low, 8),
                 "trigger": (
                     f"بسته‌شدن کندل زیر کف ۲۰ کندل قبلی ({breakout_low:.2f}) "
                     "و ناموفق‌بودن بازپس‌گیری آن"
