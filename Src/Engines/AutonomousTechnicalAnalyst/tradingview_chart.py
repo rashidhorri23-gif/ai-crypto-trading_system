@@ -212,6 +212,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
 .panel-title { font-size: 20px; font-weight: 700; }
 .panel-subtitle { color: #94a3b8; font-size: 14px; margin-top: 4px; }
 .metrics { color: #cbd5e1; font-size: 14px; text-align: right; line-height: 1.7; }
+.forecast-note { color: #94a3b8; font-size: 13px; margin-top: 7px; direction: rtl; text-align: right; line-height: 1.6; }
 .chart { width: 100%; height: 430px; }
 .footer { color: #64748b; font-size: 12px; text-align: right; padding: 3px 4px 0; }
 .footer a { color: #94a3b8; text-decoration: none; }
@@ -290,6 +291,19 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
       " · Structure " + item.metrics.market_structure;
     titleWrap.appendChild(title);
     titleWrap.appendChild(subtitle);
+
+    const forecastForNote =
+      analysis && analysis.forecast && analysis.forecast.timeframes
+        ? analysis.forecast.timeframes[item.timeframe]
+        : null;
+    if (forecastForNote) {
+      const forecastNote = document.createElement("div");
+      forecastNote.className = "forecast-note";
+      forecastNote.textContent =
+        "شرط صعود: " + forecastForNote.bullish.trigger +
+        " | شرط نزول: " + forecastForNote.bearish.trigger;
+      titleWrap.appendChild(forecastNote);
+    }
 
     const metrics = document.createElement("div");
     metrics.className = "metrics";
