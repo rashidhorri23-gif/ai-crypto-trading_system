@@ -56,9 +56,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Data/Signals/btc_scenario_monitor_state.json Data/Signals/btc_scenario_events.json \\
-            Data/Signals/btc_scenario_observations.json \\
-            Data/Signals/btc_scenario_outcomes.json \\
+          git add Data/Signals/btc_scenario_monitor_state.json Data/Signals/btc_scenario_events.json \
+            Data/Signals/btc_scenario_observations.json \
+            Data/Signals/btc_scenario_outcomes.json \
             Data/Signals/btc_performance_report.json
           if git diff --cached --quiet; then
             echo "No scenario state changes."
