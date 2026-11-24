@@ -67,7 +67,8 @@ def _scenario_snapshot(session, direction):
         "known_conditions": len(known_checks),
         "checks": checks,
         "near_miss": bool(
-            breakout.get("known")
+            scenario.get("status") != "ACTIVATED"
+            and breakout.get("known")
             and breakout.get("met")
             and not all(item.get("known") and item.get("met") for item in momentum_checks)
         ),
