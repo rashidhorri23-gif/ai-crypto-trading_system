@@ -12,7 +12,7 @@ from .pattern_recognition import detect_chart_patterns
 
 LIGHTWEIGHT_CHARTS_VERSION = "5.3.0"
 CHART_CANDLE_LIMIT = 120
-CHART_HEIGHT = 520
+CHART_HEIGHT = 620
 VISIBLE_PATTERN_LIMIT = 2
 TIMEFRAME_SECONDS = {"4H": 14400, "15M": 900, "5M": 300}
 SWING_CONFIRMATION_CANDLES = 3
@@ -271,7 +271,7 @@ body{width:1780px;padding:14px}
 .panel{background:#061326;border:1px solid #1b3555;border-radius:9px;overflow:hidden}
 .panel-head{height:48px;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 12px;background:#091a30;border-bottom:1px solid #1b3555}
 .panel-title{font-size:17px;font-weight:700}.panel-sub{font-size:11px;color:#91a8c8;margin-top:3px}
-.chart{height:520px;width:100%}.indicator-chart{height:88px;width:100%;border-top:1px solid #1b3555}
+.chart{height:620px;width:100%}.indicator-chart{height:88px;width:100%;border-top:1px solid #1b3555}
 .chart-label{height:17px;padding:2px 10px;background:#07172b;color:#9db5d6;font-size:11px;border-top:1px solid #1b3555}
 .sidebar{display:grid;grid-template-columns:1fr;gap:10px;margin:0;align-content:start}
 .side-section{padding:12px 14px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
@@ -393,7 +393,7 @@ body{width:1780px;padding:14px}
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
-  width:root.getElementById("main-chart").clientWidth,height:520,
+  width:root.getElementById("main-chart").clientWidth,height:620,
   layout:{background:{type:"solid",color:"#091422"},textColor:"#cbd5e1",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:true},
   grid:{vertLines:{color:"#1b2b40"},horzLines:{color:"#1b2b40"}},
   rightPriceScale:{borderColor:"#334155",scaleMargins:{top:.08,bottom:.2}},
@@ -437,7 +437,7 @@ body{width:1780px;padding:14px}
   const area=chart.addSeries(LightweightCharts.BaselineSeries,{
    baseValue:{type:"price",price:low},topFillColor:color,bottomFillColor:"rgba(0,0,0,0)",
    topLineColor:color,bottomLineColor:"rgba(0,0,0,0)",lineWidth:1,
-   title:title,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+   title:"",priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
   });
   area.setData([{time:start,value:high},{time:end,value:high}]);
  }
@@ -509,9 +509,9 @@ body{width:1780px;padding:14px}
    }
   });
  });
- const markerCutoff=m.candles[Math.max(0,m.candles.length-40)].time;
+ const markerCutoff=m.candles[Math.max(0,m.candles.length-32)].time;
  const markerPriority=marker=>/^(CH|BOS)/.test(marker.text||"")?0:/^SW/.test(marker.text||"")?1:2;
- const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time).slice(0,12);
+ const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time).slice(0,8);
  if(visibleMarkers.length||patternMarkers.length){
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
