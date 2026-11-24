@@ -297,22 +297,23 @@ def _pennant(frame):
     low_mean = sum(lows) / count
     high_slope = sum((x[i] - x_mean) * (highs[i] - high_mean) for i in x) / denominator
     low_slope = sum((x[i] - x_mean) * (lows[i] - low_mean) for i in x) / denominator
-    upper_now = highs[-1] + high_slope * (count - 1)
-    lower_now = lows[-1] + low_slope * (count - 1)
+    upper_now = highs[0] + high_slope * (count - 1)
+    lower_now = lows[0] + low_slope * (count - 1)
     initial_width = max(highs[0] - lows[0], 1e-9)
-    final_width = max(highs[-1] - lows[-1], 0)
+    final_width = abs(upper_now - lower_now)
     if high_slope >= 0 or low_slope <= 0:
         return None
     if final_width >= initial_width * 0.8:
         return None
-    if upper_now <= lower_now:
+    if lower_now - upper_now > initial_width * 0.10:
         return None
 
     direction = "BULLISH" if impulse > 0 else "BEARISH"
     last_close = _num(recent.iloc[-1].get("close"))
     if last_close is None:
         return None
-    confirmed = last_close > upper_now if direction == "BULLISH" else last_close < lower_now
+    confirmed = (last_close > upper_now * 1.002 if direction == "BULLISH"
+                 else last_close < lower_now * 0.998)
     timestamps = [_num(value) for value in consolidation["timestamp"]]
     if any(value is None for value in timestamps):
         return None
