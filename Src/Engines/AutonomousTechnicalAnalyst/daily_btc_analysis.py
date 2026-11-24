@@ -892,12 +892,83 @@ def extract_json_object(raw_content):
     return result
 
 
+VISION_CANDLE_FIELDS = (
+    "timestamp_utc", "open", "high", "low", "close", "volume",
+    "ema_20", "ema_50", "ema_200", "rsi_14", "atr_14", "adx_14",
+    "plus_di", "minus_di", "relative_volume", "market_structure",
+    "support", "resistance", "ema_trend", "bos_bullish", "bos_bearish",
+    "choch_bullish", "choch_bearish", "structure_bias",
+    "liquidity_sweep_high", "liquidity_sweep_low",
+    "fvg_bullish_low", "fvg_bullish_high",
+    "fvg_bearish_low", "fvg_bearish_high",
+    "last_bullish_ob_low", "last_bullish_ob_high",
+    "last_bearish_ob_low", "last_bearish_ob_high",
+    "macd", "macd_signal", "macd_histogram", "vwap_utc",
+)
+
+
+def compact_vision_context(market_context, previous_signal, open_trade):
+    """Keep decision-relevant evidence while avoiding oversized prompts."""
+    compact_timeframes = {}
+
+    for timeframe in ("4H", "15M", "5M"):
+        source = market_context["timeframes"][timeframe]
+        candles = source.get("recent_confirmed_candles", [])
+        compact_candles = [
+            {
+                key: candle[key]
+                for key in VISION_CANDLE_FIELDS
+                if key in candle
+            }
+            for candle in candles[-8:]
+        ]
+
+        patterns = []
+        for pattern in source.get("detected_chart_patterns", [])[:5]:
+            patterns.append({
+                key: pattern.get(key)
+                for key in (
+                    "name", "direction", "status", "confidence",
+                    "target", "invalidation", "trigger",
+                )
+                if key in pattern
+            })
+
+        compact_timeframes[timeframe] = {
+            "timeframe": timeframe,
+            "source": source.get("source", "OKX"),
+            "freshness": source.get("freshness"),
+            "data_quality": source.get("data_quality"),
+            "closed_candle_count": source.get("closed_candle_count"),
+            "latest_close": source.get("latest_close"),
+            "latest_confirmed_candle": (
+                compact_candles[-1] if compact_candles else {}
+            ),
+            "recent_confirmed_candles": compact_candles,
+            "detected_chart_patterns": patterns,
+        }
+
+    return {
+        "symbol": market_context.get("symbol", "BTC-USDT"),
+        "source": market_context.get("source", "OKX"),
+        "analysis_time_utc": market_context.get("analysis_time_utc"),
+        "timeframes": compact_timeframes,
+        "data_status": market_context.get("data_status"),
+        "data_quality": market_context.get("data_quality"),
+        "previous_signal": previous_signal,
+        "open_trade": open_trade,
+    }
+
+
 def run_vision_analysis(market_context, previous_signal, open_trade):
     if not CHART_FILE.is_file():
         raise FileNotFoundError(f"Vision chart not found: {CHART_FILE}")
 
+    vision_context = compact_vision_context(
+        market_context, previous_signal, open_trade
+    )
     prompt = build_btc_analysis_prompt(
-        market_context=market_context,
+        market_context=vision_context,
         previous_signal=previous_signal,
         open_trade=open_trade,
     )
