@@ -221,31 +221,31 @@ def _build_html(payload):
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#050b14;color:#e2e8f0;font-family:Arial,Tahoma,sans-serif}
-body{width:1800px;padding:22px}
-.header{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:16px 22px;margin-bottom:16px;background:#0b1625;border:1px solid #26364c;border-radius:14px}
-.brand{font-size:29px;font-weight:700}.sub{font-size:14px;color:#91a4bc;margin-top:7px}
-.pills{display:flex;gap:10px}.pill{padding:10px 15px;background:#101f32;border:1px solid #34465e;border-radius:9px;font-size:15px}
+body{width:1200px;padding:20px}
+.header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 22px;margin-bottom:16px;background:#0b1625;border:1px solid #26364c;border-radius:14px;flex-wrap:wrap}
+.brand{font-size:32px;font-weight:700}.sub{font-size:17px;color:#91a4bc;margin-top:7px}
+.pills{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:12px 16px;background:#101f32;border:1px solid #34465e;border-radius:9px;font-size:18px}
 .pill b{margin-left:6px;color:#f8fafc}
-.main-grid{display:grid;grid-template-columns:1fr 470px;gap:16px;align-items:stretch}
+.main-grid{display:block}
 .panel{background:#091422;border:1px solid #26364c;border-radius:13px;overflow:hidden}
-.panel-head{display:flex;justify-content:space-between;align-items:center;padding:13px 17px;background:#101e30;border-bottom:1px solid #26364c}
-.panel-title{font-size:20px;font-weight:700}.panel-sub{font-size:13px;color:#91a4bc;margin-top:5px}
-.chart{height:690px;width:100%}
-.sidebar{display:flex;flex-direction:column;gap:14px}
-.side-section{padding:16px 17px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
-.side-title{font-size:19px;font-weight:700;margin-bottom:12px;color:#f1f5f9}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 19px;background:#101e30;border-bottom:1px solid #26364c;flex-wrap:wrap}
+.panel-title{font-size:23px;font-weight:700}.panel-sub{font-size:16px;color:#91a4bc;margin-top:5px}
+.chart{height:760px;width:100%}
+.sidebar{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.side-section{padding:18px 20px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
+.side-title{font-size:22px;font-weight:700;margin-bottom:14px;color:#f1f5f9}
 .decision{display:inline-block;padding:8px 12px;border-radius:20px;border:1px solid #64748b;font-weight:700;margin-bottom:12px}
-.reason{direction:rtl;text-align:right;line-height:1.9;color:#dbeafe;font-size:15px}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #1e3045;font-size:15px}
+.reason{direction:rtl;text-align:right;line-height:1.9;color:#dbeafe;font-size:18px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #1e3045;font-size:17px}
 .kv:last-child{border-bottom:0}.muted{color:#9aabc0}.value{font-weight:700;text-align:left}
 .green{color:#22cfa7}.red{color:#fb7185}.amber{color:#fbbf24}.blue{color:#60a5fa}
-.trade-note{font-size:13px;color:#9aabc0;line-height:1.7;direction:rtl;text-align:right;margin-top:10px}
-.bottom-grid{display:grid;grid-template-columns:1fr 1fr 470px;gap:16px;margin-top:16px}
-.scenario{padding:17px;background:#0b1727;border:1px solid #26364c;border-radius:12px;direction:rtl;text-align:right}
-.scenario h3{margin:0 0 12px;font-size:20px}.scenario p{margin:8px 0;line-height:1.8;font-size:14px}
+.trade-note{font-size:15px;color:#9aabc0;line-height:1.8;direction:rtl;text-align:right;margin-top:11px}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.scenario{padding:19px;background:#0b1727;border:1px solid #26364c;border-radius:12px;direction:rtl;text-align:right}
+.scenario h3{margin:0 0 13px;font-size:23px}.scenario p{margin:9px 0;line-height:1.9;font-size:17px}
 .scenario.bull h3{color:#22cfa7}.scenario.bear h3{color:#fb7185}
-.confirm{padding:16px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
-.confirm h3{margin:0 0 10px;font-size:18px}
+.confirm{grid-column:1/-1;padding:18px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
+.confirm h3{margin:0 0 12px;font-size:21px}
 .confirm-row{padding:10px 0;border-bottom:1px solid #1e3045}
 .confirm-row:last-child{border:0}.confirm-row strong{font-size:16px}
 .footer{text-align:right;color:#71839a;font-size:12px;padding:13px 4px 0}
@@ -335,7 +335,7 @@ body{width:1800px;padding:22px}
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
-  width:root.getElementById("main-chart").clientWidth,height:690,
+  width:root.getElementById("main-chart").clientWidth,height:760,
   layout:{background:{type:"solid",color:"#091422"},textColor:"#cbd5e1",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:true},
   grid:{vertLines:{color:"#1b2b40"},horzLines:{color:"#1b2b40"}},
   rightPriceScale:{borderColor:"#334155",scaleMargins:{top:.08,bottom:.2}},
@@ -413,8 +413,10 @@ body{width:1800px;padding:22px}
   });
   if(index===0){addLine(candles,pattern.target,color,"هدف الگو",2);addLine(candles,pattern.invalidation,"#fbbf24","ابطال الگو",2);}
  });
- if(m.markers.length||patternMarkers.length){
-  LightweightCharts.createSeriesMarkers(candles,m.markers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
+ const markerCutoff=m.candles[Math.max(0,m.candles.length-36)].time;
+ const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff);
+ if(visibleMarkers.length||patternMarkers.length){
+  LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
  chart.timeScale().fitContent();
  const plan=root.getElementById("trade-plan");
@@ -498,7 +500,7 @@ def render_tradingview_chart(results, output_path, analysis=None):
         )
         try:
             page = browser.new_page(
-                viewport={"width": 1856, "height": 1500}, device_scale_factor=1
+                viewport={"width": 1256, "height": 1500}, device_scale_factor=1
             )
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.set_content(html, wait_until="load", timeout=60000)
