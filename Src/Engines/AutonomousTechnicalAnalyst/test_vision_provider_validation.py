@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from . import vision_provider
+from .daily_btc_analysis import compact_vision_context
 
 
 class VisionProviderValidationTests(unittest.TestCase):
@@ -119,6 +120,71 @@ class VisionProviderValidationTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["model"], "test/second-model:free")
         self.assertEqual(request_mock.call_count, 2)
+
+
+class VisionContextCompressionTests(unittest.TestCase):
+    def test_context_keeps_key_evidence_and_limits_candle_history(self):
+        candles = [
+            {
+                "timestamp_utc": f"2026-11-24T{i:02d}:00:00+00:00",
+                "open": 100 + i,
+                "high": 102 + i,
+                "low": 99 + i,
+                "close": 101 + i,
+                "rsi_14": 55,
+                "ema_20": 110,
+                "market_structure": "HH",
+                "unused_large_field": "x" * 1000,
+            }
+            for i in range(20)
+        ]
+        context = {
+            "symbol": "BTC-USDT",
+            "source": "OKX",
+            "analysis_time_utc": "2026-11-24T08:00:00+00:00",
+            "timeframes": {
+                timeframe: {
+                    "source": "OKX",
+                    "freshness": {"age_minutes": 2},
+                    "data_quality": {"missing_interval_count": 0},
+                    "closed_candle_count": 100,
+                    "latest_close": 120,
+                    "latest_confirmed_candle": candles[-1],
+                    "recent_confirmed_candles": candles,
+                    "detected_chart_patterns": [{
+                        "name": "Ascending Triangle",
+                        "direction": "BULLISH",
+                        "status": "DEVELOPING",
+                        "confidence": 70,
+                        "target": 130,
+                        "invalidation": 110,
+                        "trigger": "شکست مقاومت",
+                        "points": [{"time": 1, "price": 2}] * 100,
+                        "lines": [{"points": [{"time": 1, "value": 2}] * 100}],
+                    }],
+                }
+                for timeframe in ("4H", "15M", "5M")
+            },
+            "data_status": {},
+            "data_quality": {},
+        }
+
+        compact = compact_vision_context(context, None, None)
+        self.assertEqual(len(compact["timeframes"]["4H"]["recent_confirmed_candles"]), 8)
+        latest = compact["timeframes"]["4H"]["latest_confirmed_candle"]
+        self.assertEqual(latest["close"], 120)
+        self.assertEqual(latest["market_structure"], "HH")
+        self.assertNotIn("unused_large_field", latest)
+
+        pattern = compact["timeframes"]["4H"]["detected_chart_patterns"][0]
+        self.assertEqual(pattern["name"], "Ascending Triangle")
+        self.assertNotIn("points", pattern)
+        self.assertNotIn("lines", pattern)
+
+        encoded_size = len(json.dumps(compact, ensure_ascii=False))
+        self.assertLess(encoded_size, 18000)
+
+
 
 
 if __name__ == "__main__":
