@@ -129,7 +129,7 @@ def _prepare_timeframe(timeframe, result):
         "overlays": overlays,
         "volume": volume,
         "markers": markers,
-        "patterns": detect_chart_patterns(result["data"]),
+        "patterns": detect_chart_patterns(result["data"].tail(CHART_CANDLE_LIMIT)),
         "levels": {
             "supports": nearest_levels(pivots_low, True),
             "resistances": nearest_levels(pivots_high, False),
@@ -387,6 +387,9 @@ body{width:1800px;padding:22px}
   const status=root.createElement("strong");status.className="value "+(pattern.status==="CONFIRMED"?"green":"amber");
   status.textContent=pattern.status==="CONFIRMED"?"تأییدشده":"در حال شکل‌گیری";
   item.append(label,status);patternPanel.appendChild(item);
+  const detail=root.createElement("div");detail.className="trade-note";
+  detail.textContent="هدف هندسی: "+fmt(pattern.target)+" · ابطال: "+fmt(pattern.invalidation)+" · شرط: "+(pattern.trigger||"—");
+  patternPanel.appendChild(detail);
  });
  if(!(m.patterns||[]).length)patternPanel.textContent="در داده فعلی الگوی معتبر شناسایی نشد.";
  const levels=root.getElementById("levels");
