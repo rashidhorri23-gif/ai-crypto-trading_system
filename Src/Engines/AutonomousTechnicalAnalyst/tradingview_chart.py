@@ -221,22 +221,22 @@ def _build_html(payload):
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#050b14;color:#e2e8f0;font-family:Arial,Tahoma,sans-serif}
-body{width:1200px;padding:20px}
+body{width:1500px;padding:18px}
 .header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 22px;margin-bottom:16px;background:#0b1625;border:1px solid #26364c;border-radius:14px;flex-wrap:wrap}
 .brand{font-size:32px;font-weight:700}.sub{font-size:17px;color:#91a4bc;margin-top:7px}
 .pills{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:12px 16px;background:#101f32;border:1px solid #34465e;border-radius:9px;font-size:18px}
 .pill b{margin-left:6px;color:#f8fafc}
-.main-grid{display:block}
+.main-grid{display:grid;grid-template-columns:minmax(0,1.85fr) minmax(390px,1fr);gap:14px;align-items:start}
 .panel{background:#091422;border:1px solid #26364c;border-radius:13px;overflow:hidden}
 .panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 19px;background:#101e30;border-bottom:1px solid #26364c;flex-wrap:wrap}
 .panel-title{font-size:23px;font-weight:700}.panel-sub{font-size:16px;color:#91a4bc;margin-top:5px}
 .chart{height:760px;width:100%}
-.sidebar{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
-.side-section{padding:18px 20px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
-.side-title{font-size:22px;font-weight:700;margin-bottom:14px;color:#f1f5f9}
+.sidebar{display:grid;grid-template-columns:1fr;gap:12px;margin:0}
+.side-section{padding:14px 16px;background:#0b1727;border:1px solid #26364c;border-radius:12px}
+.side-title{font-size:20px;font-weight:700;margin-bottom:14px;color:#f1f5f9}
 .decision{display:inline-block;padding:8px 12px;border-radius:20px;border:1px solid #64748b;font-weight:700;margin-bottom:12px}
 .reason{direction:rtl;text-align:right;line-height:1.9;color:#dbeafe;font-size:18px}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #1e3045;font-size:17px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #1e3045;font-size:17px}
 .kv:last-child{border-bottom:0}.muted{color:#9aabc0}.value{font-weight:700;text-align:left}
 .green{color:#22cfa7}.red{color:#fb7185}.amber{color:#fbbf24}.blue{color:#60a5fa}
 .trade-note{font-size:15px;color:#9aabc0;line-height:1.8;direction:rtl;text-align:right;margin-top:11px}
@@ -329,9 +329,9 @@ body{width:1200px;padding:20px}
  const badge=root.getElementById("decision-badge");
  badge.style.color=decision==="LONG"?"#22cfa7":decision==="SHORT"?"#fb7185":"#fbbf24";
  badge.style.borderColor=decision==="LONG"?"#22cfa7":decision==="SHORT"?"#fb7185":"#fbbf24";
- function addLine(series,price,color,title,style){
+ function addLine(series,price,color,title,style,showAxisLabel=false){
   if(Number.isFinite(Number(price))&&Number(price)>0)series.createPriceLine({
-   price:Number(price),color,lineWidth:2,lineStyle:style,axisLabelVisible:true,title
+   price:Number(price),color,lineWidth:2,lineStyle:style,axisLabelVisible:showAxisLabel,title
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
@@ -361,8 +361,8 @@ body{width:1200px;padding:20px}
  const volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceScaleId:"volume",
   priceFormat:{type:"volume"},lastValueVisible:false,priceLineVisible:false});
  volume.setData(m.volume);chart.priceScale("volume").applyOptions({scaleMargins:{top:.84,bottom:0},visible:false});
- (m.levels.supports||[]).slice(0,2).forEach((v,i)=>addLine(candles,v,"#089981","حمایت "+(i+1),2));
- (m.levels.resistances||[]).slice(0,2).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت "+(i+1),2));
+ (m.levels.supports||[]).slice(0,1).forEach((v,i)=>addLine(candles,v,"#089981","حمایت",2));
+ (m.levels.resistances||[]).slice(0,1).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت",2));
  const z=m.smc_zones||{};
  const bullishZone=z.bullish_ob_low!=null&&z.bullish_ob_high!=null
   ?[z.bullish_ob_low,z.bullish_ob_high,"#38bdf8","OB صعودی"]
@@ -370,34 +370,21 @@ body{width:1200px;padding:20px}
  const bearishZone=z.bearish_ob_low!=null&&z.bearish_ob_high!=null
   ?[z.bearish_ob_low,z.bearish_ob_high,"#f59e0b","OB نزولی"]
   :[z.bearish_fvg_low,z.bearish_fvg_high,"#fb7185","FVG نزولی"];
- [[bullishZone[0],bullishZone[2],bullishZone[3]+" پایین"],
-  [bullishZone[1],bullishZone[2],bullishZone[3]+" بالا"],
-  [bearishZone[0],bearishZone[2],bearishZone[3]+" پایین"],
-  [bearishZone[1],bearishZone[2],bearishZone[3]+" بالا"]]
-  .forEach(item=>addLine(candles,item[0],item[1],item[2],2));
+ // SMC zones remain in the analysis payload and side report; avoid stacking four more price-axis lines.
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
- if(bull){
-  addLine(candles,bull.target_zone_low,"#22c55e","هدف صعودی پایین",2);
-  addLine(candles,bull.target_zone_high,"#22c55e","هدف صعودی بالا",2);
-  addLine(candles,bull.invalidation_price,"#16a34a","ابطال صعود",1);
- }
- if(bear){
-  addLine(candles,bear.target_zone_low,"#fb7185","هدف نزولی پایین",2);
-  addLine(candles,bear.target_zone_high,"#fb7185","هدف نزولی بالا",2);
-  addLine(candles,bear.invalidation_price,"#e11d48","ابطال نزول",1);
- }
+ // Conditional forecast levels are shown in the scenario panels, not as competing full-width chart lines.
  if(decision==="LONG"||decision==="SHORT"){
   const e=a.entry||{};
-  addLine(candles,e.entry_price,"#60a5fa","نقطه ورود",0);
+  addLine(candles,e.entry_price,"#60a5fa","ورود",0,true);
   if(e.entry_zone_low!=null&&e.entry_zone_high!=null&&Number(e.entry_zone_low)!==Number(e.entry_zone_high)){
-   addLine(candles,e.entry_zone_low,"#60a5fa","کف محدوده ورود",1);
-   addLine(candles,e.entry_zone_high,"#60a5fa","سقف محدوده ورود",1);
+   addLine(candles,e.entry_zone_low,"#60a5fa","کف ورود",1,false);
+   addLine(candles,e.entry_zone_high,"#60a5fa","سقف ورود",1,false);
   }
-  addLine(candles,a.stop_loss,"#f23645","حد ضرر",0);
-  addLine(candles,a.take_profit_1,"#22c55e","هدف ۱",0);
-  addLine(candles,a.take_profit_2,"#22c55e","هدف ۲",1);
-  addLine(candles,a.take_profit_3,"#22c55e","هدف ۳",1);
+  addLine(candles,a.stop_loss,"#f23645","حد ضرر",0,true);
+  addLine(candles,a.take_profit_1,"#22c55e","TP1",0,true);
+  addLine(candles,a.take_profit_2,"#22c55e","TP2",1,false);
+  addLine(candles,a.take_profit_3,"#22c55e","TP3",1,false);
  }
  const patternMarkers=[];
  (m.patterns||[]).forEach((pattern,index)=>{
@@ -417,10 +404,10 @@ body{width:1200px;padding:20px}
     patternMarkers.push({time:Number(point.time),position:pattern.direction==="BEARISH"?"aboveBar":"belowBar",color,shape:"circle",text:String(point.label||pattern.name).slice(0,8)});
    }
   });
-  if(index===0){addLine(candles,pattern.target,color,"هدف الگو",2);addLine(candles,pattern.invalidation,"#fbbf24","ابطال الگو",2);}
+  // Pattern geometry is drawn on the candles; targets and invalidations stay in the pattern panel.
  });
- const markerCutoff=m.candles[Math.max(0,m.candles.length-36)].time;
- const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff);
+ const markerCutoff=m.candles[Math.max(0,m.candles.length-24)].time;
+ const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||""));
  if(visibleMarkers.length||patternMarkers.length){
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
