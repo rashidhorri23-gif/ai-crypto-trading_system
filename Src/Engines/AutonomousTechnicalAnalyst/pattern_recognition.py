@@ -352,7 +352,7 @@ def _pennant(frame):
 
 def detect_chart_patterns(frame, swing_window=3):
     """Detect a small set of interpretable patterns on the supplied timeframe."""
-    if frame is None or len(frame) < 30:
+    if frame is None or len(frame) < 28:
         return []
     highs, lows = _swings(frame, swing_window)
     swings = _alternate(highs, lows)
