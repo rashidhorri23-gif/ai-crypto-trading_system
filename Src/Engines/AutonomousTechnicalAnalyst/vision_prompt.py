@@ -76,7 +76,11 @@ Evaluate the available evidence, including:
 - Swing highs and swing lows.
 - Breaks of structure and possible changes of character.
 - Support and resistance.
-- Liquidity areas and possible liquidity sweeps, where supported by data.
+- Liquidity areas and detected high/low liquidity sweeps.
+- CHOCH direction changes, BOS events, and current structure bias.
+- Bullish and bearish Fair Value Gaps (FVG) and candidate Order Blocks.
+  Treat these as candidate zones; check whether price has already invalidated
+  or traded through them before relying on them.
 - Trend strength and momentum.
 - EMA relationships.
 - RSI, ATR, ADX, directional indicators, and relative volume.
