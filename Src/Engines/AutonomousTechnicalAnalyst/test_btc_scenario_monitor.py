@@ -1,8 +1,11 @@
 import unittest
+import tempfile
+from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 from Src.Engines.AutonomousTechnicalAnalyst import btc_scenario_monitor as monitor
+from Src.Engines.AutonomousTechnicalAnalyst import btc_scenario_performance as performance
 
 
 def candles(interval, count, start=1_700_000_000, mode="up"):
@@ -197,6 +200,120 @@ class TestTelegramStatusControls(unittest.TestCase):
         with patch.object(monitor, "send_telegram") as sender:
             monitor.send_periodic_status(session, state)
         sender.assert_not_called()
+
+
+class TestScenarioPerformance(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.observations_path = self.root / "observations.json"
+        self.outcomes_path = self.root / "outcomes.json"
+        self.report_path = self.root / "performance.json"
+        self.entry_time = 1_700_000_000
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def active_session(self):
+        return {
+            "analysis_id": "performance-test",
+            "status": "ACTIVE",
+            "scenarios": {
+                "LONG": {"status": "WAITING", "activation": None},
+                "SHORT": {"status": "WAITING", "activation": None},
+            },
+            "latest_checks": {
+                "LONG": {
+                    "observed_timestamp": self.entry_time,
+                    "observed_price": 100.0,
+                    "checks": {
+                        "4H_BREAKOUT": {"known": True, "met": True, "level": 99.0},
+                        "15M_MOMENTUM": {"known": True, "met": True},
+                        "5M_MOMENTUM": {"known": True, "met": False},
+                    },
+                },
+                "SHORT": {
+                    "observed_timestamp": self.entry_time,
+                    "observed_price": 100.0,
+                    "checks": {
+                        "4H_BREAKOUT": {"known": True, "met": False, "level": 90.0},
+                        "15M_MOMENTUM": {"known": True, "met": False},
+                        "5M_MOMENTUM": {"known": True, "met": False},
+                    },
+                },
+            },
+        }
+
+    def test_observations_are_deduplicated_and_near_miss_is_labeled(self):
+        session = self.active_session()
+        self.assertTrue(performance.record_observation(session, self.observations_path))
+        self.assertFalse(performance.record_observation(session, self.observations_path))
+        store = performance.read_store(self.observations_path, {})
+        self.assertEqual(len(store["records"]), 1)
+        self.assertEqual(
+            store["records"][0]["scenarios"]["LONG"]["classification"],
+            "UNCONFIRMED_BREAKOUT_NEAR_MISS",
+        )
+
+    def test_activation_outcomes_resolve_all_forward_horizons(self):
+        session = self.active_session()
+        session["scenarios"]["LONG"] = {
+            "status": "ACTIVATED",
+            "activation": {
+                "timestamp_unix": self.entry_time,
+                "price": 100.0,
+                "checks": {"4H_BREAKOUT": {"level": 99.0}},
+            },
+        }
+        five_minute = []
+        for index in range(288):
+            close = 100.0 + index * 0.01
+            five_minute.append({
+                "timestamp": self.entry_time + index * 300,
+                "open": close,
+                "high": close + 0.5,
+                "low": close - 0.5,
+                "close": close,
+                "volume": 1.0,
+            })
+        four_hour = [{
+            "timestamp": self.entry_time,
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.5,
+            "close": 100.5,
+            "volume": 1.0,
+        }]
+        store = performance.update_outcomes(
+            session,
+            {"5M": five_minute, "4H": four_hour},
+            self.outcomes_path,
+            now_timestamp=self.entry_time + 86400,
+        )
+        activated = [item for item in store["records"] if item["kind"] == "ACTIVATED"]
+        self.assertEqual(len(activated), 1)
+        self.assertTrue(all(item["resolved"] for item in activated[0]["windows"].values()))
+        self.assertEqual(activated[0]["breakout_assessment"]["status"], "HELD_THROUGH_4H")
+
+        report = performance.build_performance_report(
+            {"records": []}, store, generated_at=self.entry_time + 86400
+        )
+        self.assertEqual(report["scenarios"]["LONG"]["activated_count"], 1)
+        self.assertEqual(report["scenarios"]["LONG"]["horizons"]["24H"]["resolved_count"], 1)
+
+    def test_near_miss_candidate_is_not_counted_as_activation(self):
+        session = self.active_session()
+        store = performance.update_outcomes(
+            session,
+            {"5M": [], "4H": []},
+            self.outcomes_path,
+            now_timestamp=self.entry_time,
+        )
+        self.assertEqual(len(store["records"]), 1)
+        self.assertEqual(store["records"][0]["kind"], "UNCONFIRMED_NEAR_MISS")
+        report = performance.build_performance_report({"records": []}, store)
+        self.assertEqual(report["scenarios"]["LONG"]["activated_count"], 0)
+        self.assertEqual(report["scenarios"]["LONG"]["near_miss_candidate_count"], 1)
 
 
 if __name__ == "__main__":
