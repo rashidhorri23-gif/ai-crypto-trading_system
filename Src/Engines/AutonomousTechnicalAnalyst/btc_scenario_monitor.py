@@ -311,23 +311,31 @@ def append_history(state, session):
     state["history"] = state["history"][-MAX_SESSION_HISTORY:]
 
 
-def finalize_unactivated(session, state, finalized_at, reason):
+def finalize_session(session, state, finalized_at, reason):
     if session.get("status") != "ACTIVE":
         return
-    session["status"] = "NO_SCENARIO_ACTIVATED"
     session["finalized_at"] = utc_iso(finalized_at)
     session["finalization_reason"] = reason
+    activated = [
+        direction for direction in ("LONG", "SHORT")
+        if session.get("scenarios", {}).get(direction, {}).get("status") == "ACTIVATED"
+    ]
+    if activated:
+        session["status"] = "COMPLETED_WITH_ACTIVATION"
+        session["activated_directions"] = activated
+        append_history(state, session)
+        return
+    session["status"] = "NO_SCENARIO_ACTIVATED"
     append_history(state, session)
     event_id = notification_id("no_scenario", session["analysis_id"])
     message = (
-        "BTC DAILY SCENARIO MONITOR — NO SCENARIO ACTIVATED\n"
-        f"Analysis ID: {session['analysis_id']}\n"
-        f"Window ended: {session['finalized_at']}\n"
+        "BTC DAILY SCENARIO MONITOR — NO SCENARIO ACTIVATED\\n"
+        f"Analysis ID: {session['analysis_id']}\\n"
+        f"Window ended: {session['finalized_at']}\\n"
         "Neither LONG nor SHORT met all confirmed-candle conditions. No trade was opened."
     )
     if send_telegram(message, event_id, state):
         session["no_scenario_notification_sent"] = True
-
 
 def start_session(report, generated_at):
     return {
@@ -366,7 +374,7 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
 
     if current and current.get("analysis_id") != analysis_id:
         if current.get("status") == "ACTIVE":
-            finalize_unactivated(current, state, now, "REPLACED_BY_NEW_DAILY_REPORT")
+            finalize_session(current, state, now, "REPLACED_BY_NEW_DAILY_REPORT")
         current = None
 
     if current is None:
@@ -377,8 +385,7 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
         return current
 
     if now >= float(current["expires_at"]):
-        finalize_unactivated(current, state, float(current["expires_at"]), "DAILY_WINDOW_ENDED")
-        current["status"] = "NO_SCENARIO_ACTIVATED"
+        finalize_session(current, state, float(current["expires_at"]), "DAILY_WINDOW_ENDED")
         return current
 
     if candles_by_tf is None:
@@ -408,8 +415,6 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
             }
             notify_activation(current, direction, scenario, state)
 
-    if any(current["scenarios"][direction]["status"] == "ACTIVATED" for direction in ("LONG", "SHORT")):
-        current["status"] = "SCENARIO_ACTIVATED"
     return current
 
 
