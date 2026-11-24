@@ -163,6 +163,24 @@ def _prepare_timeframe(timeframe, result):
         values = pd.to_numeric(frame[column], errors="coerce").dropna()
         return _number(values.iloc[-1]) if not values.empty else None
 
+    def latest_valid_zone(low_column, high_column):
+        if low_column not in frame.columns or high_column not in frame.columns:
+            return None, None
+        pairs = frame[[low_column, high_column]].apply(
+            pd.to_numeric, errors="coerce"
+        ).dropna()
+        if pairs.empty:
+            return None, None
+        low, high = _number(pairs.iloc[-1, 0]), _number(pairs.iloc[-1, 1])
+        if low is None or high is None or low <= 0 or high <= low:
+            return None, None
+        return low, high
+
+    bullish_fvg = latest_valid_zone("fvg_bullish_low", "fvg_bullish_high")
+    bearish_fvg = latest_valid_zone("fvg_bearish_low", "fvg_bearish_high")
+    bullish_ob = latest_valid_zone("last_bullish_ob_low", "last_bullish_ob_high")
+    bearish_ob = latest_valid_zone("last_bearish_ob_low", "last_bearish_ob_high")
+
     def nearest_levels(pivots, is_support):
         candidates = []
         seen = set()
@@ -191,14 +209,14 @@ def _prepare_timeframe(timeframe, result):
             "latest_resistance": _number(latest.get("resistance")),
         },
         "smc_zones": {
-            "bullish_fvg_low": latest_valid("fvg_bullish_low"),
-            "bullish_fvg_high": latest_valid("fvg_bullish_high"),
-            "bearish_fvg_low": latest_valid("fvg_bearish_low"),
-            "bearish_fvg_high": latest_valid("fvg_bearish_high"),
-            "bullish_ob_low": latest_valid("last_bullish_ob_low"),
-            "bullish_ob_high": latest_valid("last_bullish_ob_high"),
-            "bearish_ob_low": latest_valid("last_bearish_ob_low"),
-            "bearish_ob_high": latest_valid("last_bearish_ob_high"),
+            "bullish_fvg_low": bullish_fvg[0],
+            "bullish_fvg_high": bullish_fvg[1],
+            "bearish_fvg_low": bearish_fvg[0],
+            "bearish_fvg_high": bearish_fvg[1],
+            "bullish_ob_low": bullish_ob[0],
+            "bullish_ob_high": bullish_ob[1],
+            "bearish_ob_low": bearish_ob[0],
+            "bearish_ob_high": bearish_ob[1],
         },
         "metrics": {
             "close": close,
