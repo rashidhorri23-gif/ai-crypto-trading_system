@@ -242,8 +242,9 @@ def _flag(frame):
         return None
     impulse = (impulse_end - impulse_start) / impulse_start
     consolidation = recent.iloc[10:]
-    highs = [_num(v) for v in consolidation["high"]]
-    lows = [_num(v) for v in consolidation["low"]]
+    range_candles = consolidation.iloc[:-1]
+    highs = [_num(v) for v in range_candles["high"]]
+    lows = [_num(v) for v in range_candles["low"]]
     if abs(impulse) < 0.035 or any(v is None for v in highs + lows):
         return None
     ceiling, floor = max(highs), min(lows)
@@ -252,7 +253,7 @@ def _flag(frame):
     direction = "BULLISH" if impulse > 0 else "BEARISH"
     close = _num(recent.iloc[-1]["close"])
     confirmed = close > ceiling if direction == "BULLISH" else close < floor
-    times = [int(_num(v) // 1000) for v in consolidation["timestamp"]]
+    times = [int(_num(v) // 1000) for v in range_candles["timestamp"]]
     return _make("Bull Flag" if direction == "BULLISH" else "Bear Flag",
         direction, "CONFIRMED" if confirmed else "DEVELOPING", 70 if confirmed else 55,
         [{"time": times[0], "price": ceiling, "label": "Flag"},
