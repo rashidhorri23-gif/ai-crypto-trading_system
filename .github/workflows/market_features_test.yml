@@ -7,6 +7,10 @@ on:
   push:
     paths:
       - "Src/Engines/AutonomousTechnicalAnalyst/market_features.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/pattern_recognition.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_pattern_recognition.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/daily_btc_analysis.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/vision_prompt.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/test_market_features.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/config.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/tradingview_chart.py"
@@ -46,6 +50,10 @@ jobs:
       - name: Run TradingView chart rendering test
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.test_tradingview_chart
+
+      - name: Run chart pattern recognition tests
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_pattern_recognition
 
       - name: Run market features validation
         run: |
