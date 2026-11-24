@@ -18,7 +18,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T11:22:28.950891+00:00",
+    "last_checked_at": "2026-11-24T11:31:58.643154+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
@@ -32,25 +32,25 @@
           "15M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59669.7,
+            "close": 59844.2,
             "ema_trend": "BEARISH",
-            "rsi": 34.780159601863005,
-            "macd_histogram": -31.37806459500672,
-            "candle_close_timestamp": 1795518900
+            "rsi": 40.64823811447912,
+            "macd_histogram": -19.029011333779295,
+            "candle_close_timestamp": 1795519800
           },
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59662.2,
+            "close": 59844.2,
             "ema_trend": "BEARISH",
-            "rsi": 37.426001095308024,
-            "macd_histogram": -0.47257970918522574,
-            "candle_close_timestamp": 1795519200
+            "rsi": 48.4766882574144,
+            "macd_histogram": 13.025679210091141,
+            "candle_close_timestamp": 1795519800
           }
         },
         "ready": false,
-        "observed_price": 59662.2,
-        "observed_timestamp": 1795519200
+        "observed_price": 59844.2,
+        "observed_timestamp": 1795519800
       },
       "SHORT": {
         "checks": {
@@ -64,25 +64,25 @@
           "15M_MOMENTUM": {
             "met": true,
             "known": true,
-            "close": 59669.7,
+            "close": 59844.2,
             "ema_trend": "BEARISH",
-            "rsi": 34.780159601863005,
-            "macd_histogram": -31.37806459500672,
-            "candle_close_timestamp": 1795518900
+            "rsi": 40.64823811447912,
+            "macd_histogram": -19.029011333779295,
+            "candle_close_timestamp": 1795519800
           },
           "5M_MOMENTUM": {
-            "met": true,
+            "met": false,
             "known": true,
-            "close": 59662.2,
+            "close": 59844.2,
             "ema_trend": "BEARISH",
-            "rsi": 37.426001095308024,
-            "macd_histogram": -0.47257970918522574,
-            "candle_close_timestamp": 1795519200
+            "rsi": 48.4766882574144,
+            "macd_histogram": 13.025679210091141,
+            "candle_close_timestamp": 1795519800
           }
         },
         "ready": false,
-        "observed_price": 59662.2,
-        "observed_timestamp": 1795519200
+        "observed_price": 59844.2,
+        "observed_timestamp": 1795519800
       }
     },
     "breakout_levels": {
