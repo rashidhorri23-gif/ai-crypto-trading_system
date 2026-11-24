@@ -90,10 +90,28 @@ def main():
         "take_profit_3": None,
     }
 
+    long_analysis = {
+        "decision": "LONG",
+        "market_bias": "BULLISH",
+        "confidence": 71,
+        "reasoning": "آزمون نمایش ورود، محدوده ورود، حد ضرر و اهداف.",
+        "entry": {
+            "entry_type": "LIMIT",
+            "entry_price": 60000.0,
+            "entry_zone_low": 59900.0,
+            "entry_zone_high": 60100.0,
+        },
+        "stop_loss": 59000.0,
+        "take_profit_1": 61000.0,
+        "take_profit_2": 62000.0,
+        "take_profit_3": 63000.0,
+    }
+
     with tempfile.TemporaryDirectory() as directory:
         output_dir = Path(directory)
         pre_analysis_chart = output_dir / "pre_analysis.png"
-        final_chart = output_dir / "final_wait_report.png"
+        wait_chart = output_dir / "final_wait_report.png"
+        long_chart = output_dir / "final_long_report.png"
 
         render_tradingview_chart(
             results,
@@ -101,11 +119,16 @@ def main():
         )
         render_tradingview_chart(
             results,
-            final_chart,
+            wait_chart,
             analysis=wait_analysis,
         )
+        render_tradingview_chart(
+            results,
+            long_chart,
+            analysis=long_analysis,
+        )
 
-        for chart_path in (pre_analysis_chart, final_chart):
+        for chart_path in (pre_analysis_chart, wait_chart, long_chart):
             if not chart_path.is_file() or chart_path.stat().st_size < 10000:
                 raise RuntimeError(
                     f"Chart image was not generated correctly: {chart_path.name}"
