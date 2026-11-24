@@ -307,7 +307,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
     root.appendChild(panel);
 
     const chart = LightweightCharts.createChart(chartContainer, {
-      autoSize: true,
+      width: chartContainer.clientWidth,
       height: 430,
       layout: {
         background: { type: "solid", color: "#0b1422" },
