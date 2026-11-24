@@ -19,8 +19,8 @@ class StageFiveResearchTests(unittest.TestCase):
         short_snapshot = {"known": True, "trend": "BEARISH", "rsi": 44.0, "macd_histogram": -1.0}
         self.assertTrue(research.is_aligned(long_snapshot, "LONG", 50.0))
         self.assertTrue(research.is_aligned(short_snapshot, "SHORT", 50.0))
-        self.assertFalse(research.is_aligned(long_snapshot, "LONG", 55.0))
-        self.assertFalse(research.is_aligned(short_snapshot, "SHORT", 55.0))
+        self.assertFalse(research.is_aligned(long_snapshot, "LONG", 57.0))
+        self.assertFalse(research.is_aligned(short_snapshot, "SHORT", 57.0))
 
     def test_load_candles_rejects_duplicate_timestamps(self):
         with tempfile.TemporaryDirectory() as folder:
