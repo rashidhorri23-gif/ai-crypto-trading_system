@@ -423,27 +423,26 @@ body{width:1780px;padding:14px}
  (m.levels.supports||[]).slice(0,1).forEach((v,i)=>addLine(candles,v,"#089981","حمایت",2));
  (m.levels.resistances||[]).slice(0,1).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت",2));
  const z=m.smc_zones||{};
- const bullishZone=z.bullish_ob_low!=null&&z.bullish_ob_high!=null
-  ?[z.bullish_ob_low,z.bullish_ob_high,"#38bdf8","OB صعودی"]
-  :[z.bullish_fvg_low,z.bullish_fvg_high,"#22cfa7","FVG صعودی"];
- const bearishZone=z.bearish_ob_low!=null&&z.bearish_ob_high!=null
-  ?[z.bearish_ob_low,z.bearish_ob_high,"#f59e0b","OB نزولی"]
-  :[z.bearish_fvg_low,z.bearish_fvg_high,"#fb7185","FVG نزولی"];
- // Shade the latest validated order-block/FVG zones without covering candle bodies.
- function drawZone(zone,color,title){
-  const low=Number(zone[0]),high=Number(zone[1]);
+ // Render order blocks and fair-value gaps independently; never substitute one for the other.
+ // Only zones supplied by the current validated SMC analysis are drawn.
+ function drawZone(lowValue,highValue,color,title){
+  const low=Number(lowValue),high=Number(highValue);
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<=low)return;
   const start=m.candles[Math.max(0,m.candles.length-36)].time;
   const end=m.candles[m.candles.length-1].time;
   const area=chart.addSeries(LightweightCharts.BaselineSeries,{
-   baseValue:{type:"price",price:low},topFillColor:color,bottomFillColor:"rgba(0,0,0,0)",
-   topLineColor:color,bottomLineColor:"rgba(0,0,0,0)",lineWidth:1,
-   title:"",priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+   baseValue:{type:"price",price:low},
+   topFillColor:color,bottomFillColor:"rgba(0,0,0,0)",
+   topLineColor:color,bottomLineColor:"rgba(0,0,0,0)",
+   lineWidth:1,title,priceLineVisible:false,lastValueVisible:false,
+   crosshairMarkerVisible:false
   });
   area.setData([{time:start,value:high},{time:end,value:high}]);
  }
- drawZone(bullishZone,"rgba(32,214,170,0.13)","Bullish OB / FVG");
- drawZone(bearishZone,"rgba(255,99,126,0.13)","Bearish OB / FVG");
+ drawZone(z.bullish_ob_low,z.bullish_ob_high,"rgba(56,189,248,0.20)","OB صعودی");
+ drawZone(z.bearish_ob_low,z.bearish_ob_high,"rgba(245,158,11,0.20)","OB نزولی");
+ drawZone(z.bullish_fvg_low,z.bullish_fvg_high,"rgba(34,207,167,0.12)","FVG صعودی");
+ drawZone(z.bearish_fvg_low,z.bearish_fvg_high,"rgba(251,113,133,0.12)","FVG نزولی");
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
  // Plot AI-provided bullish and bearish 4H forecasts in the reserved future area.
