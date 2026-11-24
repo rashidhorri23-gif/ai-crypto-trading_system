@@ -455,8 +455,6 @@ def build_status_chart(candles, session):
         target_mid = (target_low + target_high) / 2.0
         confidence = item.get("confidence")
         horizon = item.get("horizon_candles")
-        axis.axhspan(target_low, target_high, xmin=0, xmax=1,
-                     color=color, alpha=0.045, zorder=0)
         axis.fill_between([forecast_x[1], forecast_x[2]],
                           [target_low, target_low], [target_high, target_high],
                           color=color, alpha=0.14, zorder=1)
