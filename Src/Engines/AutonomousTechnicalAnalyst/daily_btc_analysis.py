@@ -1234,18 +1234,22 @@ def run_daily_btc_analysis():
         )
 
     print("-" * 65)
-    print("AI ANALYSIS COMPLETED")
+    print("AI ANALYSIS COMPLETED" if ai_analysis_succeeded else "TECHNICAL FALLBACK CHART DELIVERED")
     print(f"Decision: {analysis['decision']}")
     print(f"Bias: {analysis['market_bias']}")
-    print(f"Confidence: {analysis['confidence']}")
-    print(f"Analysis ID: {analysis['analysis_id']}")
-    print(f"Report: {VISION_REPORT_FILE}")
+    if ai_analysis_succeeded:
+        print(f"Confidence: {analysis['confidence']}")
+        print(f"Analysis ID: {analysis['analysis_id']}")
+        print(f"Report: {VISION_REPORT_FILE}")
+    else:
+        print("Forecast source: RULE_BASED_TECHNICAL")
+        print("Trade decision remains WAIT; no trade levels were generated.")
     print("=" * 65)
 
     return {
-        "status": "success",
+        "status": "success" if ai_analysis_succeeded else "fallback_delivered",
         "analysis": analysis,
-        "report_path": str(VISION_REPORT_FILE),
+        "report_path": str(VISION_REPORT_FILE) if ai_analysis_succeeded else None,
         "context_path": str(CONTEXT_FILE),
         "candle_id": candle_id,
     }
