@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
-  "analysis_id": "33805398-242f-45ea-9495-a6591b0a5a84",
-  "generated_at": "2026-11-24T06:08:07.957525+00:00",
+  "analysis_id": "76153c31-3bdc-4ebc-b65e-e9502f3b209b",
+  "generated_at": "2026-11-24T06:38:58.512252+00:00",
   "symbol": "BTC-USDT",
   "timeframes": [
     "4H",
@@ -9,7 +9,7 @@
     "5M"
   ],
   "decision": "WAIT",
-  "confidence": 60,
+  "confidence": 58,
   "market_bias": "BEARISH",
   "entry": {
     "entry_type": "NONE",
@@ -22,7 +22,7 @@
   "take_profit_1": null,
   "take_profit_2": null,
   "take_profit_3": null,
-  "reasoning": "ساختار 4H و 15M نزولی است اما 5M پس از BOS صعودی با رد شدن از 60769 و سقف دوقلو در حال توسعه، تعارض دارد. قیمت در میانه رنج 59455-61683 و نزدیک حمایت 60315/60380 است و ورود فوری استاپ و R/R دفاع‌پذیر ندارد. تصمیم WAIT حفظ می‌شود.",
+  "reasoning": "ساختار 4H و 15M نزولی با BOS/CHOCH نزولی و کنج صعودی تأییدشده است، اما قیمت میان رنج 59455-60769 و پس از بازیابی از 59455 قرار دارد. 5M سوگیری صعودی با ADX پایین دارد و هنوز شکست تأییدی زیر 60315 رخ نداده است. ورود فوری استاپ و نسبت R/R دفاع‌پذیر ندارد، پس WAIT حفظ می‌شود.",
   "forecast": {
     "timeframes": {
       "4H": {
@@ -31,65 +31,65 @@
           "target_zone_high": 62600.0,
           "invalidation_price": 59455.0,
           "horizon_candles": 6,
-          "confidence": 40,
+          "confidence": 35,
           "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20."
         },
         "bearish": {
           "target_zone_low": 58000.0,
-          "target_zone_high": 59200.0,
+          "target_zone_high": 59023.0,
           "invalidation_price": 61683.9,
           "horizon_candles": 6,
-          "confidence": 60,
-          "trigger": "شکست و تثبیت زیر 60380.8 و سپس 59455."
+          "confidence": 55,
+          "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023."
         }
       },
       "15M": {
         "bullish": {
-          "target_zone_low": 61070.0,
-          "target_zone_high": 61600.0,
-          "invalidation_price": 60000.0,
+          "target_zone_low": 60770.0,
+          "target_zone_high": 61090.0,
+          "invalidation_price": 60240.0,
           "horizon_candles": 8,
-          "confidence": 45,
-          "trigger": "تثبیت بالای 61041 و شکست 61683.9."
+          "confidence": 40,
+          "trigger": "شکست و تثبیت بالای 60769.2 با حجم نسبی."
         },
         "bearish": {
           "target_zone_low": 59455.0,
-          "target_zone_high": 60000.0,
-          "invalidation_price": 61041.0,
+          "target_zone_high": 59940.0,
+          "invalidation_price": 60769.2,
           "horizon_candles": 8,
           "confidence": 55,
-          "trigger": "رد شدن از 61041 و شکست 60315."
+          "trigger": "شکست کف 60315 و تثبیت زیر آن برای ادامه نزول."
         }
       },
       "5M": {
         "bullish": {
           "target_zone_low": 60770.0,
-          "target_zone_high": 61070.0,
+          "target_zone_high": 61060.0,
           "invalidation_price": 60315.4,
           "horizon_candles": 12,
-          "confidence": 50,
-          "trigger": "ادامه بالای 60692.9 با حجم."
+          "confidence": 45,
+          "trigger": "ادامه بالای 60692.9 با حجم و بازگشت به VWAP."
         },
         "bearish": {
-          "target_zone_low": 59940.0,
-          "target_zone_high": 60300.0,
+          "target_zone_low": 59842.0,
+          "target_zone_high": 60227.0,
           "invalidation_price": 60769.2,
           "horizon_candles": 12,
-          "confidence": 50,
-          "trigger": "شکست 60315.4 و بازگشت زیر 60692.9."
+          "confidence": 45,
+          "trigger": "شکست 60315.4 و بازگشت زیر 60411."
         }
       }
     }
   },
   "main_risks": [
-    "شکست پایدار 61041/61683 سناریوی نزولی را باطل می‌کند.",
-    "تثبیت زیر 60315 و سپس 59455 می‌تواند فروش را فعال کند.",
-    "نوسان ATR و سطوح نزدیک باعث نویز حد ضرر می‌شود."
+    "بازگشت بالای 60769/61041 سناریوی نزولی را باطل می‌کند.",
+    "شکست 60315 و سپس 59455 می‌تواند فروش را فعال کند.",
+    "ATR 4H بالا و قیمت میانه رنج، حد ضرر را نویزی می‌کند."
   ],
   "data_limitations": [
-    "فقط کندل‌های تأییدشده OKX موجود است و عمق بازار/جریان سفارش لحظه‌ای نیست.",
-    "الگوی سقف دوقلو 15M و 5M با ساختار صعودی 5M هم‌زمان و متضاد است.",
-    "سطوح حمایت/مقاومت با نوسان کوتاه‌مدت ممکن است جابه‌جا شوند."
+    "فقط کندل‌های تأییدشده OKX موجود است و عمق بازار لحظه‌ای نیست.",
+    "الگوهای دوقلوی 15M/5M با کنج صعودی تأییدشده 4H متضادند.",
+    "حجم نسبی پایین، اعتبار شکست‌ها را کاهش می‌دهد."
   ],
   "previous_signal_action": "KEEP",
   "open_trade_action": "NONE",
@@ -99,5 +99,5 @@
     "take_profit_2": null,
     "take_profit_3": null
   },
-  "model": "particle-ai/particle-1:free"
+  "model": "inclusionai/ling-3.2-flash:free"
 }
