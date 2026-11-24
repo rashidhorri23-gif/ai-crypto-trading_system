@@ -1008,6 +1008,121 @@ def run_vision_analysis(market_context, previous_signal, open_trade):
     return analysis
 
 
+def build_rule_based_chart_analysis(results):
+    """Build conditional chart scenarios from confirmed OKX features without issuing trades."""
+    timeframe_settings = {
+        "4H": {"horizon": 6, "atr_multiple": 1.5},
+        "15M": {"horizon": 8, "atr_multiple": 1.2},
+        "5M": {"horizon": 12, "atr_multiple": 1.0},
+    }
+    forecasts = {}
+
+    for timeframe, settings in timeframe_settings.items():
+        frame = results[timeframe]["data"].copy()
+        latest = frame.iloc[-1]
+        close = float(latest["close"])
+        atr_value = latest.get("atr_14")
+        try:
+            atr = float(atr_value)
+        except (TypeError, ValueError):
+            atr = float("nan")
+        if not math.isfinite(atr) or atr <= 0:
+            previous_close = frame["close"].shift(1)
+            true_range = pd.concat([
+                frame["high"] - frame["low"],
+                (frame["high"] - previous_close).abs(),
+                (frame["low"] - previous_close).abs(),
+            ], axis=1).max(axis=1)
+            atr = float(true_range.tail(14).mean())
+        if not math.isfinite(atr) or atr <= 0:
+            raise ValueError(f"{timeframe}: cannot calculate a valid ATR for forecast.")
+
+        prior = frame.iloc[:-1].tail(20)
+        if prior.empty:
+            raise ValueError(f"{timeframe}: insufficient candles for forecast triggers.")
+        breakout_high = float(prior["high"].max())
+        breakout_low = float(prior["low"].min())
+
+        ema_trend = str(latest.get("ema_trend", "NEUTRAL")).upper()
+        structure = str(latest.get("market_structure", "NEUTRAL")).upper()
+        rsi = _number(latest.get("rsi_14"))
+        macd_hist = _number(latest.get("macd_histogram"))
+        bos_bull = bool(latest.get("bos_bullish", False))
+        bos_bear = bool(latest.get("bos_bearish", False))
+
+        bullish_score = 0
+        bearish_score = 0
+        bullish_score += 25 if ema_trend == "BULLISH" else 0
+        bearish_score += 25 if ema_trend == "BEARISH" else 0
+        bullish_score += 25 if structure in ("HH", "HL", "BULLISH") else 0
+        bearish_score += 25 if structure in ("LH", "LL", "BEARISH") else 0
+        bullish_score += 15 if rsi is not None and 50 < rsi < 70 else 0
+        bearish_score += 15 if rsi is not None and 30 < rsi < 50 else 0
+        bullish_score += 20 if macd_hist is not None and macd_hist > 0 else 0
+        bearish_score += 20 if macd_hist is not None and macd_hist < 0 else 0
+        bullish_score += 15 if bos_bull else 0
+        bearish_score += 15 if bos_bear else 0
+
+        multiple = settings["atr_multiple"]
+        distance = max(atr * multiple, close * 0.001)
+        forecasts[timeframe] = {
+            "bullish": {
+                "target_zone_low": round(close + distance * 0.65, 8),
+                "target_zone_high": round(close + distance, 8),
+                "invalidation_price": round(close - distance * 0.65, 8),
+                "horizon_candles": settings["horizon"],
+                "confidence": bullish_score,
+                "trigger": (
+                    f"بسته‌شدن کندل بالای سقف ۲۰ کندل قبلی ({breakout_high:.2f}) "
+                    "و حفظ آن در پولبک"
+                ),
+            },
+            "bearish": {
+                "target_zone_low": round(close - distance, 8),
+                "target_zone_high": round(close - distance * 0.65, 8),
+                "invalidation_price": round(close + distance * 0.65, 8),
+                "horizon_candles": settings["horizon"],
+                "confidence": bearish_score,
+                "trigger": (
+                    f"بسته‌شدن کندل زیر کف ۲۰ کندل قبلی ({breakout_low:.2f}) "
+                    "و ناموفق‌بودن بازپس‌گیری آن"
+                ),
+            },
+        }
+
+    four_hour = results["4H"]["data"].iloc[-1]
+    bias = str(four_hour.get("ema_trend", "NEUTRAL")).upper()
+    if bias not in ("BULLISH", "BEARISH"):
+        bias = "NEUTRAL"
+
+    return {
+        "decision": "WAIT",
+        "market_bias": bias,
+        "confidence": None,
+        "reasoning": (
+            "سرویس تحلیل تصویری AI در دسترس نبود. مسیرهای زیر سناریوهای "
+            "تکنیکالِ قانون‌محور بر اساس کندل‌های بسته‌شده OKX و ATR هستند؛ "
+            "امتیاز همگرایی، احتمال آماری نیست. هیچ ورود معاملاتی صادر نشده است."
+        ),
+        "entry": {"entry_type": "NONE", "entry_price": None},
+        "stop_loss": None,
+        "take_profit_1": None,
+        "take_profit_2": None,
+        "take_profit_3": None,
+        "forecast": {
+            "source": "RULE_BASED_TECHNICAL",
+            "timeframes": forecasts,
+        },
+        "main_risks": [
+            "سناریوها با بسته‌شدن قیمت در سطوح فعال‌سازی معتبر می‌شوند.",
+            "این سناریوها خروجی مدل AI یا احتمال آماری کالیبره‌شده نیستند.",
+        ],
+        "data_limitations": [
+            "تحلیل تصویری AI به‌دلیل محدودیت سرویس اجرا نشد.",
+        ],
+    }
+
+
 def run_daily_btc_analysis():
     now = utc_now()
 
@@ -1079,27 +1194,37 @@ def run_daily_btc_analysis():
 
     print("Sending market context to AI...")
 
-    analysis = run_vision_analysis(
-        market_context,
-        previous_signal,
-        open_trade,
-    )
+    ai_analysis_succeeded = False
+    try:
+        analysis = run_vision_analysis(
+            market_context,
+            previous_signal,
+            open_trade,
+        )
+        ai_analysis_succeeded = True
+    except Exception as error:
+        print(
+            "WARNING: Vision analysis unavailable; "
+            "building clearly labeled rule-based chart scenarios. "
+            f"Reason: {type(error).__name__}: {error}"
+        )
+        analysis = build_rule_based_chart_analysis(results)
 
-    # Rebuild the chart with validated AI trade levels for Telegram delivery.
+    # Render either validated AI scenarios or explicitly labeled technical fallback scenarios.
     render_tradingview_chart(results, CHART_FILE, analysis=analysis)
 
-    # Deliver before checkpointing so failed Telegram delivery can retry.
+    # Deliver the chart even when the external vision provider is unavailable.
     telegram_result = send_telegram_chart_report(CHART_FILE, analysis, market_context)
     print(f"Telegram report sent: {telegram_result}")
 
-    # Publish only after successful AI validation and Telegram delivery.
-    atomic_write_json(VISION_REPORT_FILE, analysis)
-
-    # Save the candle checkpoint only after the report is published and delivered.
-    save_successful_analysis(
-        candle_id,
-        analysis["analysis_id"],
-    )
+    if ai_analysis_succeeded:
+        atomic_write_json(VISION_REPORT_FILE, analysis)
+        save_successful_analysis(candle_id, analysis["analysis_id"])
+    else:
+        print(
+            "INFO: Rule-based chart was delivered; daily AI-success checkpoint "
+            "was not advanced, so a later run can retry the AI analysis."
+        )
 
     print("-" * 65)
     print("AI ANALYSIS COMPLETED")
