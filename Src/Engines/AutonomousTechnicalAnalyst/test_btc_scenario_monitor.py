@@ -44,9 +44,9 @@ class TestScenarioEvaluation(unittest.TestCase):
     def setUp(self):
         self.generated_at = 1_700_000_000
         self.frames = {
-            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400, mode="up"),
-            "15M": candles(900, 240, start=self.generated_at - 240 * 900, mode="up"),
-            "5M": candles(300, 240, start=self.generated_at - 240 * 300, mode="up"),
+            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400 + 60, mode="up"),
+            "15M": candles(900, 240, start=self.generated_at - 240 * 900 + 60, mode="up"),
+            "5M": candles(300, 240, start=self.generated_at - 240 * 300 + 60, mode="up"),
         }
 
     def test_long_requires_all_three_timeframes(self):
@@ -58,9 +58,9 @@ class TestScenarioEvaluation(unittest.TestCase):
 
     def test_short_requires_all_three_timeframes(self):
         down = {
-            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400, mode="down"),
-            "15M": candles(900, 240, start=self.generated_at - 240 * 900, mode="down"),
-            "5M": candles(300, 240, start=self.generated_at - 240 * 300, mode="down"),
+            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400 + 60, mode="down"),
+            "15M": candles(900, 240, start=self.generated_at - 240 * 900 + 60, mode="down"),
+            "5M": candles(300, 240, start=self.generated_at - 240 * 300 + 60, mode="down"),
         }
         down["4H"][-1]["close"] = min(c["low"] for c in down["4H"][-21:-1]) - 1
         down["4H"][-1]["low"] = down["4H"][-1]["close"] - 0.1
@@ -71,15 +71,15 @@ class TestScenarioEvaluation(unittest.TestCase):
     def test_momentum_failure_blocks_activation(self):
         self.frames["4H"][-1]["close"] = max(c["high"] for c in self.frames["4H"][-21:-1]) + 1
         self.frames["4H"][-1]["high"] = self.frames["4H"][-1]["close"] + 0.1
-        self.frames["5M"] = candles(300, 240, start=self.generated_at - 240 * 300, mode="flat")
+        self.frames["5M"] = candles(300, 240, start=self.generated_at - 240 * 300 + 60, mode="flat")
         result = monitor.evaluate_scenarios(self.frames, self.generated_at)
         self.assertFalse(result["LONG"]["ready"])
 
     def test_pre_report_candles_cannot_activate(self):
         before_report = {
-            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400, mode="up"),
-            "15M": candles(900, 240, start=self.generated_at - 240 * 900, mode="up"),
-            "5M": candles(300, 240, start=self.generated_at - 240 * 300, mode="up"),
+            "4H": candles(14400, 80, start=self.generated_at - 80 * 14400 + 60, mode="up"),
+            "15M": candles(900, 240, start=self.generated_at - 240 * 900 + 60, mode="up"),
+            "5M": candles(300, 240, start=self.generated_at - 240 * 300 + 60, mode="up"),
         }
         before_report["4H"][-1]["close"] = max(c["high"] for c in before_report["4H"][-21:-1]) + 1
         before_report["4H"][-1]["high"] = before_report["4H"][-1]["close"] + 0.1
