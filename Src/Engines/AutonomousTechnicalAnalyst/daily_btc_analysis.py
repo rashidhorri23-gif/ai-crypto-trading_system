@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .market_features import prepare_market_features
+from .pattern_recognition import detect_chart_patterns
 from .vision_provider import ask_openrouter_vision
 from .vision_prompt import build_btc_analysis_prompt
 from .paper_trading import load_ledger
@@ -78,6 +79,13 @@ CONTEXT_CANDLE_COLUMNS = (
     "ema_trend",
     "bos_bullish",
     "bos_bearish",
+    "bb_upper",
+    "bb_middle",
+    "bb_lower",
+    "macd",
+    "macd_signal",
+    "macd_histogram",
+    "vwap_utc",
 )
 
 SCHEMA_VERSION = "2.0"
@@ -345,6 +353,7 @@ def build_timeframe_context(timeframe, result):
         "latest_confirmed_candle": recent[-1],
         "recent_confirmed_candles": recent,
         "latest_close": json_safe(df.iloc[-1]["close"]),
+        "detected_chart_patterns": detect_chart_patterns(df),
     }
 
 
@@ -472,7 +481,7 @@ def build_multi_timeframe_context(results, now):
     return {
         "symbol": "BTC-USDT",
         "source": "OKX",
-        "analysis_trigger": "CLOSED_15M_CANDLE",
+        "analysis_trigger": "DAILY_0800_ASIA_BAKU",
         "analysis_time_utc": now.isoformat(),
         "timeframes": contexts,
         "data_status": {
@@ -505,9 +514,17 @@ def get_candle_id(timestamp_ms):
     return str(int(timestamp_ms))
 
 
-def already_analyzed(candle_id):
+def baku_analysis_date(now=None):
+    from zoneinfo import ZoneInfo
+
+    reference = now or utc_now()
+    return reference.astimezone(ZoneInfo("Asia/Baku")).date().isoformat()
+
+
+def already_analyzed(candle_id=None, analysis_date=None):
     state = load_state()
-    return state.get("last_successful_15m_candle_id") == candle_id
+    target_date = analysis_date or baku_analysis_date()
+    return state.get("last_successful_analysis_date_baku") == target_date
 
 
 def save_successful_analysis(candle_id, analysis_id):
@@ -516,6 +533,7 @@ def save_successful_analysis(candle_id, analysis_id):
     state["last_successful_15m_candle_id"] = candle_id
     state["last_successful_analysis_id"] = analysis_id
     state["last_successful_analysis_utc"] = utc_now().isoformat()
+    state["last_successful_analysis_date_baku"] = baku_analysis_date()
 
     atomic_write_json(STATE_FILE, state)
 
@@ -945,11 +963,13 @@ def run_daily_btc_analysis():
     if now.timestamp() * 1000 < latest_15m_close_ms:
         raise RuntimeError("Latest 15M candle is not closed.")
 
-    if already_analyzed(candle_id):
-        print(f"SKIPPED: 15M candle {candle_id} was already analyzed.")
+    analysis_date = baku_analysis_date(now)
+    if already_analyzed(analysis_date=analysis_date):
+        print(f"SKIPPED: daily BTC analysis already completed for Baku date {analysis_date}.")
         return {
             "status": "skipped",
-            "reason": "duplicate_15m_candle",
+            "reason": "daily_analysis_already_completed",
+            "analysis_date_baku": analysis_date,
             "candle_id": candle_id,
         }
 
