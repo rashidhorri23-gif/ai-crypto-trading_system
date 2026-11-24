@@ -609,7 +609,7 @@ body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#102
  }
  chart.timeScale().fitContent();
  // Reserve a right-side projection area after the latest plotted point.
- const forecastBars=Math.max(72,...[bull,bear].filter(Boolean).map(item=>Math.max(1,Math.min(100,Number(item.horizon_candles)||6))+4));
+ const forecastBars=Math.max(__FUTURE_SPACE_BARS__,...[bull,bear].filter(Boolean).map(item=>Math.max(1,Math.min(100,Number(item.horizon_candles)||6))+4));
  chart.timeScale().applyOptions({rightOffset:forecastBars});
  const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:96,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
  const rsiSeries=rsiChart.addSeries(LightweightCharts.LineSeries,{color:"#b779ff",lineWidth:2,priceLineVisible:false,lastValueVisible:true});rsiSeries.setData(m.indicators.rsi||[]);
@@ -742,7 +742,7 @@ body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#102
 </script>
 </body>
 </html>"""
-    return template.replace("__PAYLOAD__", payload_json)
+    return template.replace("__PAYLOAD__", payload_json).replace("__FUTURE_SPACE_BARS__", String(FUTURE_SPACE_BARS))
 
 
 def render_tradingview_chart(results, output_path, analysis=None):
