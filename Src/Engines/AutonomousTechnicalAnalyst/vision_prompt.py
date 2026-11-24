@@ -143,6 +143,33 @@ For WAIT:
 - entry_type must be NONE.
 - All entry and trade-level price fields must be null.
 
+WAIT-MODE FORECAST (REQUIRED FOR ALL DECISIONS):
+
+Even when the trading decision is WAIT, provide two independent conditional
+scenarios for each timeframe: 4H, 15M, and 5M.
+
+For each timeframe, return:
+- bullish.target_zone_low and bullish.target_zone_high: a plausible future
+  upside destination zone, both above that timeframe's latest confirmed close.
+- bullish.invalidation_price: a price below the latest confirmed close that
+  would invalidate the bullish scenario.
+- bearish.target_zone_low and bearish.target_zone_high: a plausible future
+  downside destination zone, both below that timeframe's latest confirmed close.
+- bearish.invalidation_price: a price above the latest confirmed close that
+  would invalidate the bearish scenario.
+- horizon_candles: an integer from 1 to 100 for that timeframe.
+- confidence: a 0-100 assessment of evidence quality for that scenario,
+  not a statistically calibrated probability.
+- trigger: one concise Persian condition that would activate or strengthen
+  the scenario.
+
+Forecast zones must be based on supplied structure, volatility, and levels.
+Do not invent precision or force a narrow range. If evidence is weak, use
+wider zones and lower confidence, and explain the uncertainty in Persian.
+These are conditional scenarios, not guaranteed price paths or trade signals.
+Do not put forecast values into entry, stop_loss, or take_profit fields.
+The forecast must never turn WAIT into LONG or SHORT by itself.
+
 RISK MANAGEMENT:
 
 - Propose a technically defensible stop loss.
@@ -245,6 +272,64 @@ Required JSON schema:
   "take_profit_2": 0.0,
   "take_profit_3": 0.0,
   "reasoning": "خلاصه تصمیم در حداکثر سه جمله کوتاه.",
+  "forecast": {
+    "timeframes": {
+      "4H": {
+        "bullish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 6,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی صعودی."
+        },
+        "bearish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 6,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی نزولی."
+        }
+      },
+      "15M": {
+        "bullish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 8,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی صعودی."
+        },
+        "bearish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 8,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی نزولی."
+        }
+      },
+      "5M": {
+        "bullish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 12,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی صعودی."
+        },
+        "bearish": {
+          "target_zone_low": 0.0,
+          "target_zone_high": 0.0,
+          "invalidation_price": 0.0,
+          "horizon_candles": 12,
+          "confidence": 50,
+          "trigger": "شرط فعال شدن سناریوی نزولی."
+        }
+      }
+    }
+  },
   "main_risks": [],
   "data_limitations": [],
   "previous_signal_action": "NONE",
@@ -265,6 +350,8 @@ VALIDATION EXPECTATIONS:
 - All timestamps must be UTC ISO 8601.
 - LONG and SHORT require valid entry, stop loss, and all three targets.
 - WAIT requires entry_type NONE and null entry and trade-level prices.
+- Every decision requires bullish and bearish forecast scenarios for 4H, 15M,
+  and 5M. Forecast values are separate from trade execution levels.
 - A MARKET entry must have a numeric entry_price.
 - A LIMIT entry must have a numeric entry_price and a valid expiry.
 - All trade prices must be positive finite numbers.
