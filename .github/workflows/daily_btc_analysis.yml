@@ -51,6 +51,10 @@ jobs:
           python -m compileall -q Src/Engines/AutonomousTechnicalAnalyst
           python -c "from Src.Engines.AutonomousTechnicalAnalyst.tradingview_chart import render_tradingview_chart; print('TradingView chart renderer import successful.')"
 
+      - name: Run TradingView Chart Rendering Smoke Test
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_tradingview_chart
+
       - name: Update BTC 5M, 15M and 4H Data
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
