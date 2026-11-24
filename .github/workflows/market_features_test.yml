@@ -68,3 +68,12 @@ jobs:
       - name: Run market features validation
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.test_market_features
+
+      - name: Upload BTC chart visual QA image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Chart-Visual-QA
+          path: Reports/BTC_Chart_QA.png
+          if-no-files-found: warn
+          retention-days: 7
