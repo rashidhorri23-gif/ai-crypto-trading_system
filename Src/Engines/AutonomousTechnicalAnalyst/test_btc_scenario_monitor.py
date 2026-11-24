@@ -141,5 +141,63 @@ class TestSession(unittest.TestCase):
         self.assertEqual(state["history"][-1]["status"], "NO_SCENARIO_ACTIVATED")
 
 
+class TestTelegramStatusControls(unittest.TestCase):
+    def test_periodic_status_is_disabled_by_default(self):
+        state = {}
+        session = {"status": "ACTIVE", "latest_checks": {}}
+        with patch.object(monitor, "send_telegram") as sender:
+            monitor.send_periodic_status(session, state)
+        sender.assert_not_called()
+
+    def test_status_command_can_enable_updates_for_configured_chat(self):
+        state = {}
+        updates = [{
+            "update_id": 101,
+            "message": {
+                "chat": {"id": 12345},
+                "text": "/status_on",
+            },
+        }]
+        with patch.dict("os.environ", {"TELEGRAM_CHAT_ID": "12345"}), \
+             patch.object(monitor, "telegram_get_updates", return_value=updates), \
+             patch.object(monitor, "send_telegram", return_value=True):
+            monitor.poll_telegram_commands(state)
+        self.assertTrue(state["status_updates_enabled"])
+        self.assertEqual(state["telegram_update_offset"], 102)
+
+    def test_periodic_status_is_sent_once_per_new_closed_candle(self):
+        state = {"status_updates_enabled": True}
+        session = {
+            "status": "ACTIVE",
+            "analysis_id": "test-report",
+            "scenarios": {
+                "LONG": {"status": "WAITING"},
+                "SHORT": {"status": "WAITING"},
+            },
+            "latest_checks": {
+                "LONG": {"observed_timestamp": 1800, "observed_price": 60000.0,
+                         "checks": {"4H_BREAKOUT": {"known": True, "met": False},
+                                    "15M_MOMENTUM": {"known": True, "met": True},
+                                    "5M_MOMENTUM": {"known": True, "met": True}}},
+                "SHORT": {"observed_timestamp": 1800, "observed_price": 60000.0,
+                          "checks": {"4H_BREAKOUT": {"known": True, "met": False},
+                                     "15M_MOMENTUM": {"known": True, "met": True},
+                                     "5M_MOMENTUM": {"known": True, "met": True}}},
+            },
+        }
+        with patch.object(monitor, "send_telegram", return_value=True) as sender:
+            monitor.send_periodic_status(session, state)
+            monitor.send_periodic_status(session, state)
+        sender.assert_called_once()
+        self.assertEqual(state["status_update_last_candle"], 1800)
+
+    def test_finalized_session_does_not_send_periodic_status(self):
+        state = {"status_updates_enabled": True}
+        session = {"status": "NO_SCENARIO_ACTIVATED", "latest_checks": {}}
+        with patch.object(monitor, "send_telegram") as sender:
+            monitor.send_periodic_status(session, state)
+        sender.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
