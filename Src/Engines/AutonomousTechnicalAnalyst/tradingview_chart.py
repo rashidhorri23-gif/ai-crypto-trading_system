@@ -361,14 +361,20 @@ body{width:1200px;padding:20px}
  const volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceScaleId:"volume",
   priceFormat:{type:"volume"},lastValueVisible:false,priceLineVisible:false});
  volume.setData(m.volume);chart.priceScale("volume").applyOptions({scaleMargins:{top:.84,bottom:0},visible:false});
- (m.levels.supports||[]).forEach((v,i)=>addLine(candles,v,"#089981","حمایت "+(i+1),2));
- (m.levels.resistances||[]).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت "+(i+1),2));
+ (m.levels.supports||[]).slice(0,2).forEach((v,i)=>addLine(candles,v,"#089981","حمایت "+(i+1),2));
+ (m.levels.resistances||[]).slice(0,2).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت "+(i+1),2));
  const z=m.smc_zones||{};
- [["bullish_fvg_low","#22cfa7","FVG صعودی پایین"],["bullish_fvg_high","#22cfa7","FVG صعودی بالا"],
-  ["bearish_fvg_low","#fb7185","FVG نزولی پایین"],["bearish_fvg_high","#fb7185","FVG نزولی بالا"],
-  ["bullish_ob_low","#38bdf8","Order Block صعودی پایین"],["bullish_ob_high","#38bdf8","Order Block صعودی بالا"],
-  ["bearish_ob_low","#f59e0b","Order Block نزولی پایین"],["bearish_ob_high","#f59e0b","Order Block نزولی بالا"]]
-  .forEach(item=>addLine(candles,z[item[0]],item[1],item[2],2));
+ const bullishZone=z.bullish_ob_low!=null&&z.bullish_ob_high!=null
+  ?[z.bullish_ob_low,z.bullish_ob_high,"#38bdf8","OB صعودی"]
+  :[z.bullish_fvg_low,z.bullish_fvg_high,"#22cfa7","FVG صعودی"];
+ const bearishZone=z.bearish_ob_low!=null&&z.bearish_ob_high!=null
+  ?[z.bearish_ob_low,z.bearish_ob_high,"#f59e0b","OB نزولی"]
+  :[z.bearish_fvg_low,z.bearish_fvg_high,"#fb7185","FVG نزولی"];
+ [[bullishZone[0],bullishZone[2],bullishZone[3]+" پایین"],
+  [bullishZone[1],bullishZone[2],bullishZone[3]+" بالا"],
+  [bearishZone[0],bearishZone[2],bearishZone[3]+" پایین"],
+  [bearishZone[1],bearishZone[2],bearishZone[3]+" بالا"]]
+  .forEach(item=>addLine(candles,item[0],item[1],item[2],2));
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
  if(bull){
