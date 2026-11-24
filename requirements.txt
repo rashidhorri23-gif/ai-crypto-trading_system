@@ -3,4 +3,4 @@ pandas
 numpy
 python-dotenv
 matplotlib
-playwright
+playwright==1.65.2
