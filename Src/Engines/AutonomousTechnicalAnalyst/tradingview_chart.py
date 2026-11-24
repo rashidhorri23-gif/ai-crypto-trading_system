@@ -233,7 +233,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
   <div class="reasoning" id="reasoning">Multi-timeframe market evidence is being prepared for AI analysis.</div>
 </div>
 <div id="charts"></div>
-<div class="footer">Candles and indicators use confirmed OKX data. Swing markers are placed on the pivot candle after three-candle confirmation. BOS markers use the current validated feature flags. CHOCH and liquidity zones are not yet calculated and are intentionally omitted. Charting library: <a href="https://www.tradingview.com/" target="_blank">TradingView</a>.</div>
+<div class="footer">Candles and indicators use confirmed OKX data. Swing markers are placed on the pivot candle after three-candle confirmation. BOS markers use the current validated feature flags. AI bullish/bearish forecast zones and invalidation levels are scenario estimates, not guaranteed paths or trade orders. CHOCH and liquidity zones are not yet calculated and are intentionally omitted. Charting library: <a href="https://www.tradingview.com/" target="_blank">TradingView</a>.</div>
 <script src="https://unpkg.com/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 (function () {
@@ -293,10 +293,21 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
 
     const metrics = document.createElement("div");
     metrics.className = "metrics";
+    const forecastForMetrics =
+      analysis && analysis.forecast && analysis.forecast.timeframes
+        ? analysis.forecast.timeframes[item.timeframe]
+        : null;
+    const forecastSummary = forecastForMetrics
+      ? " · Bull " + forecastForMetrics.bullish.confidence + "%/" +
+        forecastForMetrics.bullish.horizon_candles + " bars · Bear " +
+        forecastForMetrics.bearish.confidence + "%/" +
+        forecastForMetrics.bearish.horizon_candles + " bars"
+      : "";
     metrics.textContent =
       "RSI " + formatPrice(item.metrics.rsi) +
       " · ADX " + formatPrice(item.metrics.adx) +
-      " · Relative volume " + formatPrice(item.metrics.relative_volume);
+      " · Relative volume " + formatPrice(item.metrics.relative_volume) +
+      forecastSummary;
     head.appendChild(titleWrap);
     head.appendChild(metrics);
 
@@ -387,6 +398,62 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
 
     addPriceLine(candles, item.levels.support, "#38bdf8", "Support", 2);
     addPriceLine(candles, item.levels.resistance, "#f59e0b", "Resistance", 2);
+
+    const timeframeForecast =
+      analysis && analysis.forecast && analysis.forecast.timeframes
+        ? analysis.forecast.timeframes[item.timeframe]
+        : null;
+
+    if (timeframeForecast) {
+      const bullish = timeframeForecast.bullish;
+      const bearish = timeframeForecast.bearish;
+      if (bullish) {
+        addPriceLine(
+          candles,
+          Number(bullish.target_zone_low),
+          "#22c55e",
+          "Bull target low · " + bullish.horizon_candles + " bars",
+          1
+        );
+        addPriceLine(
+          candles,
+          Number(bullish.target_zone_high),
+          "#22c55e",
+          "Bull target high · " + bullish.horizon_candles + " bars",
+          1
+        );
+        addPriceLine(
+          candles,
+          Number(bullish.invalidation_price),
+          "#16a34a",
+          "Bull invalidation",
+          2
+        );
+      }
+      if (bearish) {
+        addPriceLine(
+          candles,
+          Number(bearish.target_zone_low),
+          "#fb7185",
+          "Bear target low · " + bearish.horizon_candles + " bars",
+          1
+        );
+        addPriceLine(
+          candles,
+          Number(bearish.target_zone_high),
+          "#fb7185",
+          "Bear target high · " + bearish.horizon_candles + " bars",
+          1
+        );
+        addPriceLine(
+          candles,
+          Number(bearish.invalidation_price),
+          "#e11d48",
+          "Bear invalidation",
+          2
+        );
+      }
+    }
 
     if (analysis && (analysis.decision === "LONG" || analysis.decision === "SHORT")) {
       const entry = analysis.entry || {};
