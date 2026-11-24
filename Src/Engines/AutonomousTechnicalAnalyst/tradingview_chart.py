@@ -757,7 +757,7 @@ body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#102
 </script>
 </body>
 </html>"""
-    return template.replace("__PAYLOAD__", payload_json).replace("__FUTURE_SPACE_BARS__", String(FUTURE_SPACE_BARS))
+    return template.replace("__PAYLOAD__", payload_json).replace("__FUTURE_SPACE_BARS__", str(FUTURE_SPACE_BARS))
 
 
 def render_tradingview_chart(results, output_path, analysis=None):
