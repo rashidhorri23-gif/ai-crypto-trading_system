@@ -80,6 +80,16 @@ Evaluate the available evidence, including:
 - Trend strength and momentum.
 - EMA relationships.
 - RSI, ATR, ADX, directional indicators, and relative volume.
+- Bollinger Bands, MACD and its histogram, and UTC-session VWAP when available.
+- The deterministic chart-pattern candidates supplied for each timeframe:
+  head and shoulders, inverse head and shoulders, double tops/bottoms,
+  symmetrical triangles, bull flags, and bear flags.
+- For each detected pattern, distinguish DEVELOPING from CONFIRMED.
+  Check its geometry, neckline or boundary, breakout close, volume evidence,
+  target projection, and invalidation level. Reject weak or contradictory
+  pattern candidates instead of forcing a label.
+- Mean-reversion conditions: distance from EMA/VWAP, Bollinger Band position,
+  momentum exhaustion, and whether price is reverting or merely trending.
 - Volatility and the distance to important price levels.
 - Whether the current price offers a reasonable risk/reward opportunity.
 - Whether the proposed entry is still actionable.
