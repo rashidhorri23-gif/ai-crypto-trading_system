@@ -1,28 +1,28 @@
 {
   "schema_version": "2.0",
-  "analysis_id": "e99865ac-67d0-4119-b3ea-088ea5c9d58a",
-  "generated_at": "2026-11-24T04:57:29.286541+00:00",
+  "analysis_id": "2d4f26b3-ffeb-4881-9403-d45cc98e3126",
+  "generated_at": "2026-11-24T05:24:15.814983+00:00",
   "symbol": "BTC-USDT",
   "timeframes": [
     "4H",
     "15M",
     "5M"
   ],
-  "decision": "SHORT",
-  "confidence": 57,
+  "decision": "WAIT",
+  "confidence": 55,
   "market_bias": "BEARISH",
   "entry": {
-    "entry_type": "MARKET",
-    "entry_price": 60462.4,
-    "entry_zone_low": 60462.4,
-    "entry_zone_high": 60462.4,
+    "entry_type": "NONE",
+    "entry_price": null,
+    "entry_zone_low": null,
+    "entry_zone_high": null,
     "entry_expires_at": null
   },
-  "stop_loss": 60850.0,
-  "take_profit_1": 60000.0,
-  "take_profit_2": 59455.0,
-  "take_profit_3": 59000.0,
-  "reasoning": "ساختار 4H نزولی است و قیمت زیر EMA20 و حمایت 60380.8 تثبیت شده است. صعود 5M فقط یک بازگشت اصلاحی به مقاومت 60692.9 است و سیگنال فروش قبلی معتبر می‌ماند. حد ضرر بالای سقف اخیر و اهداف نزولی حفظ می‌شوند.",
+  "stop_loss": null,
+  "take_profit_1": null,
+  "take_profit_2": null,
+  "take_profit_3": null,
+  "reasoning": "ساختار 4H و 15M نزولی است، اما مومنتوم صعودی 5M و نزدیکی قیمت به مقاومت 60692.9 باعث تعارض شده است. سیگنال فروش قبلی هنوز حد ضرر را لمس نکرده و معتبر است. ورود جدید در این ناحیه ریسک/ریوارد دفاع‌پذیری ندارد، بنابراین WAIT.",
   "forecast": {
     "timeframes": {
       "4H": {
@@ -31,7 +31,7 @@
           "target_zone_high": 62600.0,
           "invalidation_price": 59455.0,
           "horizon_candles": 8,
-          "confidence": 35,
+          "confidence": 40,
           "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20."
         },
         "bearish": {
@@ -39,7 +39,7 @@
           "target_zone_high": 59200.0,
           "invalidation_price": 61683.9,
           "horizon_candles": 8,
-          "confidence": 62,
+          "confidence": 60,
           "trigger": "ادامه تثبیت زیر 60380.8 و شکست کف 59455."
         }
       },
@@ -49,7 +49,7 @@
           "target_zone_high": 61600.0,
           "invalidation_price": 60000.0,
           "horizon_candles": 12,
-          "confidence": 40,
+          "confidence": 45,
           "trigger": "عبور پایدار از 60716 و سپس 61000."
         },
         "bearish": {
@@ -57,39 +57,39 @@
           "target_zone_high": 60000.0,
           "invalidation_price": 61000.0,
           "horizon_candles": 12,
-          "confidence": 58,
+          "confidence": 55,
           "trigger": "رد شدن از 60700 و شکست 60000."
         }
       },
       "5M": {
         "bullish": {
           "target_zone_low": 60700.0,
-          "target_zone_high": 61000.0,
-          "invalidation_price": 60250.0,
+          "target_zone_high": 61070.0,
+          "invalidation_price": 60315.4,
           "horizon_candles": 18,
-          "confidence": 45,
-          "trigger": "تثبیت بالای 60587.9 و ادامه مومنتوم صعودی."
+          "confidence": 50,
+          "trigger": "شکست و تثبیت بالای 60692.9 با حجم."
         },
         "bearish": {
           "target_zone_low": 60000.0,
-          "target_zone_high": 60250.0,
+          "target_zone_high": 60300.0,
           "invalidation_price": 60700.0,
           "horizon_candles": 18,
-          "confidence": 55,
-          "trigger": "شکست 60300 و از دست رفتن مومنتوم کوتاه‌مدت."
+          "confidence": 50,
+          "trigger": "شکست 60315.4 و از دست رفتن مومنتوم کوتاه‌مدت."
         }
       }
     }
   },
   "main_risks": [
-    "مومنتوم صعودی 5M ممکن است قیمت را تا 60700-61000 بالا ببرد و حد ضرر را تهدید کند.",
-    "حد ضرر پیشنهادی کمتر از یک ATR کامل 15M است و نوسان می‌تواند آن را فعال کند.",
-    "بازگشت سریع قیمت به بالای 61000 سناریوی نزولی را تضعیف می‌کند."
+    "عبور پایدار از 60692.9 و سپس 60850 حد ضرر سیگنال فروش را تهدید می‌کند.",
+    "تثبیت بالای 61000 سناریوی نزولی کوتاه‌مدت را باطل می‌کند.",
+    "نوسان بالای ATR 15M می‌تواند سطوح را جابه‌جا کند."
   ],
   "data_limitations": [
-    "داده‌ها فقط شامل کندل‌های تأییدشده OKX است و عمق سفارش یا جریان نقدینگی لحظه‌ای در دسترس نیست.",
-    "سطوح حمایت و مقاومت ممکن است با نوسان کوتاه‌مدت جابه‌جا شوند.",
-    "سیگنال قبلی بسیار تازه است و تأیید چندکندلی ندارد."
+    "فقط کندل‌های تأییدشده OKX در دسترس است و عمق بازار/جریان سفارش لحظه‌ای نیست.",
+    "سطوح حمایت/مقاومت ممکن است با نوسان کوتاه‌مدت تغییر کنند.",
+    "سیگنال قبلی تازه است و تأیید چندکندلی ندارد."
   ],
   "previous_signal_action": "KEEP",
   "open_trade_action": "NONE",
