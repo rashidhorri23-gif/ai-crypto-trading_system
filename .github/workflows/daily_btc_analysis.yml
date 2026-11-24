@@ -1,9 +1,9 @@
-name: Daily BTC 15M AI Analysis
+name: Daily BTC 08:00 Baku AI Analysis
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "3,18,33,48 * * * *"
+    - cron: "0 4 * * *"
 
 permissions:
   contents: write
