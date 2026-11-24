@@ -629,6 +629,10 @@ def render_tradingview_chart(results, output_path, analysis=None):
             page.wait_for_function("window.__CHART_READY__ === true", timeout=60000)
             page.evaluate("document.fonts.ready")
             page.wait_for_timeout(350)
+            content_height = page.evaluate(
+                "Math.ceil(document.querySelector('.footer').getBoundingClientRect().bottom + 22)"
+            )
+            page.set_viewport_size({"width": 1800, "height": max(720, content_height)})
             page.screenshot(
                 path=str(temporary_output), full_page=True, animations="disabled"
             )
