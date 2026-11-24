@@ -210,6 +210,10 @@ def update_outcomes(session, candles_by_tf, outcomes_path=OUTCOMES_FILE, now_tim
                 session, direction, "UNCONFIRMED_NEAR_MISS", observed_time,
                 observed_price, breakout.get("level"),
             )
+            event_timestamp = int(breakout.get("candle_close_timestamp") or observed_time)
+            candidate["outcome_id"] = (
+                f"{session['analysis_id']}:{direction}:UNCONFIRMED_NEAR_MISS:{event_timestamp}"
+            )
             if candidate["outcome_id"] not in existing:
                 records.append(candidate)
                 existing.add(candidate["outcome_id"])
@@ -231,9 +235,9 @@ def update_outcomes(session, candles_by_tf, outcomes_path=OUTCOMES_FILE, now_tim
                         continue
                     if last_seen is not None and candle_open <= int(last_seen):
                         continue
-                    if candle_close > int(window["target_timestamp"]):
-                        continue
                     _update_window(outcome, window, candle)
+                    if window.get("resolved"):
+                        break
 
         assessment = outcome.get("breakout_assessment")
         if assessment and assessment.get("status") == "PENDING":
@@ -256,8 +260,10 @@ def update_outcomes(session, candles_by_tf, outcomes_path=OUTCOMES_FILE, now_tim
                     assessment["status"] = "FAILED_RECLAIM"
                     assessment["failed_at"] = utc_iso(candle_close)
                     break
-            if assessment["status"] == "PENDING" and (
-                (now_timestamp if now_timestamp is not None else 0) >= target_time
+            if (
+                assessment["status"] == "PENDING"
+                and assessment.get("checked_through") is not None
+                and int(assessment["checked_through"]) >= target_time
             ):
                 assessment["status"] = "HELD_THROUGH_4H"
 
