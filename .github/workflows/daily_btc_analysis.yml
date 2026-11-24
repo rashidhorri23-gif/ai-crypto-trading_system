@@ -36,6 +36,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install Chromium for TradingView Charts
+        run: |
+          python -m playwright install --with-deps chromium
+
       - name: Update BTC 5M, 15M and 4H Data
         run: |
           python -m Src.Engines.AutonomousTechnicalAnalyst.update_btc_4h_data
