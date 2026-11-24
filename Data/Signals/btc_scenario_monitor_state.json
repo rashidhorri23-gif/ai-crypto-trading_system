@@ -18,7 +18,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T11:47:09.314869+00:00",
+    "last_checked_at": "2026-11-24T11:58:32.976131+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
@@ -41,16 +41,16 @@
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59990.4,
-            "ema_trend": "BEARISH",
-            "rsi": 55.992383376677964,
-            "macd_histogram": 38.68798653525971,
-            "candle_close_timestamp": 1795520700
+            "close": 60391.1,
+            "ema_trend": "NEUTRAL",
+            "rsi": 69.49776309648044,
+            "macd_histogram": 83.8699410057753,
+            "candle_close_timestamp": 1795521300
           }
         },
         "ready": false,
-        "observed_price": 59990.4,
-        "observed_timestamp": 1795520700
+        "observed_price": 60391.1,
+        "observed_timestamp": 1795521300
       },
       "SHORT": {
         "checks": {
@@ -73,16 +73,16 @@
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59990.4,
-            "ema_trend": "BEARISH",
-            "rsi": 55.992383376677964,
-            "macd_histogram": 38.68798653525971,
-            "candle_close_timestamp": 1795520700
+            "close": 60391.1,
+            "ema_trend": "NEUTRAL",
+            "rsi": 69.49776309648044,
+            "macd_histogram": 83.8699410057753,
+            "candle_close_timestamp": 1795521300
           }
         },
         "ready": false,
-        "observed_price": 59990.4,
-        "observed_timestamp": 1795520700
+        "observed_price": 60391.1,
+        "observed_timestamp": 1795521300
       }
     },
     "breakout_levels": {
@@ -95,9 +95,10 @@
     "38b143adaab7bb0763206372afe047f56b1ee9850d404580527bdd2ed08398f1",
     "e2b37b85d0b76889bfc75c83d3381ba7ee5ae832652145e5f2f1baf297707dbb",
     "6e63687ffc77f74ee2fb00e704b6b25d13125f48576b2d1eb9f06d4bb5e44047",
-    "e50e76530ce85cbb3daf463cfb55b281ee4ad23d0f268c9691230f8e8d5ec763"
+    "e50e76530ce85cbb3daf463cfb55b281ee4ad23d0f268c9691230f8e8d5ec763",
+    "db6c79f7ae950f8b453b2138e80831c2d48c6c890bbde9a297d447a648b32517"
   ],
   "telegram_update_offset": 952764981,
   "status_updates_enabled": true,
-  "status_update_last_candle": 1795520700
+  "status_update_last_candle": 1795521300
 }
