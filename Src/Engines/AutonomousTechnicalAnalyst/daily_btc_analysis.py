@@ -955,8 +955,6 @@ def compact_vision_context(market_context, previous_signal, open_trade):
         "timeframes": compact_timeframes,
         "data_status": market_context.get("data_status"),
         "data_quality": market_context.get("data_quality"),
-        "previous_signal": previous_signal,
-        "open_trade": open_trade,
     }
 
 
