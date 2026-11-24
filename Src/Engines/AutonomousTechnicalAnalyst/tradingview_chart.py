@@ -222,7 +222,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
   <div class="header-top">
     <div>
       <h1>BTC-USDT | Multi-Timeframe Technical Analysis</h1>
-      <div class="source">OKX confirmed candles · TradingView Lightweight Charts™ · UTC · SH: Swing High · SL: Swing Low · BOS: Break of Structure</div>
+      <div class="source">OKX confirmed candles · TradingView Lightweight Charts™ · UTC · EMA20: amber · EMA50: blue · EMA200: purple · SH/SL: confirmed swing points · BOS: Break of Structure</div>
     </div>
     <div class="pills">
       <div class="pill">AI Decision <strong id="decision">PRE-ANALYSIS</strong></div>
@@ -233,7 +233,7 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
   <div class="reasoning" id="reasoning">Multi-timeframe market evidence is being prepared for AI analysis.</div>
 </div>
 <div id="charts"></div>
-<div class="footer">Candles and indicators are calculated from the project's confirmed OKX data. Charting library: <a href="https://www.tradingview.com/" target="_blank">TradingView</a>.</div>
+<div class="footer">Candles and indicators use confirmed OKX data. Swing markers are placed on the pivot candle after three-candle confirmation. BOS markers use the current validated feature flags. CHOCH and liquidity zones are not yet calculated and are intentionally omitted. Charting library: <a href="https://www.tradingview.com/" target="_blank">TradingView</a>.</div>
 <script src="https://unpkg.com/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 (function () {
@@ -327,6 +327,14 @@ h1 { margin: 0; font-size: 30px; letter-spacing: .3px; }
         borderColor: "#334155",
         timeVisible: true,
         secondsVisible: false
+      },
+      localization: {
+        timeFormatter: function (time) {
+          return new Date(Number(time) * 1000)
+            .toISOString()
+            .slice(5, 16)
+            .replace("T", " ");
+        }
       },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       handleScroll: false,
