@@ -560,7 +560,9 @@ def validate_trade_geometry(direction, entry, stop, targets, label):
         raise ValueError(f"{label}: invalid trade price geometry.")
 
 
-def validate_vision_analysis(analysis, previous_signal, open_trade):
+def validate_vision_analysis(
+    analysis, previous_signal, open_trade, market_context=None
+):
     if not isinstance(analysis, dict):
         raise ValueError("AI response must be a JSON object.")
 
@@ -568,7 +570,7 @@ def validate_vision_analysis(analysis, previous_signal, open_trade):
         "schema_version", "symbol", "timeframes", "decision",
         "confidence", "market_bias", "entry", "stop_loss",
         "take_profit_1", "take_profit_2", "take_profit_3",
-        "reasoning", "main_risks", "data_limitations",
+        "reasoning", "forecast", "main_risks", "data_limitations",
         "previous_signal_action", "open_trade_action",
         "open_trade_updated_levels",
     }
@@ -665,6 +667,91 @@ def validate_vision_analysis(analysis, previous_signal, open_trade):
             validate_timestamp(expiry, "entry expiry", required=True)
         elif expiry is not None:
             validate_timestamp(expiry, "entry expiry")
+
+    forecast = analysis["forecast"]
+    if not isinstance(forecast, dict):
+        raise ValueError("forecast must be an object.")
+
+    forecast_timeframes = forecast.get("timeframes")
+    expected_timeframes = ("4H", "15M", "5M")
+    if not isinstance(forecast_timeframes, dict) or set(forecast_timeframes) != set(expected_timeframes):
+        raise ValueError("Forecast must contain exactly 4H, 15M, and 5M.")
+
+    market_timeframes = (
+        market_context.get("timeframes", {})
+        if isinstance(market_context, dict)
+        else {}
+    )
+
+    for timeframe in expected_timeframes:
+        timeframe_forecast = forecast_timeframes[timeframe]
+        if not isinstance(timeframe_forecast, dict):
+            raise ValueError(f"{timeframe} forecast must be an object.")
+
+        latest_close = None
+        timeframe_context = market_timeframes.get(timeframe)
+        if isinstance(timeframe_context, dict):
+            latest_close = safe_float(
+                timeframe_context.get("latest_close"),
+                f"{timeframe} latest close",
+            )
+
+        for direction in ("bullish", "bearish"):
+            scenario = timeframe_forecast.get(direction)
+            if not isinstance(scenario, dict):
+                raise ValueError(
+                    f"{timeframe} {direction} forecast must be an object."
+                )
+
+            low = safe_float(
+                scenario.get("target_zone_low"),
+                f"{timeframe} {direction} target zone low",
+            )
+            high = safe_float(
+                scenario.get("target_zone_high"),
+                f"{timeframe} {direction} target zone high",
+            )
+            invalidation = safe_float(
+                scenario.get("invalidation_price"),
+                f"{timeframe} {direction} invalidation price",
+            )
+            horizon = scenario.get("horizon_candles")
+            confidence_value = safe_float(
+                scenario.get("confidence"),
+                f"{timeframe} {direction} forecast confidence",
+            )
+            trigger = scenario.get("trigger")
+
+            if min(low, high, invalidation) <= 0 or low > high:
+                raise ValueError(
+                    f"{timeframe} {direction} forecast has invalid price levels."
+                )
+            if isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 100:
+                raise ValueError(
+                    f"{timeframe} {direction} horizon must be an integer from 1 to 100."
+                )
+            if not 0 <= confidence_value <= 100:
+                raise ValueError(
+                    f"{timeframe} {direction} confidence must be from 0 to 100."
+                )
+            if not isinstance(trigger, str) or not trigger.strip():
+                raise ValueError(
+                    f"{timeframe} {direction} trigger must be a non-empty string."
+                )
+
+            if latest_close is not None:
+                if direction == "bullish" and not (
+                    low > latest_close and invalidation < latest_close
+                ):
+                    raise ValueError(
+                        f"{timeframe} bullish forecast must target above and invalidate below latest close."
+                    )
+                if direction == "bearish" and not (
+                    high < latest_close and invalidation > latest_close
+                ):
+                    raise ValueError(
+                        f"{timeframe} bearish forecast must target below and invalidate above latest close."
+                    )
 
     previous_action = analysis["previous_signal_action"]
     if previous_action not in ("NONE", "KEEP", "REPLACE", "CANCEL"):
@@ -806,7 +893,7 @@ def run_vision_analysis(market_context, previous_signal, open_trade):
     analysis = extract_json_object(raw_content)
 
     validate_vision_analysis(
-        analysis, previous_signal, open_trade
+        analysis, previous_signal, open_trade, market_context
     )
 
     analysis["analysis_id"] = str(uuid.uuid4())
