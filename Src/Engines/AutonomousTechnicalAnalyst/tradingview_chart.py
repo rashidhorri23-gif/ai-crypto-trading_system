@@ -446,21 +446,40 @@ body{width:1780px;padding:14px}
  drawZone(bearishZone,"rgba(255,99,126,0.13)","Bearish OB / FVG");
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
- // Draw only the AI-provided 4H scenario destination as a conditional projection.
+ // Plot AI-provided bullish and bearish 4H forecasts in the reserved future area.
+ // Confidence is the model's stated confidence, not a statistically calibrated probability.
  const lastCandle=m.candles[m.candles.length-1];
- function drawScenarioPath(item,color,title){
+ function drawScenarioPath(item,color,title,markerPosition){
   if(!item||item.target_zone_low==null||item.target_zone_high==null)return;
   const low=Number(item.target_zone_low),high=Number(item.target_zone_high);
+  const confidence=Number(item.confidence);
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<low)return;
   const target=(low+high)/2;
   const horizon=Math.max(1,Math.min(100,Number(item.horizon_candles)||6));
   const futureTime=lastCandle.time+horizon*14400;
-  const path=chart.addSeries(LightweightCharts.LineSeries,{color,lineWidth:3,lineStyle:2,title,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
-  path.setData([{time:lastCandle.time,value:lastCandle.close},{time:futureTime,value:target}]);
-
+  const points=[{time:lastCandle.time,value:lastCandle.close},{time:futureTime,value:target}];
+  const path=chart.addSeries(LightweightCharts.LineSeries,{
+   color,lineWidth:3,lineStyle:2,title,priceLineVisible:false,
+   lastValueVisible:false,crosshairMarkerVisible:false
+  });
+  path.setData(points);
+  // Show the forecast target interval only in future time, not across historical candles.
+  [low,high].forEach((price,index)=>{
+   const edge=chart.addSeries(LightweightCharts.LineSeries,{
+    color, lineWidth:1, lineStyle:3, title:"",
+    priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+   });
+   edge.setData([{time:lastCandle.time,value:price},{time:futureTime,value:price}]);
+  });
+  if(Number.isFinite(confidence)&&confidence>=0&&confidence<=100){
+   LightweightCharts.createSeriesMarkers(path,[{
+    time:futureTime,position:markerPosition,color,shape:"circle",
+    text:Math.round(confidence)+"% AI"
+   }]);
+  }
  }
- drawScenarioPath(bull,"#20d6aa","سناریوی صعودی");
- drawScenarioPath(bear,"#ff637e","سناریوی نزولی");
+ drawScenarioPath(bull,"#20d6aa","سناریوی صعودی","aboveBar");
+ drawScenarioPath(bear,"#ff637e","سناریوی نزولی","belowBar");
  // Trade entry and risk levels remain separate from conditional forecast paths.
  if(decision==="LONG"||decision==="SHORT"){
   const e=a.entry||{};
@@ -525,7 +544,8 @@ body{width:1780px;padding:14px}
  }
  chart.timeScale().fitContent();
  // Reserve a right-side projection area after the latest plotted point.
- chart.timeScale().applyOptions({rightOffset:36});
+ const forecastBars=Math.max(36,...[bull,bear].filter(Boolean).map(item=>Math.max(1,Math.min(100,Number(item.horizon_candles)||6))+4));
+ chart.timeScale().applyOptions({rightOffset:forecastBars});
  const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:88,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
  const rsiSeries=rsiChart.addSeries(LightweightCharts.LineSeries,{color:"#b779ff",lineWidth:2,priceLineVisible:false,lastValueVisible:true});rsiSeries.setData(m.indicators.rsi||[]);
  [30,50,70].forEach(v=>rsiSeries.createPriceLine({price:v,color:"#405675",lineWidth:1,lineStyle:2,axisLabelVisible:false,title:""}));rsiChart.timeScale().fitContent();
