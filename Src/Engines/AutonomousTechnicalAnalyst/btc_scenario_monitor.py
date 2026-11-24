@@ -404,6 +404,24 @@ def build_status_chart(candles, session):
     padding = price_span * 0.14
     visible_min = price_min - padding
     visible_max = price_max + padding
+    forecast = (session.get("forecast") or {}).get("4H") or {}
+    scenario_specs = (
+        ("LONG", "bullish", "green"),
+        ("SHORT", "bearish", "red"),
+    )
+    forecast_values = []
+    for _, key, _ in scenario_specs:
+        item = forecast.get(key) or {}
+        for field in ("target_zone_low", "target_zone_high", "invalidation_price"):
+            try:
+                value = float(item[field])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(value) and value > 0:
+                forecast_values.append(value)
+    if forecast_values:
+        visible_min = min(visible_min, min(forecast_values) - price_span * 0.06)
+        visible_max = max(visible_max, max(forecast_values) + price_span * 0.06)
     axis.set_ylim(visible_min, visible_max)
     axis.set_xlim(-1, len(selected) + forward_space)
     axis.axvspan(last_index + 0.7, len(selected) + forward_space,
@@ -411,10 +429,57 @@ def build_status_chart(candles, session):
     axis.axvline(last_index + 0.7, color="gray", linewidth=1.0,
                  linestyle=":", alpha=0.65, zorder=1)
     axis.text(last_index + 0.7 + forward_space / 2,
-              visible_min + padding * 0.35,
-              "FORWARD SPACE",
-              ha="center", va="center", fontsize=10,
-              color="dimgray", alpha=0.8)
+              visible_min + (visible_max - visible_min) * 0.025,
+              "CONDITIONAL 4H SCENARIOS",
+              ha="center", va="bottom", fontsize=9,
+              color="dimgray", alpha=0.9)
+
+    forecast_start = last_index + 1.2
+    forecast_end = len(selected) + forward_space - 0.8
+    forecast_x = [forecast_start, forecast_start + (forecast_end - forecast_start) * 0.55,
+                  forecast_end]
+    current_price = closes[-1]
+    for direction, key, color in scenario_specs:
+        item = forecast.get(key) or {}
+        try:
+            target_low = float(item["target_zone_low"])
+            target_high = float(item["target_zone_high"])
+            invalidation = float(item["invalidation_price"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) and value > 0
+                   for value in (target_low, target_high, invalidation)):
+            continue
+        if target_low > target_high:
+            target_low, target_high = target_high, target_low
+        target_mid = (target_low + target_high) / 2.0
+        confidence = item.get("confidence")
+        horizon = item.get("horizon_candles")
+        axis.axhspan(target_low, target_high, xmin=0, xmax=1,
+                     color=color, alpha=0.045, zorder=0)
+        axis.fill_between([forecast_x[1], forecast_x[2]],
+                          [target_low, target_low], [target_high, target_high],
+                          color=color, alpha=0.14, zorder=1)
+        axis.plot([forecast_x[0], forecast_x[1], forecast_x[2]],
+                  [current_price, (current_price + target_mid) / 2.0, target_mid],
+                  color=color, linestyle="--", linewidth=2.0,
+                  marker="o", markersize=3.5, zorder=4,
+                  label=f"{direction} conditional path")
+        axis.hlines(invalidation, forecast_x[1], forecast_x[2],
+                    colors=color, linestyles=":", linewidth=1.4, alpha=0.9)
+        details = f"{direction} target {target_low:,.0f}-{target_high:,.0f}"
+        if confidence is not None:
+            details += f" | score {confidence}%"
+        if horizon is not None:
+            details += f" | {horizon} x 4H"
+        axis.annotate(details, xy=(forecast_x[2], target_mid),
+                      xytext=(-5, 7 if direction == "LONG" else -14),
+                      textcoords="offset points", ha="right",
+                      fontsize=8, color=color, weight="bold")
+        axis.annotate(f"{direction} invalidation {invalidation:,.0f}",
+                      xy=(forecast_x[2], invalidation),
+                      xytext=(-5, 3), textcoords="offset points",
+                      ha="right", fontsize=7.5, color=color)
 
     levels = session.get("breakout_levels") or {}
     level_descriptions = []
@@ -449,7 +514,7 @@ def build_status_chart(candles, session):
         fontsize=12,
     )
     axis.tick_params(axis="y", labelsize=12)
-    axis.set_title("BTC-USDT | 5-Minute Candlestick Chart", fontsize=19, pad=18)
+    axis.set_title("BTC-USDT | 5M Price + Conditional 4H Scenarios", fontsize=17, pad=16)
     axis.set_ylabel("Price (USDT)", fontsize=14, labelpad=10)
     axis.set_xlabel("Time (UTC)", fontsize=14, labelpad=10)
     axis.grid(True, alpha=0.22, linewidth=0.8)
@@ -650,6 +715,7 @@ def start_session(report, generated_at):
         "generated_at_timestamp": generated_at,
         "expires_at": next_baku_0800_timestamp(generated_at),
         "status": "ACTIVE",
+        "forecast": report.get("forecast", {}).get("timeframes", {}),
         "scenarios": {
             "LONG": {"status": "WAITING", "activation": None, "notification_sent": False},
             "SHORT": {"status": "WAITING", "activation": None, "notification_sent": False},
@@ -699,6 +765,9 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
             tf: okx_candles(bar)
             for tf, (bar, _) in TIMEFRAMES.items()
         }
+
+    if not isinstance(current.get("forecast"), dict) or not current.get("forecast"):
+        current["forecast"] = report.get("forecast", {}).get("timeframes", {})
 
     if not isinstance(current.get("breakout_levels"), dict):
         current["breakout_levels"] = report_breakout_levels(report)
