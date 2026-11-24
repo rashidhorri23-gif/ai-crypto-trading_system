@@ -107,10 +107,36 @@ def _prepare_timeframe(timeframe, result):
                 "time": candle_time, "position": "aboveBar",
                 "color": "#f23645", "shape": "arrowDown", "text": "BOS-",
             })
+        if _boolean(row.get("choch_bullish")):
+            markers.append({
+                "time": candle_time, "position": "belowBar",
+                "color": "#22cfa7", "shape": "arrowUp", "text": "CH+",
+            })
+        if _boolean(row.get("choch_bearish")):
+            markers.append({
+                "time": candle_time, "position": "aboveBar",
+                "color": "#fb7185", "shape": "arrowDown", "text": "CH-",
+            })
+        if _boolean(row.get("liquidity_sweep_high")):
+            markers.append({
+                "time": candle_time, "position": "aboveBar",
+                "color": "#f59e0b", "shape": "circle", "text": "SW-H",
+            })
+        if _boolean(row.get("liquidity_sweep_low")):
+            markers.append({
+                "time": candle_time, "position": "belowBar",
+                "color": "#38bdf8", "shape": "circle", "text": "SW-L",
+            })
 
     markers.sort(key=lambda item: item["time"])
     latest = frame.iloc[-1]
     close = _number(latest.get("close"))
+
+    def latest_valid(column):
+        if column not in frame.columns:
+            return None
+        values = pd.to_numeric(frame[column], errors="coerce").dropna()
+        return _number(values.iloc[-1]) if not values.empty else None
 
     def nearest_levels(pivots, is_support):
         candidates = []
@@ -135,6 +161,16 @@ def _prepare_timeframe(timeframe, result):
             "resistances": nearest_levels(pivots_high, False),
             "latest_support": _number(latest.get("support")),
             "latest_resistance": _number(latest.get("resistance")),
+        },
+        "smc_zones": {
+            "bullish_fvg_low": latest_valid("fvg_bullish_low"),
+            "bullish_fvg_high": latest_valid("fvg_bullish_high"),
+            "bearish_fvg_low": latest_valid("fvg_bearish_low"),
+            "bearish_fvg_high": latest_valid("fvg_bearish_high"),
+            "bullish_ob_low": latest_valid("last_bullish_ob_low"),
+            "bullish_ob_high": latest_valid("last_bullish_ob_high"),
+            "bearish_ob_low": latest_valid("last_bearish_ob_low"),
+            "bearish_ob_high": latest_valid("last_bearish_ob_high"),
         },
         "metrics": {
             "close": close,
@@ -316,6 +352,12 @@ body{width:1800px;padding:22px}
  volume.setData(m.volume);chart.priceScale("volume").applyOptions({scaleMargins:{top:.84,bottom:0},visible:false});
  (m.levels.supports||[]).forEach((v,i)=>addLine(candles,v,"#089981","حمایت "+(i+1),2));
  (m.levels.resistances||[]).forEach((v,i)=>addLine(candles,v,"#f59e0b","مقاومت "+(i+1),2));
+ const z=m.smc_zones||{};
+ [["bullish_fvg_low","#22cfa7","FVG صعودی پایین"],["bullish_fvg_high","#22cfa7","FVG صعودی بالا"],
+  ["bearish_fvg_low","#fb7185","FVG نزولی پایین"],["bearish_fvg_high","#fb7185","FVG نزولی بالا"],
+  ["bullish_ob_low","#38bdf8","Order Block صعودی پایین"],["bullish_ob_high","#38bdf8","Order Block صعودی بالا"],
+  ["bearish_ob_low","#f59e0b","Order Block نزولی پایین"],["bearish_ob_high","#f59e0b","Order Block نزولی بالا"]]
+  .forEach(item=>addLine(candles,z[item[0]],item[1],item[2],2));
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
  if(bull){
