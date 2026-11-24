@@ -18,7 +18,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T08:23:36.600452+00:00",
+    "last_checked_at": "2026-11-24T08:24:48.120677+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
@@ -84,6 +84,10 @@
         "observed_price": 60354.3,
         "observed_timestamp": 1795508400
       }
+    },
+    "breakout_levels": {
+      "LONG": 64600.0,
+      "SHORT": 55134.0
     }
   },
   "history": [],
