@@ -78,12 +78,17 @@ def momentum_series(candles):
     ema200 = ema_series(closes, 200)
     rsi = rsi_series(closes, 14)
     fast, slow = ema_series(closes, 12), ema_series(closes, 26)
-    macd = [fast[i] - slow[i] for i in range(len(closes))]
-    signal = ema_series(macd, 9)
-    histogram = [macd[i] - signal[i] for i in range(len(closes))]
+    macd = [None] * len(closes)
+    for i in range(25, len(closes)):
+        macd[i] = fast[i] - slow[i]
+    valid_macd = [value for value in macd if value is not None]
+    valid_signal = ema_series(valid_macd, 9)
+    histogram = [None] * len(closes)
+    for i in range(33, len(closes)):
+        histogram[i] = macd[i] - valid_signal[i - 25]
     snapshots = []
     for i, close in enumerate(closes):
-        known = i >= 204 and rsi[i] is not None
+        known = i >= 204 and rsi[i] is not None and histogram[i] is not None
         trend = "BULLISH" if ema50[i] > ema200[i] and close > ema50[i] else (
             "BEARISH" if ema50[i] < ema200[i] and close < ema50[i] else "NEUTRAL"
         )
