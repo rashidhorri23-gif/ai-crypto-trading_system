@@ -356,45 +356,102 @@ def send_telegram(message, event_id, state):
 
 
 def build_status_chart(candles, session):
-    """Render a chart from confirmed OKX 5-minute candles and frozen scenario levels."""
+    """Render a spacious candlestick chart from confirmed OKX 5-minute candles."""
     if not isinstance(candles, list) or len(candles) < 2:
         raise ValueError("At least two confirmed 5-minute candles are required for the status chart.")
 
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
+    from matplotlib.patches import Rectangle
 
-    selected = candles[-72:]
-    times = [datetime.fromtimestamp(item["timestamp"], timezone.utc) for item in selected]
+    selected = candles[-48:]
+    opens = [float(item["open"]) for item in selected]
+    highs = [float(item["high"]) for item in selected]
+    lows = [float(item["low"]) for item in selected]
     closes = [float(item["close"]) for item in selected]
-    figure = Figure(figsize=(11, 6), dpi=150)
+
+    figure = Figure(figsize=(16, 9), dpi=180)
     axis = figure.add_subplot(1, 1, 1)
-    axis.plot(times, closes, linewidth=1.8, label="BTC-USDT close (5m)")
-    axis.scatter(times[-1], closes[-1], s=24, zorder=3, label="Latest confirmed close")
+
+    for index, (open_price, high, low, close) in enumerate(zip(opens, highs, lows, closes)):
+        rising = close >= open_price
+        candle_color = "green" if rising else "red"
+        axis.vlines(index, low, high, color=candle_color, linewidth=1.6, zorder=2)
+        body_bottom = min(open_price, close)
+        body_height = max(abs(close - open_price), max(highs) * 0.000025)
+        axis.add_patch(
+            Rectangle(
+                (index - 0.32, body_bottom),
+                0.64,
+                body_height,
+                facecolor=candle_color,
+                edgecolor=candle_color,
+                linewidth=0.8,
+                alpha=0.85,
+                zorder=3,
+            )
+        )
+
+    axis.scatter(len(closes) - 1, closes[-1], s=55, marker="o",
+                 edgecolors="black", linewidths=0.8, zorder=5,
+                 label=f"Latest close: {closes[-1]:,.2f} USDT")
+
+    price_min = min(lows)
+    price_max = max(highs)
+    price_span = max(price_max - price_min, price_max * 0.001)
+    padding = price_span * 0.12
+    visible_min = price_min - padding
+    visible_max = price_max + padding
+    axis.set_ylim(visible_min, visible_max)
+    axis.set_xlim(-1, len(selected))
 
     levels = session.get("breakout_levels") or {}
+    level_descriptions = []
     for direction, color in (("LONG", "green"), ("SHORT", "red")):
         level = levels.get(direction)
-        if level is not None:
+        if level is None:
+            level_descriptions.append(f"{direction}: unavailable")
+            continue
+        level = float(level)
+        location = ""
+        if visible_min <= level <= visible_max:
             axis.axhline(
-                float(level),
+                level,
                 linestyle="--",
-                linewidth=1.2,
+                linewidth=2.0,
                 color=color,
-                label=f"{direction} breakout: {float(level):,.2f}",
+                alpha=0.9,
+                label=f"{direction} breakout: {level:,.2f}",
             )
+        elif level > visible_max:
+            location = " (above visible price range)"
+        else:
+            location = " (below visible price range)"
+        level_descriptions.append(f"{direction}: {level:,.2f}{location}")
 
-    axis.set_title("BTC-USDT | Scenario Monitor")
-    axis.set_ylabel("Price (USDT)")
-    axis.set_xlabel("Time (UTC)")
-    axis.grid(True, alpha=0.25)
-    axis.legend(loc="best", fontsize=8)
-    figure.autofmt_xdate()
-    figure.tight_layout()
+    tick_positions = sorted(set([0, len(selected) // 4, len(selected) // 2,
+                                 (3 * len(selected)) // 4, len(selected) - 1]))
+    axis.set_xticks(tick_positions)
+    axis.set_xticklabels(
+        [datetime.fromtimestamp(selected[index]["timestamp"], timezone.utc).strftime("%H:%M")
+         for index in tick_positions],
+        fontsize=12,
+    )
+    axis.tick_params(axis="y", labelsize=12)
+    axis.set_title("BTC-USDT | 5-Minute Candlestick Chart", fontsize=19, pad=18)
+    axis.set_ylabel("Price (USDT)", fontsize=14, labelpad=10)
+    axis.set_xlabel("Time (UTC)", fontsize=14, labelpad=10)
+    axis.grid(True, alpha=0.22, linewidth=0.8)
+    axis.legend(loc="best", fontsize=11, framealpha=0.9)
+    figure.text(
+        0.5, 0.025, "   |   ".join(level_descriptions),
+        ha="center", va="bottom", fontsize=12,
+    )
+    figure.subplots_adjust(left=0.09, right=0.97, top=0.91, bottom=0.13)
 
     output = BytesIO()
     FigureCanvasAgg(figure).print_png(output)
     return output.getvalue()
-
 
 def send_telegram_photo(image_bytes, caption, event_id, state):
     sent_ids = state.setdefault("notification_ids", [])
