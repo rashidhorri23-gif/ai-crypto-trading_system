@@ -95,6 +95,16 @@ def _prepare_timeframe(timeframe, result):
             if value is not None:
                 destination.append({"time": candle_time, "value": value})
 
+        structure_label = str(row.get("market_structure", "")).upper()
+        if structure_label in ("HH", "HL", "LH", "LL"):
+            markers.append({
+                "time": candle_time,
+                "position": "aboveBar" if structure_label in ("HH", "LH") else "belowBar",
+                "color": "#38bdf8" if structure_label in ("HH", "HL") else "#f59e0b",
+                "shape": "circle",
+                "text": structure_label,
+            })
+
         pivot_time = candle_time - SWING_CONFIRMATION_CANDLES * TIMEFRAME_SECONDS[timeframe]
         swing_high = _number(row.get("swing_high"))
         swing_low = _number(row.get("swing_low"))
@@ -403,7 +413,21 @@ body{width:1536px;padding:10px}
  const bearishZone=z.bearish_ob_low!=null&&z.bearish_ob_high!=null
   ?[z.bearish_ob_low,z.bearish_ob_high,"#f59e0b","OB نزولی"]
   :[z.bearish_fvg_low,z.bearish_fvg_high,"#fb7185","FVG نزولی"];
- // SMC zones remain in the analysis payload and side report; avoid stacking four more price-axis lines.
+ // Shade the latest validated order-block/FVG zones without covering candle bodies.
+ function drawZone(zone,color,title){
+  const low=Number(zone[0]),high=Number(zone[1]);
+  if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<=low)return;
+  const start=m.candles[Math.max(0,m.candles.length-36)].time;
+  const end=m.candles[m.candles.length-1].time;
+  const area=chart.addSeries(LightweightCharts.BaselineSeries,{
+   baseValue:{type:"price",price:low},topFillColor:color,bottomFillColor:"rgba(0,0,0,0)",
+   topLineColor:color,bottomLineColor:"rgba(0,0,0,0)",lineWidth:1,
+   title:title,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
+  });
+  area.setData([{time:start,value:high},{time:end,value:high}]);
+ }
+ drawZone(bullishZone,"rgba(32,214,170,0.13)","Bullish OB / FVG");
+ drawZone(bearishZone,"rgba(255,99,126,0.13)","Bearish OB / FVG");
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
  // Draw only the AI-provided 4H scenario destination as a conditional projection.
