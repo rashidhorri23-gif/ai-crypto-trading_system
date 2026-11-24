@@ -1461,7 +1461,7 @@ def process_target_watch(candle, state):
         message = (
             f"BTC {target_name} REACHED\n"
             f"Direction: {direction}\n"
-            f"Target: {watch['targets'][target_name']}\\n"
+            f"Target: {watch['targets'][target_name]}\n"
             f"Analysis ID: {watch['analysis_id']}\n"
             "Daily target monitoring remains active until the next 08:00 Baku analysis."
             f"{note}"
