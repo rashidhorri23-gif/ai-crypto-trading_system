@@ -404,7 +404,7 @@ def build_performance_report(observations, outcomes, generated_at=None):
             "near_miss_candidate_count": len(near_misses),
             "near_miss_observation_count": near_miss_observations,
             "momentum_ready_breakout_pending_observation_count": momentum_ready,
-            "potential_missed_opportunity_candidates": near_miss_observations + momentum_ready,
+            "potential_missed_opportunity_observation_count": near_miss_observations + momentum_ready,
             "failed_breakout_count": sum(
                 1 for item in activated
                 if item.get("breakout_assessment", {}).get("status") == "FAILED_RECLAIM"
