@@ -1420,7 +1420,7 @@ def process_target_watch(candle, state):
     if candle_close_timestamp <= int(watch["entry_timestamp"]):
         return
 
-    if candle_close_timestamp >= float(watch["expires_at"]):
+    if candle_close_timestamp > float(watch["expires_at"]):
         watch["status"] = "EXPIRED"
         watch["expired_at"] = utc_iso(candle_close_timestamp)
         watch.setdefault("notification_sent", {})["WATCH_EXPIRED"] = False
