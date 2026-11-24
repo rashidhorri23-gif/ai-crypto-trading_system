@@ -554,7 +554,7 @@ body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#102
   if(item.trigger){
    forecastMarkers.push({
     time:lastCandle.time,position:markerPosition,color,shape:"circle",
-    text:"شرط: "+String(item.trigger).slice(0,42)
+    text:"شرط "+(markerPosition==="aboveBar"?"LONG":"SHORT")
    });
   }
  }
@@ -614,7 +614,7 @@ body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#102
  const markerCandidates=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW)/.test(marker.text||"")).sort((x,y)=>markerPriority(x)-markerPriority(y)||y.time-x.time);
  const visibleMarkers=[];
  markerCandidates.forEach(marker=>{
-  if(visibleMarkers.length<6 && visibleMarkers.every(selected=>Math.abs(selected.time-marker.time)>=3*14400)){
+  if(visibleMarkers.length<4 && visibleMarkers.every(selected=>Math.abs(selected.time-marker.time)>=6*14400)){
    visibleMarkers.push(marker);
   }
  });
