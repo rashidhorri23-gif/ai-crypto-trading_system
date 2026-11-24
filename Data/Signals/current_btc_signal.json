@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
-  "analysis_id": "087dcd20-cd70-4e08-8b59-1790f706ec7a",
-  "generated_at": "2026-11-24T04:33:12.660172+00:00",
+  "analysis_id": "bc97581c-947c-49b3-ba28-afd377d6deb0",
+  "generated_at": "2026-11-24T04:49:00.444565+00:00",
   "symbol": "BTC-USDT",
   "timeframes": [
     "4H",
@@ -9,20 +9,20 @@
     "5M"
   ],
   "decision": "SHORT",
-  "confidence": 60,
+  "confidence": 58,
   "market_bias": "BEARISH",
   "entry": {
     "entry_type": "MARKET",
-    "entry_price": 60541.3,
-    "entry_zone_low": 60541.3,
-    "entry_zone_high": 60541.3,
+    "entry_price": 60534.5,
+    "entry_zone_low": 60534.5,
+    "entry_zone_high": 60534.5,
     "entry_expires_at": null
   },
   "stop_loss": 60850.0,
   "take_profit_1": 60000.0,
   "take_profit_2": 59455.0,
   "take_profit_3": 59000.0,
-  "reasoning": "ساختار 4H نزولی است و قیمت زیر حمایت 60380.8 و EMA20 قرار دارد. صعود کوتاه‌مدت 5M به مقاومت 60587.9 نزدیک شده و ورود فروش در دل روند بزرگ‌تر قابل توجیه است. حد ضرر بالای 60850 و اهداف نزولی حفظ می‌شوند.",
+  "reasoning": "ساختار 4H نزولی است و قیمت زیر حمایت 60380.8 و EMA20 قرار دارد. صعود کوتاه‌مدت 5M به مقاومت 60587.9/60692.9 رد شده و ورود فروش نزدیک قیمت فعلی قابل توجیه است. حد ضرر 60850 بالای سقف اخیر و اهداف نزولی حفظ می‌شوند.",
   "forecast": {
     "timeframes": {
       "4H": {
@@ -31,7 +31,7 @@
           "target_zone_high": 62600.0,
           "invalidation_price": 59455.0,
           "horizon_candles": 8,
-          "confidence": 38,
+          "confidence": 35,
           "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20."
         },
         "bearish": {
