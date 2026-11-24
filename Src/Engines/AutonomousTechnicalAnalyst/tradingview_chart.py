@@ -12,7 +12,8 @@ from .pattern_recognition import detect_chart_patterns
 
 LIGHTWEIGHT_CHARTS_VERSION = "5.3.0"
 CHART_CANDLE_LIMIT = 120
-CHART_HEIGHT = 650
+CHART_HEIGHT = 760
+VISIBLE_PATTERN_LIMIT = 2
 TIMEFRAME_SECONDS = {"4H": 14400, "15M": 900, "5M": 300}
 SWING_CONFIRMATION_CANDLES = 3
 
@@ -181,7 +182,7 @@ def _prepare_timeframe(timeframe, result):
             "macd_signal": macd_signal_values,
             "macd_histogram": macd_histogram_values},
         "markers": markers,
-        "patterns": detect_chart_patterns(result["data"].tail(CHART_CANDLE_LIMIT)),
+        "patterns": _select_visible_patterns(detect_chart_patterns(result["data"].tail(CHART_CANDLE_LIMIT))),
         "levels": {
             "supports": nearest_levels(pivots_low, True),
             "resistances": nearest_levels(pivots_high, False),
@@ -211,6 +212,20 @@ def _prepare_timeframe(timeframe, result):
             "bb_lower": _number(latest.get("bb_lower")),
         },
     }
+
+
+def _select_visible_patterns(patterns, limit=VISIBLE_PATTERN_LIMIT):
+    """Keep the strongest few patterns so chart geometry remains readable."""
+    ranked = sorted(
+        patterns or [],
+        key=lambda item: (
+            item.get("status") == "CONFIRMED",
+            float(item.get("confidence") or 0),
+            item.get("name", ""),
+        ),
+        reverse=True,
+    )
+    return ranked[:limit]
 
 
 def _build_payload(results, analysis):
@@ -247,19 +262,19 @@ def _build_html(payload):
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#030b18;color:#e5edf8;font-family:Arial,Tahoma,sans-serif}
-body{width:1536px;padding:10px}
+body{width:1780px;padding:14px}
 .header{height:54px;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:7px 12px;margin-bottom:8px;background:#061326;border:1px solid #1b3555;border-radius:9px}
 .brand{font-size:25px;font-weight:700}.sub{font-size:12px;color:#91a8c8;margin-top:4px}
 .pills{display:flex;gap:8px;flex-wrap:wrap}.pill{padding:7px 11px;background:#0a1b32;border:1px solid #244364;border-radius:7px;font-size:13px}
 .pill b{margin-left:5px;color:#f8fafc}
-.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 365px;gap:10px;align-items:stretch}
+.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;align-items:start}
 .panel{background:#061326;border:1px solid #1b3555;border-radius:9px;overflow:hidden}
 .panel-head{height:48px;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 12px;background:#091a30;border-bottom:1px solid #1b3555}
 .panel-title{font-size:17px;font-weight:700}.panel-sub{font-size:11px;color:#91a8c8;margin-top:3px}
-.chart{height:402px;width:100%}.indicator-chart{height:78px;width:100%;border-top:1px solid #1b3555}
+.chart{height:760px;width:100%}.indicator-chart{height:104px;width:100%;border-top:1px solid #1b3555}
 .chart-label{height:17px;padding:2px 10px;background:#07172b;color:#9db5d6;font-size:11px;border-top:1px solid #1b3555}
-.sidebar{display:grid;grid-template-columns:1fr;gap:7px;margin:0;align-content:start}
-.side-section{padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
+.sidebar{display:grid;grid-template-columns:1fr;gap:10px;margin:0;align-content:start}
+.side-section{padding:12px 14px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
 .side-title{font-size:15px;font-weight:700;margin-bottom:8px;color:#f1f5f9}
 .decision{display:inline-block;padding:5px 10px;border-radius:16px;border:1px solid #64748b;font-weight:700;margin-bottom:7px;font-size:16px}
 .reason{direction:rtl;text-align:right;line-height:1.65;color:#dbeafe;font-size:12px}
@@ -276,9 +291,9 @@ body{width:1536px;padding:10px}
 .summary-grid{display:grid;grid-template-columns:1.1fr 1.45fr 1.05fr 1fr;gap:9px;margin-top:9px}
 .summary-card{height:125px;padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px;overflow:hidden}
 .summary-card h3{font-size:13px;margin:0 0 7px;color:#e5edf8}
-.pattern-item{display:inline-flex;flex-direction:column;gap:3px;vertical-align:top;padding:5px 7px;margin:2px;background:#0a2038;border:1px solid #244364;border-radius:6px;font-size:10px;max-width:120px}
+.pattern-item{display:inline-flex;flex-direction:column;gap:4px;vertical-align:top;padding:7px 9px;margin:3px;background:#0a2038;border:1px solid #244364;border-radius:6px;font-size:11px;max-width:160px}
 .pattern-item strong{font-size:10px;color:#d9eaff}.pattern-item span{font-size:9px;color:#20d6aa}
-.pattern-icon{height:20px;width:48px}
+.pattern-icon{height:34px;width:82px}
 .confirm{grid-column:auto;padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
 .confirm h3{margin:0 0 6px;font-size:13px}
 .confirm-row{padding:4px 0;border-bottom:1px solid #172d49}
@@ -378,7 +393,7 @@ body{width:1536px;padding:10px}
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
-  width:root.getElementById("main-chart").clientWidth,height:402,
+  width:root.getElementById("main-chart").clientWidth,height:760,
   layout:{background:{type:"solid",color:"#091422"},textColor:"#cbd5e1",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:true},
   grid:{vertLines:{color:"#1b2b40"},horzLines:{color:"#1b2b40"}},
   rightPriceScale:{borderColor:"#334155",scaleMargins:{top:.08,bottom:.2}},
@@ -459,24 +474,40 @@ body{width:1536px;padding:10px}
   addLine(candles,a.take_profit_3,"#22c55e","TP3",1,false);
  }
  const patternMarkers=[];
- (m.patterns||[]).forEach((pattern,index)=>{
-  const color=pattern.direction==="BULLISH"?"#22cfa7":pattern.direction==="BEARISH"?"#fb7185":"#fbbf24";
-  (pattern.lines||[]).forEach(boundary=>{
-   const points=(boundary.points||[]).filter(point=>Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.value)));
-   if(points.length>=2){
-    const line=chart.addSeries(LightweightCharts.LineSeries,{
-     color,lineWidth:2,lineStyle:pattern.status==="CONFIRMED"?0:2,
-     title:pattern.name+" "+boundary.name,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false
-    });
-    line.setData(points.map(point=>({time:Number(point.time),value:Number(point.value)})));
+ const lastPatternTime=lastCandle.time;
+ (m.patterns||[]).slice(0,2).forEach((pattern,index)=>{
+  const color=pattern.direction==="BULLISH"?"#20d6aa":pattern.direction==="BEARISH"?"#fb7185":"#fbbf24";
+  (pattern.lines||[]).forEach((boundary,boundaryIndex)=>{
+   const points=(boundary.points||[])
+    .filter(point=>Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.value)))
+    .map(point=>({time:Number(point.time),value:Number(point.value)}))
+    .sort((x,y)=>x.time-y.time);
+   if(points.length<2)return;
+   const first=points[0],last=points[points.length-1];
+   const slope=(last.value-first.value)/Math.max(1,last.time-first.time);
+   const projectedValue=last.value+slope*(lastPatternTime-last.time);
+   if(lastPatternTime>last.time&&Number.isFinite(projectedValue)){
+    points.push({time:lastPatternTime,value:projectedValue});
    }
+   const line=chart.addSeries(LightweightCharts.LineSeries,{
+    color,lineWidth:boundaryIndex===0?4:3,
+    lineStyle:pattern.status==="CONFIRMED"?0:2,
+    title:pattern.name+" | "+boundary.name,
+    priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,
+    crosshairMarkerRadius:0
+   });
+   line.setData(points);
   });
   (pattern.points||[]).forEach(point=>{
    if(Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.price))){
-    patternMarkers.push({time:Number(point.time),position:pattern.direction==="BEARISH"?"aboveBar":"belowBar",color,shape:"circle",text:String(point.label||pattern.name).slice(0,8)});
+    patternMarkers.push({
+     time:Number(point.time),
+     position:pattern.direction==="BEARISH"?"aboveBar":"belowBar",
+     color,shape:"circle",
+     text:String(point.label||"P").slice(0,4)
+    });
    }
   });
-  // Pattern geometry is drawn on the candles; targets and invalidations stay in the pattern panel.
  });
  const markerCutoff=m.candles[Math.max(0,m.candles.length-40)].time;
  const visibleMarkers=m.markers.filter(marker=>marker.time>=markerCutoff && /^(BOS|CH|SW|SH|SL)/.test(marker.text||""));
@@ -484,10 +515,10 @@ body{width:1536px;padding:10px}
   LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
  }
  chart.timeScale().fitContent();
- const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:78,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
+ const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:104,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
  const rsiSeries=rsiChart.addSeries(LightweightCharts.LineSeries,{color:"#b779ff",lineWidth:2,priceLineVisible:false,lastValueVisible:true});rsiSeries.setData(m.indicators.rsi||[]);
  [30,50,70].forEach(v=>rsiSeries.createPriceLine({price:v,color:"#405675",lineWidth:1,lineStyle:2,axisLabelVisible:false,title:""}));rsiChart.timeScale().fitContent();
- const macdChart=LightweightCharts.createChart(root.getElementById("macd-chart"),{width:root.getElementById("macd-chart").clientWidth,height:78,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{borderColor:"#1b3555",timeVisible:true,secondsVisible:false},handleScroll:false,handleScale:false});
+ const macdChart=LightweightCharts.createChart(root.getElementById("macd-chart"),{width:root.getElementById("macd-chart").clientWidth,height:104,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{borderColor:"#1b3555",timeVisible:true,secondsVisible:false},handleScroll:false,handleScale:false});
  const macdHist=macdChart.addSeries(LightweightCharts.HistogramSeries,{priceLineVisible:false,lastValueVisible:false});macdHist.setData((m.indicators.macd_histogram||[]).map(v=>({...v,color:v.value>=0?"rgba(8,153,129,.75)":"rgba(242,54,69,.75)"})));
  const macdLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#38bdf8",lineWidth:1,priceLineVisible:false,lastValueVisible:false});macdLine.setData(m.indicators.macd||[]);
  const signalLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#f59e0b",lineWidth:1,priceLineVisible:false,lastValueVisible:false});signalLine.setData(m.indicators.macd_signal||[]);macdChart.timeScale().fitContent();
@@ -590,7 +621,7 @@ def render_tradingview_chart(results, output_path, analysis=None):
         )
         try:
             page = browser.new_page(
-                viewport={"width": 1556, "height": 1120}, device_scale_factor=1
+                viewport={"width": 1800, "height": 1500}, device_scale_factor=1.5
             )
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.set_content(html, wait_until="load", timeout=60000)
