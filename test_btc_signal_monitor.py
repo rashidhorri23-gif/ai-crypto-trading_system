@@ -441,6 +441,37 @@ class TestDailyTargetWatch(unittest.TestCase):
         )
         self.assertEqual(send.call_count, 2)
 
+    def test_short_target_direction_is_inverted(self):
+        watch = self.state["target_watch"]
+        watch["direction"] = "SHORT"
+        watch["stop_loss"] = 105.0
+        watch["targets"] = {"TP1": 95.0, "TP2": 90.0, "TP3": 85.0}
+
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send:
+            monitor.process_target_watch(self.candle(1200, 101.0, 94.0), self.state)
+
+        self.assertTrue(watch["reached"]["TP1"])
+        self.assertFalse(watch["reached"]["TP2"])
+        self.assertEqual(send.call_count, 1)
+
+    def test_exact_0800_closing_candle_is_included_before_expiry(self):
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send:
+            monitor.process_target_watch(self.candle(49700, 106.0, 99.0), self.state)
+
+        watch = self.state["target_watch"]
+        self.assertTrue(watch["reached"]["TP1"])
+        self.assertEqual(watch["status"], "ACTIVE")
+        self.assertEqual(send.call_count, 1)
+
+        with patch.object(monitor, "save_state"), \
+             patch.object(monitor, "send_telegram", return_value=True) as send_expiry:
+            monitor.process_target_watch(self.candle(50000, 104.0, 99.0), self.state)
+
+        self.assertEqual(watch["status"], "EXPIRED")
+        send_expiry.assert_called_once()
+
     def test_target_watch_expires_at_next_daily_window(self):
         with patch.object(monitor, "save_state"), \
              patch.object(monitor, "send_telegram", return_value=True) as send:
