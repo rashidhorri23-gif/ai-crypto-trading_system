@@ -392,7 +392,15 @@ def poll_telegram_commands(state):
         if not command_text:
             continue
         command = command_text[0].split("@")[0].lower()
-        if command == "/status_on":
+        if command in ("/start", "/help"):
+            reply = (
+                "BTC scenario monitor commands:\n"
+                "/status_on - Enable periodic BTC status messages.\n"
+                "/status_off - Disable periodic status messages.\n"
+                "/status - Show the current setting.\n"
+                "LONG/SHORT activation alerts remain enabled either way."
+            )
+        elif command == "/status_on":
             state["status_updates_enabled"] = True
             reply = "BTC status updates are ON. You will receive one concise update per new 5-minute closed candle (approximately every 15-minute monitor cycle)."
         elif command == "/status_off":
