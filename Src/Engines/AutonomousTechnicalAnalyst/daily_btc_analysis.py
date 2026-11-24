@@ -1132,6 +1132,22 @@ def build_rule_based_chart_analysis(results):
     }
 
 
+def attach_4h_breakout_levels(analysis, results):
+    """Attach fixed 20-candle 4H breakout levels to both forecast directions."""
+    frame = results["4H"]["data"]
+    previous = frame.iloc[:-1].tail(20)
+    if len(previous) < 20:
+        raise ValueError("At least 20 prior confirmed 4H candles are required for breakout levels.")
+    forecast = analysis.setdefault("forecast", {})
+    timeframes = forecast.setdefault("timeframes", {})
+    four_hour = timeframes.setdefault("4H", {})
+    bullish = four_hour.setdefault("bullish", {})
+    bearish = four_hour.setdefault("bearish", {})
+    bullish["breakout_level"] = round(float(previous["high"].max()), 8)
+    bearish["breakout_level"] = round(float(previous["low"].min()), 8)
+    return analysis
+
+
 def run_daily_btc_analysis():
     now = utc_now()
 
@@ -1218,6 +1234,9 @@ def run_daily_btc_analysis():
             f"Reason: {type(error).__name__}: {error}"
         )
         analysis = build_rule_based_chart_analysis(results)
+
+    # Freeze the same 20-candle 4H breakout levels in the report, chart, and monitor.
+    analysis = attach_4h_breakout_levels(analysis, results)
 
     # Render either validated AI scenarios or explicitly labeled technical fallback scenarios.
     render_tradingview_chart(results, CHART_FILE, analysis=analysis)
