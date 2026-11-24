@@ -108,7 +108,7 @@ jobs:
         run: |
           test -s Reports/BTC_4H_Vision_Report.json
 
-          python -c "import json; json.load(open('Reports/BTC_4H_Vision_Report.json', encoding='utf-8'))"
+          python -c "import json; r=json.load(open('Reports/BTC_4H_Vision_Report.json', encoding='utf-8')); f=r['forecast']['timeframes']['4H']; assert f['bullish']['breakout_level'] > f['bearish']['breakout_level'] > 0, 'Invalid frozen 4H breakout levels'"
 
           mkdir -p Data/Signals
           cp Reports/BTC_4H_Vision_Report.json Data/Signals/current_btc_signal.json
