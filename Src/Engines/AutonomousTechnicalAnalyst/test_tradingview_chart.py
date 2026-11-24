@@ -78,6 +78,64 @@ def main():
         "market_bias": "NEUTRAL",
         "confidence": 58,
         "reasoning": "آزمون نمایش چندتایم‌فریمی و نبود نقطه ورود تأییدشده.",
+        "forecast": {
+            "timeframes": {
+                "4H": {
+                    "bullish": {
+                        "target_zone_low": 63000.0,
+                        "target_zone_high": 63500.0,
+                        "invalidation_price": 59000.0,
+                        "horizon_candles": 6,
+                        "confidence": 62,
+                        "trigger": "شکست مقاومت تایید شود."
+                    },
+                    "bearish": {
+                        "target_zone_low": 57000.0,
+                        "target_zone_high": 57500.0,
+                        "invalidation_price": 64000.0,
+                        "horizon_candles": 6,
+                        "confidence": 68,
+                        "trigger": "حمایت از دست برود."
+                    }
+                },
+                "15M": {
+                    "bullish": {
+                        "target_zone_low": 62500.0,
+                        "target_zone_high": 62700.0,
+                        "invalidation_price": 60000.0,
+                        "horizon_candles": 8,
+                        "confidence": 55,
+                        "trigger": "تثبیت بالای مقاومت."
+                    },
+                    "bearish": {
+                        "target_zone_low": 59500.0,
+                        "target_zone_high": 59800.0,
+                        "invalidation_price": 63000.0,
+                        "horizon_candles": 8,
+                        "confidence": 61,
+                        "trigger": "شکست حمایت کوتاه‌مدت."
+                    }
+                },
+                "5M": {
+                    "bullish": {
+                        "target_zone_low": 62200.0,
+                        "target_zone_high": 62300.0,
+                        "invalidation_price": 61000.0,
+                        "horizon_candles": 12,
+                        "confidence": 51,
+                        "trigger": "بازپس‌گیری سقف محلی."
+                    },
+                    "bearish": {
+                        "target_zone_low": 60800.0,
+                        "target_zone_high": 60900.0,
+                        "invalidation_price": 62500.0,
+                        "horizon_candles": 12,
+                        "confidence": 57,
+                        "trigger": "شکست کف محلی."
+                    }
+                }
+            }
+        },
         "entry": {
             "entry_type": "NONE",
             "entry_price": None,
@@ -95,6 +153,64 @@ def main():
         "market_bias": "BULLISH",
         "confidence": 71,
         "reasoning": "آزمون نمایش ورود، محدوده ورود، حد ضرر و اهداف.",
+        "forecast": {
+            "timeframes": {
+                "4H": {
+                    "bullish": {
+                        "target_zone_low": 63000.0,
+                        "target_zone_high": 63500.0,
+                        "invalidation_price": 59000.0,
+                        "horizon_candles": 6,
+                        "confidence": 62,
+                        "trigger": "شکست مقاومت تایید شود."
+                    },
+                    "bearish": {
+                        "target_zone_low": 57000.0,
+                        "target_zone_high": 57500.0,
+                        "invalidation_price": 64000.0,
+                        "horizon_candles": 6,
+                        "confidence": 68,
+                        "trigger": "حمایت از دست برود."
+                    }
+                },
+                "15M": {
+                    "bullish": {
+                        "target_zone_low": 62500.0,
+                        "target_zone_high": 62700.0,
+                        "invalidation_price": 60000.0,
+                        "horizon_candles": 8,
+                        "confidence": 55,
+                        "trigger": "تثبیت بالای مقاومت."
+                    },
+                    "bearish": {
+                        "target_zone_low": 59500.0,
+                        "target_zone_high": 59800.0,
+                        "invalidation_price": 63000.0,
+                        "horizon_candles": 8,
+                        "confidence": 61,
+                        "trigger": "شکست حمایت کوتاه‌مدت."
+                    }
+                },
+                "5M": {
+                    "bullish": {
+                        "target_zone_low": 62200.0,
+                        "target_zone_high": 62300.0,
+                        "invalidation_price": 61000.0,
+                        "horizon_candles": 12,
+                        "confidence": 51,
+                        "trigger": "بازپس‌گیری سقف محلی."
+                    },
+                    "bearish": {
+                        "target_zone_low": 60800.0,
+                        "target_zone_high": 60900.0,
+                        "invalidation_price": 62500.0,
+                        "horizon_candles": 12,
+                        "confidence": 57,
+                        "trigger": "شکست کف محلی."
+                    }
+                }
+            }
+        },
         "entry": {
             "entry_type": "LIMIT",
             "entry_price": 60000.0,
