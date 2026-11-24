@@ -8,7 +8,7 @@ def _serialize_context(value):
         return json.dumps(
             value,
             ensure_ascii=False,
-            indent=2,
+            separators=(",", ":"),
             default=str,
         )
     except (TypeError, ValueError):
