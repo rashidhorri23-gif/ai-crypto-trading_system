@@ -43,6 +43,40 @@ def test_head_and_shoulders_is_detected_from_confirmed_pivots():
     assert pattern["invalidation"] == 140.0
 
 
+
+def test_bullish_pennant_is_detected_with_converging_boundaries():
+    count = 28
+    index = np.arange(count)
+    close = np.concatenate([
+        np.linspace(100.0, 105.0, 10),
+        np.full(18, 107.0),
+    ])
+    high = np.concatenate([
+        close[:10] + 1.0,
+        np.linspace(110.0, 106.8, 18),
+    ])
+    low = np.concatenate([
+        close[:10] - 1.0,
+        np.linspace(104.0, 107.2, 18),
+    ])
+    frame = pd.DataFrame({
+        "timestamp": 1760000000000 + index * 300000,
+        "open": close - 0.1,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": np.full(count, 100.0),
+        "swing_high": np.nan,
+        "swing_low": np.nan,
+    })
+
+    patterns = detect_chart_patterns(frame)
+    pennant = next(item for item in patterns if item["name"] == "Bullish Pennant")
+    assert pennant["status"] == "DEVELOPING"
+    assert pennant["direction"] == "BULLISH"
+    assert len(pennant["lines"]) == 2
+    assert pennant["target"] > close[-1]
+
 def test_insufficient_data_returns_no_patterns():
     frame = pd.DataFrame({
         "timestamp": [1760000000000 + i * 14400000 for i in range(10)],
@@ -54,4 +88,5 @@ def test_insufficient_data_returns_no_patterns():
 if __name__ == "__main__":
     test_head_and_shoulders_is_detected_from_confirmed_pivots()
     test_insufficient_data_returns_no_patterns()
+    test_bullish_pennant_is_detected_with_converging_boundaries()
     print("CHART PATTERN RECOGNITION TEST PASSED")
