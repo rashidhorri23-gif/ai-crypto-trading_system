@@ -51,9 +51,9 @@ MAX_DATA_AGE_MINUTES = {
 MAX_CHART_CANDLES = 120
 
 MAX_CONTEXT_CANDLES = {
-    "4H": 80,
-    "15M": 48,
-    "5M": 48,
+    "4H": 32,
+    "15M": 20,
+    "5M": 20,
 }
 
 CONTEXT_CANDLE_COLUMNS = (
@@ -68,8 +68,6 @@ CONTEXT_CANDLE_COLUMNS = (
     "rsi_14",
     "atr_14",
     "adx_14",
-    "plus_di",
-    "minus_di",
     "relative_volume",
     "swing_high",
     "swing_low",
@@ -79,13 +77,6 @@ CONTEXT_CANDLE_COLUMNS = (
     "ema_trend",
     "bos_bullish",
     "bos_bearish",
-    "bb_upper",
-    "bb_middle",
-    "bb_lower",
-    "macd",
-    "macd_signal",
-    "macd_histogram",
-    "vwap_utc",
     "choch_bullish",
     "choch_bearish",
     "structure_bias",
@@ -366,7 +357,9 @@ def build_timeframe_context(timeframe, result):
         "latest_confirmed_candle": recent[-1],
         "recent_confirmed_candles": recent,
         "latest_close": json_safe(df.iloc[-1]["close"]),
-        "detected_chart_patterns": detect_chart_patterns(df),
+        "detected_chart_patterns": detect_chart_patterns(
+            df.tail(120).reset_index(drop=True)
+        ),
     }
 
 
