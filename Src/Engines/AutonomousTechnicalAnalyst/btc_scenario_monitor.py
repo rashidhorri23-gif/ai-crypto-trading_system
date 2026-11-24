@@ -102,6 +102,23 @@ def load_state():
     state.setdefault("notification_ids", [])
     return state
 
+def report_breakout_levels(report):
+    """Read the frozen 20-candle levels published with the daily report."""
+    try:
+        four_hour = report["forecast"]["timeframes"]["4H"]
+        long_level = float(four_hour["bullish"]["breakout_level"])
+        short_level = float(four_hour["bearish"]["breakout_level"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "Daily report is missing frozen 4H breakout levels. "
+            "Refusing to calculate independent monitor levels."
+        ) from error
+    if not all(math.isfinite(value) and value > 0 for value in (long_level, short_level)):
+        raise ValueError("Daily report contains invalid 4H breakout levels.")
+    if long_level <= short_level:
+        raise ValueError("Daily report 4H breakout levels have invalid ordering.")
+    return {"LONG": long_level, "SHORT": short_level}
+
 
 def okx_candles(bar):
     collected = {}
@@ -421,15 +438,19 @@ def process_session(report, generated_at, state, now_timestamp=None, candles_by_
         }
 
     if not isinstance(current.get("breakout_levels"), dict):
-        forecast_4h = report.get("forecast", {}).get("timeframes", {}).get("4H", {})
-        bullish = forecast_4h.get("bullish", {}).get("breakout_level")
-        bearish = forecast_4h.get("bearish", {}).get("breakout_level")
-        if bullish is not None and bearish is not None:
-            current["breakout_levels"] = {"LONG": float(bullish), "SHORT": float(bearish)}
-        else:
-            current["breakout_levels"] = derive_breakout_levels(
-                candles_by_tf["4H"], float(current["generated_at_timestamp"])
-            )
+        current["breakout_levels"] = report_breakout_levels(report)
+    else:
+        published_levels = report_breakout_levels(report)
+        for direction in ("LONG", "SHORT"):
+            if not math.isclose(
+                float(current["breakout_levels"].get(direction, float("nan"))),
+                published_levels[direction],
+                rel_tol=0.0,
+                abs_tol=1e-8,
+            ):
+                raise ValueError(
+                    f"{direction} breakout level mismatch between active session and daily report."
+                )
     evaluations = evaluate_scenarios(
         candles_by_tf,
         float(current["generated_at_timestamp"]),
