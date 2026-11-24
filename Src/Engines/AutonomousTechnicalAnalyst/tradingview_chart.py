@@ -43,6 +43,21 @@ def _prepare_timeframe(timeframe, result):
     if missing:
         raise ValueError(f"{timeframe}: missing chart columns: {sorted(missing)}")
 
+    expected_interval_ms = TIMEFRAME_SECONDS[timeframe] * 1000
+    timestamps = pd.to_numeric(frame["timestamp"], errors="coerce")
+    if timestamps.isna().any():
+        raise ValueError(f"{timeframe}: invalid chart timestamps.")
+    deltas = timestamps.diff().dropna()
+    if not deltas.empty and (
+        (deltas <= 0).any()
+        or (deltas % expected_interval_ms != 0).any()
+    ):
+        observed = sorted({int(value) for value in deltas})
+        raise ValueError(
+            f"{timeframe}: candle interval mismatch. Expected multiples of "
+            f"{expected_interval_ms} ms; observed deltas include {observed[:5]}."
+        )
+
     candles = []
     ema = {"ema_20": [], "ema_50": [], "ema_200": []}
     overlays = {"bb_upper": [], "bb_middle": [], "bb_lower": [], "vwap_utc": []}
