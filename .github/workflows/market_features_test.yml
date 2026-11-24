@@ -11,6 +11,8 @@ on:
       - "Src/Engines/AutonomousTechnicalAnalyst/test_pattern_recognition.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/daily_btc_analysis.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/vision_prompt.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/vision_provider.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/test_vision_provider_validation.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/test_market_features.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/config.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/tradingview_chart.py"
@@ -50,6 +52,10 @@ jobs:
       - name: Compile all autonomous analyst modules
         run: |
           python -m compileall -q Src/Engines/AutonomousTechnicalAnalyst
+
+      - name: Run vision provider validation tests
+        run: |
+          python -m Src.Engines.AutonomousTechnicalAnalyst.test_vision_provider_validation
 
       - name: Run TradingView chart rendering test
         run: |
