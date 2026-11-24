@@ -1,29 +1,60 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-24T11:44:18.987551+00:00",
+  "generated_at": "2026-11-24T11:46:38.689175+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
     "failed_breakout": "A failed 4H breakout is recorded only if a confirmed 4H candle closes back through the frozen breakout level within 4 hours.",
     "near_miss": "A frozen 4H breakout is met but one or both 15M/5M momentum confirmations are missing; this is a candidate, not an activated signal.",
+    "momentum_ready_breakout_pending": "Both 15M and 5M momentum checks pass while the frozen 4H breakout check does not; this is a pending setup candidate, not a confirmed missed trade.",
+    "condition_rates": "Pass rates use only observations where that condition was known; unknown/stale conditions are excluded from the denominator.",
+    "activation_rate": "Activations per 100 monitoring observations is descriptive only and is not a probability of trade success.",
     "not_a_trading_backtest": true
   },
-  "observations_count": 1,
+  "observations_count": 2,
   "near_miss_observations": {
     "LONG": 0,
     "SHORT": 0
   },
   "scenarios": {
     "LONG": {
+      "monitoring_observations": 2,
       "activated_count": 0,
+      "activated_observation_count": 0,
+      "activations_per_100_observations": 0.0,
       "near_miss_candidate_count": 0,
+      "near_miss_observation_count": 0,
+      "momentum_ready_breakout_pending_observation_count": 0,
+      "potential_missed_opportunity_candidates": 0,
       "failed_breakout_count": 0,
       "breakout_held_4h_count": 0,
+      "breakout_assessment_pending_count": 0,
+      "condition_statistics": {
+        "4H_BREAKOUT": {
+          "known_count": 2,
+          "passed_count": 0,
+          "failed_count": 2,
+          "pass_rate_pct": 0.0
+        },
+        "15M_MOMENTUM": {
+          "known_count": 2,
+          "passed_count": 0,
+          "failed_count": 2,
+          "pass_rate_pct": 0.0
+        },
+        "5M_MOMENTUM": {
+          "known_count": 2,
+          "passed_count": 0,
+          "failed_count": 2,
+          "pass_rate_pct": 0.0
+        }
+      },
       "horizons": {
         "1H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -31,6 +62,7 @@
         "4H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -38,6 +70,7 @@
         "12H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -45,6 +78,7 @@
         "24H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -54,6 +88,7 @@
         "1H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -61,6 +96,7 @@
         "4H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -68,14 +104,42 @@
       }
     },
     "SHORT": {
+      "monitoring_observations": 2,
       "activated_count": 0,
+      "activated_observation_count": 0,
+      "activations_per_100_observations": 0.0,
       "near_miss_candidate_count": 0,
+      "near_miss_observation_count": 0,
+      "momentum_ready_breakout_pending_observation_count": 0,
+      "potential_missed_opportunity_candidates": 0,
       "failed_breakout_count": 0,
       "breakout_held_4h_count": 0,
+      "breakout_assessment_pending_count": 0,
+      "condition_statistics": {
+        "4H_BREAKOUT": {
+          "known_count": 2,
+          "passed_count": 0,
+          "failed_count": 2,
+          "pass_rate_pct": 0.0
+        },
+        "15M_MOMENTUM": {
+          "known_count": 2,
+          "passed_count": 1,
+          "failed_count": 1,
+          "pass_rate_pct": 50.0
+        },
+        "5M_MOMENTUM": {
+          "known_count": 2,
+          "passed_count": 0,
+          "failed_count": 2,
+          "pass_rate_pct": 0.0
+        }
+      },
       "horizons": {
         "1H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -83,6 +147,7 @@
         "4H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -90,6 +155,7 @@
         "12H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -97,6 +163,7 @@
         "24H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -106,6 +173,7 @@
         "1H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
@@ -113,11 +181,39 @@
         "4H": {
           "resolved_count": 0,
           "positive_forward_return_count": 0,
+          "positive_forward_return_rate_pct": null,
           "average_forward_return_pct": null,
           "average_mfe_pct": null,
           "average_mae_pct": null
         }
       }
     }
+  },
+  "direction_comparison": {
+    "higher_activation_count": "TIE",
+    "higher_4h_positive_return_rate": "INSUFFICIENT_DATA",
+    "by_horizon": {
+      "1H": {
+        "long_average_forward_return_pct": null,
+        "short_average_forward_return_pct": null,
+        "higher_average_forward_return_direction": "INSUFFICIENT_DATA"
+      },
+      "4H": {
+        "long_average_forward_return_pct": null,
+        "short_average_forward_return_pct": null,
+        "higher_average_forward_return_direction": "INSUFFICIENT_DATA"
+      },
+      "12H": {
+        "long_average_forward_return_pct": null,
+        "short_average_forward_return_pct": null,
+        "higher_average_forward_return_direction": "INSUFFICIENT_DATA"
+      },
+      "24H": {
+        "long_average_forward_return_pct": null,
+        "short_average_forward_return_pct": null,
+        "higher_average_forward_return_direction": "INSUFFICIENT_DATA"
+      }
+    },
+    "warning": "Do not rank LONG versus SHORT until each direction has a sufficient resolved sample."
   }
 }
