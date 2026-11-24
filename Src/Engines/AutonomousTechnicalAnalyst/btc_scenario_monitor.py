@@ -14,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from Src.Engines.AutonomousTechnicalAnalyst import btc_scenario_performance as performance
+
 ROOT_DIR = Path(__file__).resolve().parents[3]
 REPORT_FILE = ROOT_DIR / "Data" / "Signals" / "current_btc_signal.json"
 STATE_FILE = ROOT_DIR / "Data" / "Signals" / "btc_scenario_monitor_state.json"
@@ -592,8 +594,14 @@ def main():
     state = load_state()
     poll_telegram_commands(state)
     now = utc_now().timestamp()
-    session = process_session(report, generated_at, state, now_timestamp=now)
+    candles_by_tf = {tf: okx_candles(bar) for tf, (bar, _) in TIMEFRAMES.items()}
+    session = process_session(
+        report, generated_at, state, now_timestamp=now, candles_by_tf=candles_by_tf
+    )
     send_periodic_status(session, state)
+    performance.record_observation(session, now_timestamp=now)
+    performance.update_outcomes(session, candles_by_tf, now_timestamp=now)
+    performance.refresh_performance_report(generated_at=now)
     atomic_write_json(STATE_FILE, state)
     events = {
         "symbol": SYMBOL,
