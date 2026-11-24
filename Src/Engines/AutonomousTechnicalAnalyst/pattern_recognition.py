@@ -158,6 +158,80 @@ def _triangle(highs, lows, close):
         "بسته‌شدن کندل خارج از یکی از دو ضلع مثلث")
 
 
+def _trend_patterns(highs, lows, close):
+    if len(highs) < 3 or len(lows) < 3:
+        return []
+    upper, lower = highs[-3:], lows[-3:]
+    upper_slope = (upper[-1]["price"] - upper[0]["price"]) / max(1, upper[-1]["time"] - upper[0]["time"])
+    lower_slope = (lower[-1]["price"] - lower[0]["price"]) / max(1, lower[-1]["time"] - lower[0]["time"])
+    upper_now = upper[-1]["price"] + upper_slope * max(0, close["time"] - upper[-1]["time"])
+    lower_now = lower[-1]["price"] + lower_slope * max(0, close["time"] - lower[-1]["time"])
+    high_flat = _near(upper[0]["price"], upper[-1]["price"], 0.018)
+    low_flat = _near(lower[0]["price"], lower[-1]["price"], 0.018)
+    results = []
+    if high_flat and lower_slope > 0:
+        direction = "BULLISH" if close["price"] > upper_now else "NEUTRAL"
+        results.append(_make("Ascending Triangle", direction,
+            "CONFIRMED" if direction == "BULLISH" else "DEVELOPING",
+            76 if direction == "BULLISH" else 60,
+            [{"time": p["time"], "price": p["price"], "label": "H"} for p in upper] +
+            [{"time": p["time"], "price": p["price"], "label": "L"} for p in lower],
+            [{"name": "Resistance", "points": [
+                {"time": upper[0]["time"], "value": upper[0]["price"]},
+                {"time": upper[-1]["time"], "value": upper[-1]["price"]}]},
+             {"name": "Rising support", "points": [
+                {"time": lower[0]["time"], "value": lower[0]["price"]},
+                {"time": lower[-1]["time"], "value": lower[-1]["price"]}]}],
+            upper_now + (upper[0]["price"] - lower[0]["price"]),
+            lower_now, "بسته‌شدن کندل بالای مقاومت افقی"))
+    if low_flat and upper_slope < 0:
+        direction = "BEARISH" if close["price"] < lower_now else "NEUTRAL"
+        results.append(_make("Descending Triangle", direction,
+            "CONFIRMED" if direction == "BEARISH" else "DEVELOPING",
+            76 if direction == "BEARISH" else 60,
+            [{"time": p["time"], "price": p["price"], "label": "H"} for p in upper] +
+            [{"time": p["time"], "price": p["price"], "label": "L"} for p in lower],
+            [{"name": "Falling resistance", "points": [
+                {"time": upper[0]["time"], "value": upper[0]["price"]},
+                {"time": upper[-1]["time"], "value": upper[-1]["price"]}]},
+             {"name": "Support", "points": [
+                {"time": lower[0]["time"], "value": lower[0]["price"]},
+                {"time": lower[-1]["time"], "value": lower[-1]["price"]}]}],
+            lower_now - (upper[0]["price"] - lower[0]["price"]),
+            upper_now, "بسته‌شدن کندل زیر حمایت افقی"))
+    if upper_slope > 0 and lower_slope > upper_slope:
+        direction = "BEARISH" if close["price"] < lower_now else "NEUTRAL"
+        results.append(_make("Rising Wedge", direction,
+            "CONFIRMED" if direction == "BEARISH" else "DEVELOPING",
+            73 if direction == "BEARISH" else 57,
+            [{"time": p["time"], "price": p["price"], "label": "H"} for p in upper] +
+            [{"time": p["time"], "price": p["price"], "label": "L"} for p in lower],
+            [{"name": "Upper wedge", "points": [
+                {"time": upper[0]["time"], "value": upper[0]["price"]},
+                {"time": upper[-1]["time"], "value": upper[-1]["price"]}]},
+             {"name": "Lower wedge", "points": [
+                {"time": lower[0]["time"], "value": lower[0]["price"]},
+                {"time": lower[-1]["time"], "value": lower[-1]["price"]}]}],
+            lower_now - (upper[-1]["price"] - lower[-1]["price"]),
+            upper_now, "شکست ضلع پایینی کنج صعودی"))
+    if upper_slope < 0 and lower_slope < upper_slope:
+        direction = "BULLISH" if close["price"] > upper_now else "NEUTRAL"
+        results.append(_make("Falling Wedge", direction,
+            "CONFIRMED" if direction == "BULLISH" else "DEVELOPING",
+            73 if direction == "BULLISH" else 57,
+            [{"time": p["time"], "price": p["price"], "label": "H"} for p in upper] +
+            [{"time": p["time"], "price": p["price"], "label": "L"} for p in lower],
+            [{"name": "Upper wedge", "points": [
+                {"time": upper[0]["time"], "value": upper[0]["price"]},
+                {"time": upper[-1]["time"], "value": upper[-1]["price"]}]},
+             {"name": "Lower wedge", "points": [
+                {"time": lower[0]["time"], "value": lower[0]["price"]},
+                {"time": lower[-1]["time"], "value": lower[-1]["price"]}]}],
+            upper_now + (upper[-1]["price"] - lower[-1]["price"]),
+            lower_now, "شکست ضلع بالایی کنج نزولی"))
+    return results
+
+
 def _flag(frame):
     if len(frame) < 24:
         return None
@@ -207,6 +281,7 @@ def detect_chart_patterns(frame, swing_window=3):
         _head_shoulders(swings, close, True),
         _double_pattern(highs, lows, close),
         _triangle(highs, lows, close),
+        *_trend_patterns(highs, lows, close),
         _flag(frame),
     ]
     patterns = [p for p in patterns if p is not None]
