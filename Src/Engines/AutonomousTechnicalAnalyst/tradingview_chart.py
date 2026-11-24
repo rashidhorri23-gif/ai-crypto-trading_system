@@ -13,7 +13,7 @@ from .pattern_recognition import detect_chart_patterns
 LIGHTWEIGHT_CHARTS_VERSION = "5.3.0"
 CHART_CANDLE_LIMIT = 120
 FUTURE_SPACE_BARS = 36
-CHART_HEIGHT = 620
+CHART_HEIGHT = 700
 VISIBLE_PATTERN_LIMIT = 2
 TIMEFRAME_SECONDS = {"4H": 14400, "15M": 900, "5M": 300}
 SWING_CONFIRMATION_CANDLES = 3
@@ -281,29 +281,29 @@ def _build_html(payload):
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#030b18;color:#e5edf8;font-family:Arial,Tahoma,sans-serif}
-body{width:1780px;padding:14px}
-.header{height:54px;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:7px 12px;margin-bottom:8px;background:#061326;border:1px solid #1b3555;border-radius:9px}
-.brand{font-size:25px;font-weight:700}.sub{font-size:12px;color:#91a8c8;margin-top:4px}
-.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{padding:7px 11px;background:#0a1b32;border:1px solid #244364;border-radius:7px;font-size:13px}
+body{width:1840px;padding:16px;background:radial-gradient(ellipse at 48% 0%,#10223b 0%,#030b18 58%)}
+.header{min-height:64px;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 16px;margin-bottom:12px;background:linear-gradient(110deg,#0b2038,#071326 68%);border:1px solid #294765;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.brand{font-size:27px;font-weight:800;letter-spacing:.2px}.sub{font-size:12px;color:#9db5d6;margin-top:5px}
+.pills{display:flex;gap:9px;flex-wrap:wrap}.pill{padding:8px 13px;background:#0a1b32;border:1px solid #2a4869;border-radius:8px;font-size:13px;box-shadow:inset 0 1px rgba(255,255,255,.025)}
 .pill b{margin-left:5px;color:#f8fafc}
-.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
-.panel{background:#061326;border:1px solid #1b3555;border-radius:9px;overflow:hidden}
-.panel-head{height:48px;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 12px;background:#091a30;border-bottom:1px solid #1b3555}
-.panel-title{font-size:17px;font-weight:700}.panel-sub{font-size:11px;color:#91a8c8;margin-top:3px}
-.chart{height:620px;width:100%}.indicator-chart{height:88px;width:100%;border-top:1px solid #1b3555}
-.chart-label{height:17px;padding:2px 10px;background:#07172b;color:#9db5d6;font-size:11px;border-top:1px solid #1b3555}
-.sidebar{display:grid;grid-template-columns:1fr;gap:10px;margin:0;align-content:start}
-.side-section{padding:12px 14px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
-.side-title{font-size:15px;font-weight:700;margin-bottom:8px;color:#f1f5f9}
+.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:14px;align-items:start}
+.panel{background:#061326;border:1px solid #294765;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.panel-head{min-height:58px;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 15px;background:linear-gradient(90deg,#0c2038,#091a30);border-bottom:1px solid #294765}
+.panel-title{font-size:18px;font-weight:800}.panel-sub{font-size:11px;color:#9db5d6;margin-top:4px;line-height:1.5}
+.chart{height:700px;width:100%}.indicator-chart{height:96px;width:100%;border-top:1px solid #203852}
+.chart-label{height:22px;padding:4px 13px;background:#0a1b30;color:#b4c7e0;font-size:11px;font-weight:700;letter-spacing:.2px;border-top:1px solid #203852}
+.sidebar{display:grid;grid-template-columns:1fr;gap:11px;margin:0;align-content:start}
+.side-section{padding:14px 16px;background:linear-gradient(145deg,#0a1d33,#071426);border:1px solid #254361;border-radius:10px;box-shadow:0 5px 16px rgba(0,0,0,.14)}
+.side-title{font-size:15px;font-weight:800;margin-bottom:10px;padding-bottom:8px;color:#f1f5f9;border-bottom:1px solid #203852}
 .decision{display:inline-block;padding:5px 10px;border-radius:16px;border:1px solid #64748b;font-weight:700;margin-bottom:7px;font-size:16px}
 .reason{direction:rtl;text-align:right;line-height:1.65;color:#dbeafe;font-size:12px}
-.kv{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #172d49;font-size:12px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #1a304b;font-size:12px;line-height:1.45}
 .kv:last-child{border-bottom:0}.muted{color:#9aafcc}.value{font-weight:700;text-align:left}
 .green{color:#20d6aa}.red{color:#ff637e}.amber{color:#fbbf24}.blue{color:#60b9ff}
 .trade-note{font-size:11px;color:#9aafcc;line-height:1.6;direction:rtl;text-align:right;margin-top:6px}
-.bottom-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-top:9px}
-.scenario{height:158px;padding:10px 12px;background:#07172b;border:1px solid #1b3555;border-radius:8px;direction:rtl;text-align:right;overflow:hidden}
-.scenario h3{margin:0 0 6px;font-size:17px}.scenario p{margin:5px 0;line-height:1.55;font-size:12px}
+.bottom-grid{display:grid;grid-template-columns:1.1fr 1.1fr .8fr;gap:12px;margin-top:12px}
+.scenario{min-height:176px;padding:14px 16px;background:linear-gradient(145deg,#0a1d33,#071426);border:1px solid #254361;border-radius:10px;direction:rtl;text-align:right;overflow:visible;box-shadow:0 5px 16px rgba(0,0,0,.14)}
+.scenario h3{margin:0 0 10px;font-size:17px}.scenario p{margin:7px 0;line-height:1.7;font-size:12px}
 .scenario.bull{border-color:#087b69;background:linear-gradient(110deg,#06221f,#07172b 65%)}
 .scenario.bear{border-color:#8b2841;background:linear-gradient(110deg,#260d1b,#07172b 65%)}
 .scenario.bull h3{color:#20d6aa}.scenario.bear h3{color:#ff637e}
@@ -313,21 +313,21 @@ body{width:1780px;padding:14px}
 .pattern-item{display:inline-flex;flex-direction:column;gap:4px;vertical-align:top;padding:7px 9px;margin:3px;background:#0a2038;border:1px solid #244364;border-radius:6px;font-size:11px;max-width:160px}
 .pattern-item strong{font-size:10px;color:#d9eaff}.pattern-item span{font-size:9px;color:#20d6aa}
 .pattern-icon{height:34px;width:82px}
-.confirm{grid-column:auto;padding:9px 11px;background:#07172b;border:1px solid #1b3555;border-radius:8px}
+.confirm{grid-column:auto;padding:13px 15px;background:linear-gradient(145deg,#0a1d33,#071426);border:1px solid #254361;border-radius:10px}
 .confirm h3{margin:0 0 6px;font-size:13px}
 .confirm-row{padding:4px 0;border-bottom:1px solid #172d49}
 .confirm-row:last-child{border:0}.confirm-row strong{font-size:11px}
-.activation-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px;direction:rtl}
-.activation-card{padding:11px 13px;background:#07172b;border:1px solid #244364;border-radius:8px;text-align:right}
-.activation-card h3{font-size:16px;margin:0 0 8px}
+.activation-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;direction:rtl}
+.activation-card{padding:15px 17px;background:linear-gradient(145deg,#0a1d33,#071426);border:1px solid #294765;border-radius:10px;text-align:right;box-shadow:0 5px 16px rgba(0,0,0,.14)}
+.activation-card h3{font-size:17px;margin:0 0 10px;padding-bottom:9px;border-bottom:1px solid #203852}
 .activation-card.long{border-color:#087b69}.activation-card.short{border-color:#8b2841}
 .activation-card.long h3{color:#20d6aa}.activation-card.short h3{color:#ff637e}
-.activation-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #172d49;font-size:12px;line-height:1.5}
+.activation-row{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid #1a304b;font-size:12px;line-height:1.6}
 .activation-row:last-child{border:0}
 .activation-state{white-space:nowrap;font-weight:700}
 .activation-state.met{color:#20d6aa}.activation-state.unmet{color:#ffb454}.activation-state.unknown{color:#91a8c8}
-.activation-foot{font-size:10px;color:#91a8c8;margin-top:8px;line-height:1.5}
-.footer{text-align:right;color:#7188a8;font-size:9px;padding:7px 3px 0}
+.activation-foot{font-size:11px;color:#a8bdd8;margin-top:10px;padding:9px 10px;background:#091a2e;border-radius:7px;line-height:1.6}
+.footer{text-align:right;color:#8299b9;font-size:10px;padding:10px 4px 2px;border-top:1px solid #1b3555;margin-top:12px}
 </style>
 </head>
 <body>
@@ -426,11 +426,11 @@ body{width:1780px;padding:14px}
   });
  }
  const chart=LightweightCharts.createChart(root.getElementById("main-chart"),{
-  width:root.getElementById("main-chart").clientWidth,height:620,
+  width:root.getElementById("main-chart").clientWidth,height:700,
   layout:{background:{type:"solid",color:"#091422"},textColor:"#cbd5e1",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:true},
-  grid:{vertLines:{color:"#1b2b40"},horzLines:{color:"#1b2b40"}},
-  rightPriceScale:{borderColor:"#334155",scaleMargins:{top:.08,bottom:.2}},
-  timeScale:{borderColor:"#334155",timeVisible:true,secondsVisible:false},
+  grid:{vertLines:{color:"#17283c",style:1},horzLines:{color:"#17283c",style:1}},
+  rightPriceScale:{borderColor:"#334b67",scaleMargins:{top:.10,bottom:.18},entireTextOnly:true},
+  timeScale:{borderColor:"#334b67",timeVisible:true,secondsVisible:false,barSpacing:9,minBarSpacing:5,rightOffset:36},
   localization:{timeFormatter:t=>new Date(Number(t)*1000).toISOString().slice(0,16).replace("T"," ")},
   crosshair:{mode:LightweightCharts.CrosshairMode.Normal},handleScroll:false,handleScale:false
  });
@@ -611,10 +611,10 @@ body{width:1780px;padding:14px}
  // Reserve a right-side projection area after the latest plotted point.
  const forecastBars=Math.max(36,...[bull,bear].filter(Boolean).map(item=>Math.max(1,Math.min(100,Number(item.horizon_candles)||6))+4));
  chart.timeScale().applyOptions({rightOffset:forecastBars});
- const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:88,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
+ const rsiChart=LightweightCharts.createChart(root.getElementById("rsi-chart"),{width:root.getElementById("rsi-chart").clientWidth,height:96,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{visible:false,borderColor:"#1b3555"},handleScroll:false,handleScale:false});
  const rsiSeries=rsiChart.addSeries(LightweightCharts.LineSeries,{color:"#b779ff",lineWidth:2,priceLineVisible:false,lastValueVisible:true});rsiSeries.setData(m.indicators.rsi||[]);
  [30,50,70].forEach(v=>rsiSeries.createPriceLine({price:v,color:"#405675",lineWidth:1,lineStyle:2,axisLabelVisible:false,title:""}));rsiChart.timeScale().fitContent();
- const macdChart=LightweightCharts.createChart(root.getElementById("macd-chart"),{width:root.getElementById("macd-chart").clientWidth,height:88,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{borderColor:"#1b3555",timeVisible:true,secondsVisible:false},handleScroll:false,handleScale:false});
+ const macdChart=LightweightCharts.createChart(root.getElementById("macd-chart"),{width:root.getElementById("macd-chart").clientWidth,height:96,layout:{background:{type:"solid",color:"#061326"},textColor:"#9db5d6",fontFamily:"Arial,Tahoma,sans-serif",attributionLogo:false},grid:{vertLines:{color:"#142944"},horzLines:{color:"#142944"}},rightPriceScale:{borderColor:"#1b3555",scaleMargins:{top:.12,bottom:.12}},timeScale:{borderColor:"#1b3555",timeVisible:true,secondsVisible:false},handleScroll:false,handleScale:false});
  const macdHist=macdChart.addSeries(LightweightCharts.HistogramSeries,{priceLineVisible:false,lastValueVisible:false});macdHist.setData((m.indicators.macd_histogram||[]).map(v=>({...v,color:v.value>=0?"rgba(8,153,129,.75)":"rgba(242,54,69,.75)"})));
  const macdLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#38bdf8",lineWidth:1,priceLineVisible:false,lastValueVisible:false});macdLine.setData(m.indicators.macd||[]);
  const signalLine=macdChart.addSeries(LightweightCharts.LineSeries,{color:"#f59e0b",lineWidth:1,priceLineVisible:false,lastValueVisible:false});signalLine.setData(m.indicators.macd_signal||[]);macdChart.timeScale().fitContent();
