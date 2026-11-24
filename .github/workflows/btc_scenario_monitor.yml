@@ -6,6 +6,7 @@ on:
     paths:
       - "Src/Engines/AutonomousTechnicalAnalyst/btc_scenario_monitor.py"
       - "Src/Engines/AutonomousTechnicalAnalyst/test_btc_scenario_monitor.py"
+      - "Src/Engines/AutonomousTechnicalAnalyst/btc_scenario_performance.py"
       - ".github/workflows/btc_scenario_monitor.yml"
   schedule:
     - cron: "5,20,35,50 * * * *"
