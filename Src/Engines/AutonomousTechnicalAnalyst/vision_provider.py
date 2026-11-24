@@ -353,13 +353,14 @@ def _validate_json_response(content):
             "AI response JSON must be an object."
         )
 
-    return True
+    return parsed
 
 
 def ask_openrouter_vision(
     image_path,
     prompt,
     model_override=None,
+    response_validator=None,
 ):
     """Send a local chart image and prompt to a vision model."""
 
@@ -586,7 +587,10 @@ def ask_openrouter_vision(
                         "The AI returned an empty response."
                     )
 
-                _validate_json_response(content)
+                parsed_content = _validate_json_response(content)
+
+                if response_validator is not None:
+                    response_validator(parsed_content)
 
                 return {
                     "status": "success",
