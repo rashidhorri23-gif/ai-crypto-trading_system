@@ -394,7 +394,7 @@ body{width:1800px;padding:22px}
   addLine(candles,a.take_profit_3,"#22c55e","هدف ۳",1);
  }
  const patternMarkers=[];
- (m.patterns||[]).slice(0,3).forEach((pattern,index)=>{
+ (m.patterns||[]).forEach((pattern,index)=>{
   const color=pattern.direction==="BULLISH"?"#22cfa7":pattern.direction==="BEARISH"?"#fb7185":"#fbbf24";
   (pattern.lines||[]).forEach(boundary=>{
    const points=(boundary.points||[]).filter(point=>Number.isFinite(Number(point.time))&&Number.isFinite(Number(point.value)));
