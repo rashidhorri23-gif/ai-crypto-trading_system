@@ -412,6 +412,8 @@ def poll_telegram_commands(state):
 
 
 def send_periodic_status(session, state):
+    if session.get("status") != "ACTIVE":
+        return
     if not state.get("status_updates_enabled", False):
         return
     checks = session.get("latest_checks")
