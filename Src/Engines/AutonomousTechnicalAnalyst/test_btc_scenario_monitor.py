@@ -194,6 +194,33 @@ class TestTelegramStatusControls(unittest.TestCase):
         sender.assert_called_once()
         self.assertEqual(state["status_update_last_candle"], 1800)
 
+    def test_periodic_status_uses_chart_photo_when_confirmed_candles_exist(self):
+        state = {"status_updates_enabled": True}
+        session = {
+            "status": "ACTIVE",
+            "analysis_id": "test-report",
+            "breakout_levels": {"LONG": 65000.0, "SHORT": 62000.0},
+            "scenarios": {
+                "LONG": {"status": "WAITING"},
+                "SHORT": {"status": "WAITING"},
+            },
+            "latest_checks": {
+                "LONG": {"observed_timestamp": 1800, "observed_price": 64000.0,
+                         "checks": {"4H_BREAKOUT": {"known": True, "met": False}}},
+                "SHORT": {"observed_timestamp": 1800, "observed_price": 64000.0,
+                          "checks": {"4H_BREAKOUT": {"known": True, "met": False}}},
+            },
+        }
+        five_minute = candles(300, 5, start=600, mode="up")
+        with patch.object(monitor, "build_status_chart", return_value=b"png") as chart, \
+             patch.object(monitor, "send_telegram_photo", return_value=True) as photo, \
+             patch.object(monitor, "send_telegram") as text_sender:
+            monitor.send_periodic_status(session, state, {"5M": five_minute})
+        chart.assert_called_once_with(five_minute, session)
+        photo.assert_called_once()
+        text_sender.assert_not_called()
+        self.assertEqual(state["status_update_last_candle"], 1800)
+
     def test_finalized_session_does_not_send_periodic_status(self):
         state = {"status_updates_enabled": True}
         session = {"status": "NO_SCENARIO_ACTIVATED", "latest_checks": {}}
