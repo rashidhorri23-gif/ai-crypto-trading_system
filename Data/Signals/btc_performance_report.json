@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0",
+  "symbol": "BTC-USDT",
+  "generated_at": "2026-11-24T11:43:10.936592+00:00",
+  "methodology": {
+    "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
+    "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
+    "failed_breakout": "A failed 4H breakout is recorded only if a confirmed 4H candle closes back through the frozen breakout level within 4 hours.",
+    "near_miss": "A frozen 4H breakout is met but one or both 15M/5M momentum confirmations are missing; this is a candidate, not an activated signal.",
+    "not_a_trading_backtest": true
+  },
+  "observations_count": 1,
+  "near_miss_observations": {
+    "LONG": 0,
+    "SHORT": 0
+  },
+  "scenarios": {
+    "LONG": {
+      "activated_count": 0,
+      "near_miss_candidate_count": 0,
+      "failed_breakout_count": 0,
+      "breakout_held_4h_count": 0,
+      "horizons": {
+        "1H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "4H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "12H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "24H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        }
+      },
+      "near_miss_4h": {
+        "resolved_count": 0,
+        "average_mfe_pct": null
+      }
+    },
+    "SHORT": {
+      "activated_count": 0,
+      "near_miss_candidate_count": 0,
+      "failed_breakout_count": 0,
+      "breakout_held_4h_count": 0,
+      "horizons": {
+        "1H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "4H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "12H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "24H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        }
+      },
+      "near_miss_4h": {
+        "resolved_count": 0,
+        "average_mfe_pct": null
+      }
+    }
+  }
+}

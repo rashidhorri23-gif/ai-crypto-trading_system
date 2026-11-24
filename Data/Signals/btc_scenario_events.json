@@ -1,6 +1,6 @@
 {
   "symbol": "BTC-USDT",
-  "updated_at": "2026-11-24T11:41:44.481568+00:00",
+  "updated_at": "2026-11-24T11:43:10.936592+00:00",
   "current_session": {
     "analysis_id": "b58b274a-382e-4fa3-a9a1-a78204d95fb0",
     "generated_at": "2026-11-24T06:41:06.805283+00:00",
@@ -19,7 +19,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T11:41:44.481568+00:00",
+    "last_checked_at": "2026-11-24T11:43:10.936592+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
