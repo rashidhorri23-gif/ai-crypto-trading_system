@@ -86,6 +86,20 @@ def _test_future_projection_workspace():
     assert "const forecastBars=Math.max(72," in html
 
 
+def _test_reject_wrong_main_timeframe():
+    results = {
+        "4H": {"data": _build_frame(TIMEFRAME_INTERVALS_MS["5M"])},
+        "15M": {"data": _build_frame(TIMEFRAME_INTERVALS_MS["15M"])},
+        "5M": {"data": _build_frame(TIMEFRAME_INTERVALS_MS["5M"])},
+    }
+    try:
+        _build_payload(results, None)
+    except ValueError as error:
+        assert "4H: candle interval mismatch" in str(error)
+    else:
+        raise AssertionError("The 4H chart accepted 5M candle data.")
+
+
 def _test_pattern_selection():
     patterns = [
         {"name": "Developing A", "status": "DEVELOPING", "confidence": 90},
@@ -124,6 +138,7 @@ def _test_rule_based_forecast():
 
 def main():
     _test_future_projection_workspace()
+    _test_reject_wrong_main_timeframe()
     _test_pattern_selection()
     _test_rule_based_forecast()
     results = {
