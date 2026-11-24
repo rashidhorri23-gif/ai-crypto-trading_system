@@ -415,6 +415,78 @@ def calculate_market_structure(df, swing_window=3):
         .ffill()
     )
 
+    # Track directional structure shifts and liquidity sweeps.
+    result["choch_bullish"] = False
+    result["choch_bearish"] = False
+    result["structure_bias"] = "NEUTRAL"
+    structure_bias = "NEUTRAL"
+    for index in result.index:
+        previous_bias = structure_bias
+        if bool(result.at[index, "bos_bullish"]):
+            structure_bias = "BULLISH"
+            result.at[index, "choch_bullish"] = previous_bias == "BEARISH"
+        elif bool(result.at[index, "bos_bearish"]):
+            structure_bias = "BEARISH"
+            result.at[index, "choch_bearish"] = previous_bias == "BULLISH"
+        result.at[index, "structure_bias"] = structure_bias
+
+    prior_swing_high = result["last_swing_high"].shift(1)
+    prior_swing_low = result["last_swing_low"].shift(1)
+    result["liquidity_sweep_high"] = (
+        (result["high"] > prior_swing_high)
+        & (result["close"] < prior_swing_high)
+        & prior_swing_high.notna()
+    )
+    result["liquidity_sweep_low"] = (
+        (result["low"] < prior_swing_low)
+        & (result["close"] > prior_swing_low)
+        & prior_swing_low.notna()
+    )
+
+    # Three-candle fair value gaps.
+    result["fvg_bullish_low"] = (
+        result["high"].shift(2).where(result["low"] > result["high"].shift(2))
+    )
+    result["fvg_bullish_high"] = (
+        result["low"].where(result["low"] > result["high"].shift(2))
+    )
+    result["fvg_bearish_low"] = (
+        result["high"].where(result["high"] < result["low"].shift(2))
+    )
+    result["fvg_bearish_high"] = (
+        result["low"].shift(2).where(result["high"] < result["low"].shift(2))
+    )
+
+    # Latest opposite candle before a structure break is a candidate OB.
+    for column in (
+        "bullish_ob_low", "bullish_ob_high",
+        "bearish_ob_low", "bearish_ob_high",
+    ):
+        result[column] = np.nan
+
+    for index in result.index:
+        start = max(0, index - 10)
+        if bool(result.at[index, "bos_bullish"]):
+            candidates = result.loc[start:index - 1]
+            candidates = candidates[candidates["close"] < candidates["open"]]
+            if not candidates.empty:
+                candle = candidates.iloc[-1]
+                result.at[index, "bullish_ob_low"] = candle["low"]
+                result.at[index, "bullish_ob_high"] = candle["high"]
+        if bool(result.at[index, "bos_bearish"]):
+            candidates = result.loc[start:index - 1]
+            candidates = candidates[candidates["close"] > candidates["open"]]
+            if not candidates.empty:
+                candle = candidates.iloc[-1]
+                result.at[index, "bearish_ob_low"] = candle["low"]
+                result.at[index, "bearish_ob_high"] = candle["high"]
+
+    for column in (
+        "bullish_ob_low", "bullish_ob_high",
+        "bearish_ob_low", "bearish_ob_high",
+    ):
+        result["last_" + column] = result[column].ffill()
+
     return result
 
 
