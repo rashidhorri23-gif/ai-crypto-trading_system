@@ -22,6 +22,25 @@ class StageFiveResearchTests(unittest.TestCase):
         self.assertFalse(research.is_aligned(long_snapshot, "LONG", 57.0))
         self.assertFalse(research.is_aligned(short_snapshot, "SHORT", 57.0))
 
+
+    def test_filter_ablation_flags(self):
+        neutral_snapshot = {
+            "known": True, "trend": "NEUTRAL", "rsi": 60.0,
+            "macd_histogram": 1.0,
+        }
+        self.assertFalse(research.is_aligned(neutral_snapshot, "LONG", 50.0))
+        self.assertTrue(
+            research.is_aligned(
+                neutral_snapshot, "LONG", 50.0, require_ema=False
+            )
+        )
+        self.assertTrue(
+            research.is_aligned(
+                neutral_snapshot, "LONG", 50.0, require_ema=False,
+                require_macd=False
+            )
+        )
+
     def test_load_candles_rejects_duplicate_timestamps(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "candles.csv"
