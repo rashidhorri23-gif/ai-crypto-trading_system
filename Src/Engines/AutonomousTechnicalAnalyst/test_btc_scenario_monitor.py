@@ -67,7 +67,7 @@ class TestStatusChart(unittest.TestCase):
             },
         }
         image = monitor.build_status_chart(candles(300, 48), session)
-        self.assertTrue(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertGreater(len(image), 10000)
 
 
