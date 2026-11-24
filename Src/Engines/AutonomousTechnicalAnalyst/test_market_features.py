@@ -64,6 +64,19 @@ def main():
         "macd_signal",
         "macd_histogram",
         "vwap_utc",
+        "choch_bullish",
+        "choch_bearish",
+        "structure_bias",
+        "liquidity_sweep_high",
+        "liquidity_sweep_low",
+        "fvg_bullish_low",
+        "fvg_bullish_high",
+        "fvg_bearish_low",
+        "fvg_bearish_high",
+        "last_bullish_ob_low",
+        "last_bullish_ob_high",
+        "last_bearish_ob_low",
+        "last_bearish_ob_high",
     ]
 
     print(
