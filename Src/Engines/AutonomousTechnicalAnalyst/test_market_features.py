@@ -57,6 +57,13 @@ def main():
         "resistance",
         "market_structure",
         "ema_trend",
+        "bb_upper",
+        "bb_middle",
+        "bb_lower",
+        "macd",
+        "macd_signal",
+        "macd_histogram",
+        "vwap_utc",
     ]
 
     print(
@@ -77,6 +84,13 @@ def main():
         "plus_di",
         "minus_di",
         "relative_volume",
+        "bb_upper",
+        "bb_middle",
+        "bb_lower",
+        "macd",
+        "macd_signal",
+        "macd_histogram",
+        "vwap_utc",
     ]
 
     for column in feature_columns:
