@@ -272,64 +272,64 @@ Required JSON schema:
   "take_profit_2": 0.0,
   "take_profit_3": 0.0,
   "reasoning": "خلاصه تصمیم در حداکثر سه جمله کوتاه.",
-  "forecast": {
-    "timeframes": {
-      "4H": {
-        "bullish": {
+  "forecast": {{
+    "timeframes": {{
+      "4H": {{
+        "bullish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 6,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی صعودی."
-        },
-        "bearish": {
+        }},
+        "bearish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 6,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی نزولی."
-        }
-      },
-      "15M": {
-        "bullish": {
+        }}
+      }},
+      "15M": {{
+        "bullish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 8,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی صعودی."
-        },
-        "bearish": {
+        }},
+        "bearish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 8,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی نزولی."
-        }
-      },
-      "5M": {
-        "bullish": {
+        }}
+      }},
+      "5M": {{
+        "bullish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 12,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی صعودی."
-        },
-        "bearish": {
+        }},
+        "bearish": {{
           "target_zone_low": 0.0,
           "target_zone_high": 0.0,
           "invalidation_price": 0.0,
           "horizon_candles": 12,
           "confidence": 50,
           "trigger": "شرط فعال شدن سناریوی نزولی."
-        }
-      }
-    }
-  },
+        }}
+      }}
+    }}
+  }},
   "main_risks": [],
   "data_limitations": [],
   "previous_signal_action": "NONE",
