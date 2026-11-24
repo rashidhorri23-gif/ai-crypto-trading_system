@@ -87,7 +87,8 @@ Evaluate the available evidence, including:
 - Bollinger Bands, MACD and its histogram, and UTC-session VWAP when available.
 - The deterministic chart-pattern candidates supplied for each timeframe:
   head and shoulders, inverse head and shoulders, double tops/bottoms,
-  symmetrical triangles, bull flags, and bear flags.
+  symmetrical, ascending, and descending triangles, rising/falling wedges,
+  ascending/descending channels, bull/bear flags, and bull/bear pennants.
 - For each detected pattern, distinguish DEVELOPING from CONFIRMED.
   Check its geometry, neckline or boundary, breakout close, volume evidence,
   target projection, and invalidation level. Reject weak or contradictory
