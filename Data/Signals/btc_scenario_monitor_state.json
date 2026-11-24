@@ -18,7 +18,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-24T12:04:15.512027+00:00",
+    "last_checked_at": "2026-11-24T12:06:31.036431+00:00",
     "latest_checks": {
       "LONG": {
         "checks": {
@@ -41,16 +41,16 @@
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 60426.1,
+            "close": 60326.6,
             "ema_trend": "NEUTRAL",
-            "rsi": 70.40546964698075,
-            "macd_histogram": 93.74812818659464,
-            "candle_close_timestamp": 1795521600
+            "rsi": 64.52661922188656,
+            "macd_histogram": 88.92099009672535,
+            "candle_close_timestamp": 1795521900
           }
         },
         "ready": false,
-        "observed_price": 60426.1,
-        "observed_timestamp": 1795521600
+        "observed_price": 60326.6,
+        "observed_timestamp": 1795521900
       },
       "SHORT": {
         "checks": {
@@ -73,21 +73,79 @@
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 60426.1,
+            "close": 60326.6,
             "ema_trend": "NEUTRAL",
-            "rsi": 70.40546964698075,
-            "macd_histogram": 93.74812818659464,
-            "candle_close_timestamp": 1795521600
+            "rsi": 64.52661922188656,
+            "macd_histogram": 88.92099009672535,
+            "candle_close_timestamp": 1795521900
           }
         },
         "ready": false,
-        "observed_price": 60426.1,
-        "observed_timestamp": 1795521600
+        "observed_price": 60326.6,
+        "observed_timestamp": 1795521900
       }
     },
     "breakout_levels": {
       "LONG": 64600.0,
       "SHORT": 55134.0
+    },
+    "forecast": {
+      "4H": {
+        "bullish": {
+          "target_zone_low": 61200,
+          "target_zone_high": 62600,
+          "invalidation_price": 59455,
+          "horizon_candles": 6,
+          "confidence": 35,
+          "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20.",
+          "breakout_level": 64600
+        },
+        "bearish": {
+          "target_zone_low": 58000,
+          "target_zone_high": 59023,
+          "invalidation_price": 61683.9,
+          "horizon_candles": 6,
+          "confidence": 55,
+          "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023.",
+          "breakout_level": 55134
+        }
+      },
+      "15M": {
+        "bullish": {
+          "target_zone_low": 60770,
+          "target_zone_high": 61090,
+          "invalidation_price": 60240,
+          "horizon_candles": 8,
+          "confidence": 40,
+          "trigger": "شکست و تثبیت بالای 60769.2 با حجم نسبی."
+        },
+        "bearish": {
+          "target_zone_low": 59455,
+          "target_zone_high": 59940,
+          "invalidation_price": 60769.2,
+          "horizon_candles": 8,
+          "confidence": 55,
+          "trigger": "شکست کف 60315 و تثبیت زیر آن برای ادامه نزول."
+        }
+      },
+      "5M": {
+        "bullish": {
+          "target_zone_low": 60770,
+          "target_zone_high": 61060,
+          "invalidation_price": 60315.4,
+          "horizon_candles": 12,
+          "confidence": 45,
+          "trigger": "ادامه بالای 60692.9 با حجم و بازگشت به VWAP."
+        },
+        "bearish": {
+          "target_zone_low": 59842,
+          "target_zone_high": 60227,
+          "invalidation_price": 60769.2,
+          "horizon_candles": 12,
+          "confidence": 45,
+          "trigger": "شکست 60315.4 و بازگشت زیر 60411."
+        }
+      }
     }
   },
   "history": [],
@@ -97,9 +155,10 @@
     "6e63687ffc77f74ee2fb00e704b6b25d13125f48576b2d1eb9f06d4bb5e44047",
     "e50e76530ce85cbb3daf463cfb55b281ee4ad23d0f268c9691230f8e8d5ec763",
     "db6c79f7ae950f8b453b2138e80831c2d48c6c890bbde9a297d447a648b32517",
-    "3cae7b2a427d80d03c375e080d444d432c525006c47add85f3e8b8300a582105"
+    "3cae7b2a427d80d03c375e080d444d432c525006c47add85f3e8b8300a582105",
+    "1c94dba780700a51bb198388648eee0a18f22ee8c6358dc858bdaa81e832fdb9"
   ],
   "telegram_update_offset": 952764981,
   "status_updates_enabled": true,
-  "status_update_last_candle": 1795521600
+  "status_update_last_candle": 1795521900
 }
