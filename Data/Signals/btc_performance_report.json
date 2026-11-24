@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-24T11:43:10.936592+00:00",
+  "generated_at": "2026-11-24T11:43:51.993832+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
@@ -50,9 +50,21 @@
           "average_mae_pct": null
         }
       },
-      "near_miss_4h": {
-        "resolved_count": 0,
-        "average_mfe_pct": null
+      "near_miss_horizons": {
+        "1H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "4H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        }
       }
     },
     "SHORT": {
@@ -90,9 +102,21 @@
           "average_mae_pct": null
         }
       },
-      "near_miss_4h": {
-        "resolved_count": 0,
-        "average_mfe_pct": null
+      "near_miss_horizons": {
+        "1H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        },
+        "4H": {
+          "resolved_count": 0,
+          "positive_forward_return_count": 0,
+          "average_forward_return_pct": null,
+          "average_mfe_pct": null,
+          "average_mae_pct": null
+        }
       }
     }
   }
