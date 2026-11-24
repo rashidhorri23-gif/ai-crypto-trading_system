@@ -301,7 +301,7 @@ def _pennant(frame):
     lower_now = lows[-1] + low_slope * (count - 1)
     initial_width = max(highs[0] - lows[0], 1e-9)
     final_width = max(highs[-1] - lows[-1], 0)
-    if high_slope <= 0 or low_slope >= 0:
+    if high_slope >= 0 or low_slope <= 0:
         return None
     if final_width >= initial_width * 0.8:
         return None
