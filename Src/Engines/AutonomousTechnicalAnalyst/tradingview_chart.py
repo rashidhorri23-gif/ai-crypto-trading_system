@@ -468,8 +468,17 @@ body{width:1780px;padding:14px}
  drawZone(z.bearish_ob_low,z.bearish_ob_high,"rgba(245,158,11,0.20)","OB نزولی");
  drawZone(z.bullish_fvg_low,z.bullish_fvg_high,"rgba(34,207,167,0.12)","FVG صعودی");
  drawZone(z.bearish_fvg_low,z.bearish_fvg_high,"rgba(251,113,133,0.12)","FVG نزولی");
+ const forecastSource=a.forecast&&a.forecast.source||"AI";
+ const isRuleBasedForecast=forecastSource==="RULE_BASED_TECHNICAL";
  const f=a.forecast&&a.forecast.timeframes?a.forecast.timeframes["4H"]:null;
  const bull=f&&f.bullish,bear=f&&f.bearish;
+ if(isRuleBasedForecast){
+  const confidenceLabel=root.getElementById("confidence");
+  if(confidenceLabel&&confidenceLabel.parentElement.firstChild){
+   confidenceLabel.parentElement.firstChild.textContent="امتیاز همگرایی ";
+  }
+  set("confidence","—");
+ }
  // Plot AI-provided bullish and bearish 4H forecasts in the reserved future area.
  // Confidence is the model's stated confidence, not a statistically calibrated probability.
  const lastCandle=m.candles[m.candles.length-1];
@@ -508,7 +517,7 @@ body{width:1780px;padding:14px}
    ]);
   }
   const markerText=Number.isFinite(confidence)&&confidence>=0&&confidence<=100
-   ?Math.round(confidence)+"% AI":"هدف";
+   ?(isRuleBasedForecast?"همگرایی "+Math.round(confidence):Math.round(confidence)+"% AI"):"هدف";
   LightweightCharts.createSeriesMarkers(path,[{
    time:futureTime,position:markerPosition,color,shape:"arrowUp",
    text:markerText
@@ -647,12 +656,12 @@ body{width:1780px;padding:14px}
  if(!(m.levels.resistances||[]).length&&!(m.levels.supports||[]).length)levelRow("سطوح معتبر","در داده فعلی موجود نیست");
  function scenario(id,item,direction){
   const el=root.getElementById(id);el.innerHTML="";
-  if(!item){el.textContent="سناریوی معتبر در پاسخ AI موجود نیست.";return;}
+  if(!item){el.textContent="سناریوی معتبر در داده‌های فعلی موجود نیست.";return;}
   const rows=[
    ["محدوده هدف",fmt(item.target_zone_low)+" تا "+fmt(item.target_zone_high)],
    ["قیمت ابطال",fmt(item.invalidation_price)],
    ["افق زمانی",String(item.horizon_candles)+" کندل"],
-   ["اطمینان سناریو",String(item.confidence)+"٪"],
+   [isRuleBasedForecast?"امتیاز همگرایی":"اطمینان سناریو",String(item.confidence)+"٪"],
    ["شرط فعال‌سازی",item.trigger||"—"]
   ];
   rows.forEach(r=>{const p=root.createElement("p");p.textContent=r[0]+": "+r[1];el.appendChild(p);});
