@@ -430,7 +430,7 @@ body{width:1780px;padding:14px}
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<=low)return;
   const start=m.candles[Math.max(0,m.candles.length-36)].time;
   const lastTime=m.candles[m.candles.length-1].time;
-  const end=lastTime+FUTURE_SPACE_BARS*14400;
+  const end=lastTime+36*14400;
   // A baseline band creates a visible rectangle between the validated low/high prices.
   const area=chart.addSeries(LightweightCharts.BaselineSeries,{
    baseValue:{type:"price",price:low},
@@ -455,6 +455,7 @@ body{width:1780px;padding:14px}
  // Plot AI-provided bullish and bearish 4H forecasts in the reserved future area.
  // Confidence is the model's stated confidence, not a statistically calibrated probability.
  const lastCandle=m.candles[m.candles.length-1];
+ const forecastMarkers=[];
  function drawScenarioPath(item,color,title,markerPosition){
   if(!item||item.target_zone_low==null||item.target_zone_high==null)return;
   const low=Number(item.target_zone_low),high=Number(item.target_zone_high);
@@ -495,10 +496,10 @@ body{width:1780px;padding:14px}
    text:markerText
   }]);
   if(item.trigger){
-   LightweightCharts.createSeriesMarkers(candles,[{
+   forecastMarkers.push({
     time:lastCandle.time,position:markerPosition,color,shape:"circle",
     text:"شرط: "+String(item.trigger).slice(0,42)
-   }]);
+   });
   }
  }
  drawScenarioPath(bull,"#20d6aa","سناریوی صعودی","aboveBar");
@@ -563,7 +564,7 @@ body{width:1780px;padding:14px}
  });
  visibleMarkers.sort((x,y)=>x.time-y.time);
  if(visibleMarkers.length||patternMarkers.length){
-  LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers).sort((x,y)=>x.time-y.time));
+  LightweightCharts.createSeriesMarkers(candles,visibleMarkers.concat(patternMarkers,forecastMarkers).sort((x,y)=>x.time-y.time));
  }
  chart.timeScale().fitContent();
  // Reserve a right-side projection area after the latest plotted point.
