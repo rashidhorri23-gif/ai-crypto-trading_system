@@ -5,18 +5,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.patches import Rectangle
 
 from .market_features import prepare_market_features
 from .vision_provider import ask_openrouter_vision
 from .vision_prompt import build_btc_analysis_prompt
 from .paper_trading import load_ledger
 from .telegram_report import send_telegram_chart_report
+from .tradingview_chart import render_tradingview_chart
 
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -315,140 +311,6 @@ def load_timeframe_data(timeframe, now):
         "raw_candle_count": len(raw_data),
         "closed_candle_count": len(closed),
     }
-
-
-def draw_candlesticks(ax, df):
-    candle_width = 0.65
-
-    for index, row in enumerate(df.itertuples(index=False)):
-        bullish = row.close >= row.open
-        color = "green" if bullish else "red"
-
-        ax.vlines(
-            index, row.low, row.high,
-            color=color, linewidth=0.8
-        )
-
-        body_bottom = min(row.open, row.close)
-        body_height = abs(row.close - row.open)
-
-        if body_height == 0:
-            body_height = max(row.close * 0.0001, 0.01)
-
-        ax.add_patch(
-            Rectangle(
-                (index - candle_width / 2, body_bottom),
-                candle_width,
-                body_height,
-                facecolor=color,
-                edgecolor=color,
-                linewidth=0.7,
-            )
-        )
-
-
-def generate_4h_chart(df, analysis=None):
-    chart_data = (
-        df.tail(MAX_CHART_CANDLES)
-        .copy()
-        .reset_index(drop=True)
-    )
-
-    if len(chart_data) < 50:
-        raise ValueError("Not enough 4H candles for chart.")
-
-    required = ("ema_20", "ema_50", "ema_200", "timestamp_utc")
-    missing = [field for field in required if field not in chart_data.columns]
-
-    if missing:
-        raise ValueError(f"Missing chart features: {missing}")
-
-    fig, ax = plt.subplots(figsize=(18, 10))
-
-    try:
-        draw_candlesticks(ax, chart_data)
-
-        for column, label in (
-            ("ema_20", "EMA 20"),
-            ("ema_50", "EMA 50"),
-            ("ema_200", "EMA 200"),
-        ):
-            ax.plot(
-                chart_data.index,
-                chart_data[column],
-                label=label,
-                linewidth=1.2,
-            )
-
-        latest = chart_data.iloc[-1]
-
-        for column, label in (
-            ("support", "Latest Support"),
-            ("resistance", "Latest Resistance"),
-        ):
-            if column in chart_data.columns and pd.notna(latest[column]):
-                ax.axhline(
-                    latest[column],
-                    linestyle="--",
-                    linewidth=1,
-                    label=label,
-                )
-
-        if analysis is not None and analysis.get("decision") in ("LONG", "SHORT"):
-            entry = analysis.get("entry") or {}
-            entry_price = entry.get("entry_price")
-            zone_low = entry.get("entry_zone_low")
-            zone_high = entry.get("entry_zone_high")
-            stop = analysis.get("stop_loss")
-            targets = [analysis.get("take_profit_1"), analysis.get("take_profit_2"), analysis.get("take_profit_3")]
-            if entry_price is not None:
-                ax.axhline(entry_price, color="blue", linewidth=1.8, label="AI Entry")
-            if zone_low is not None and zone_high is not None and zone_low != zone_high:
-                ax.axhspan(min(zone_low, zone_high), max(zone_low, zone_high), color="blue", alpha=0.10, label="Entry Zone")
-            if stop is not None:
-                ax.axhline(stop, color="red", linewidth=1.8, linestyle="-.", label="AI Stop Loss")
-            for index, target in enumerate(targets, start=1):
-                if target is not None:
-                    ax.axhline(target, linewidth=1.2, linestyle=":", label=f"AI TP{index}")
-
-        step = max(1, len(chart_data) // 12)
-        ticks = list(range(0, len(chart_data), step))
-
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(
-            [
-                chart_data.iloc[index]["timestamp_utc"].strftime(
-                    "%m-%d %H:%M"
-                )
-                for index in ticks
-            ],
-            rotation=35,
-            ha="right",
-        )
-
-        ax.set_title("BTC-USDT | 4H Market Context", fontsize=16)
-        ax.set_ylabel("Price (USDT)")
-        ax.set_xlabel("UTC Time")
-        ax.grid(True, alpha=0.25)
-        ax.legend(loc="upper left")
-        fig.tight_layout()
-
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        temporary_chart = CHART_FILE.with_name(
-            CHART_FILE.stem + ".tmp.png"
-        )
-
-        fig.savefig(
-            temporary_chart,
-            dpi=180,
-            bbox_inches="tight",
-        )
-        temporary_chart.replace(CHART_FILE)
-
-    finally:
-        plt.close(fig)
-
-    return chart_data
 
 
 def build_timeframe_context(timeframe, result):
@@ -1004,7 +866,7 @@ def run_daily_btc_analysis():
             "candle_id": candle_id,
         }
 
-    generate_4h_chart(results["4H"]["data"])
+    render_tradingview_chart(results, CHART_FILE)
 
     market_context = build_multi_timeframe_context(results, now)
     previous_signal = load_previous_signal()
@@ -1030,7 +892,7 @@ def run_daily_btc_analysis():
     )
 
     # Rebuild the chart with validated AI trade levels for Telegram delivery.
-    generate_4h_chart(results["4H"]["data"], analysis=analysis)
+    render_tradingview_chart(results, CHART_FILE, analysis=analysis)
 
     # Deliver before checkpointing so failed Telegram delivery can retry.
     telegram_result = send_telegram_chart_report(CHART_FILE, analysis, market_context)
