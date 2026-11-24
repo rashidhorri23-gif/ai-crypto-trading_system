@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .tradingview_chart import render_tradingview_chart, _select_visible_patterns
+from .market_features import prepare_market_features
 
 
 TIMEFRAME_INTERVALS_MS = {
@@ -263,8 +264,22 @@ def main():
                     f"Chart image was not generated correctly: {chart_path.name}"
                 )
 
+    repository_root = Path(__file__).resolve().parents[3]
+    archive_dir = repository_root / "Data" / "Archive"
+    live_results = {
+        timeframe: {
+            "data": prepare_market_features(
+                archive_dir / filename
+            )
+        }
+        for timeframe, filename in {
+            "4H": "BTC_USDT_SPOT_4H.csv",
+            "15M": "BTC_USDT_SPOT_15m.csv",
+            "5M": "BTC_USDT_SPOT_5m.csv",
+        }.items()
+    }
     qa_output = Path("Reports/BTC_Chart_QA.png")
-    render_tradingview_chart(results, qa_output, analysis=wait_analysis)
+    render_tradingview_chart(live_results, qa_output)
     print(f"TRADINGVIEW CHART QA IMAGE: {qa_output}")
     print("TRADINGVIEW CHART RENDERER TEST PASSED")
     return 0
