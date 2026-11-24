@@ -99,15 +99,24 @@ def momentum_series(candles):
     return snapshots
 
 
-def is_aligned(snapshot, direction, threshold):
+def is_aligned(snapshot, direction, threshold, require_ema=True, require_macd=True):
     if not snapshot or not snapshot["known"]:
         return False
     if direction == "LONG":
-        return snapshot["trend"] == "BULLISH" and snapshot["rsi"] > threshold and snapshot["macd_histogram"] > 0
-    return snapshot["trend"] == "BEARISH" and snapshot["rsi"] < (100.0 - threshold) and snapshot["macd_histogram"] < 0
+        trend_ok = snapshot["trend"] == "BULLISH"
+        rsi_ok = snapshot["rsi"] > threshold
+        macd_ok = snapshot["macd_histogram"] > 0
+    else:
+        trend_ok = snapshot["trend"] == "BEARISH"
+        rsi_ok = snapshot["rsi"] < (100.0 - threshold)
+        macd_ok = snapshot["macd_histogram"] < 0
+    return rsi_ok and (trend_ok or not require_ema) and (macd_ok or not require_macd)
 
 
-def evaluate_variant(five, fifteen, four_hour, threshold):
+def evaluate_variant(
+    five, fifteen, four_hour, threshold,
+    require_15m=True, require_5m=True, require_ema=True, require_macd=True
+):
     five_momentum = momentum_series(five)
     fifteen_momentum = momentum_series(fifteen)
     fifteen_close_times = [c["timestamp"] + TIMEFRAME_SECONDS["15m"] for c in fifteen]
@@ -144,7 +153,15 @@ def evaluate_variant(five, fifteen, four_hour, threshold):
             key = (session_start, direction)
             if not breakout or key in seen_session_directions:
                 continue
-            if is_aligned(fifteen_momentum[j15], direction, threshold) and is_aligned(five_momentum[i], direction, threshold):
+            fifteen_ok = (
+                is_aligned(fifteen_momentum[j15], direction, threshold, require_ema, require_macd)
+                if require_15m else True
+            )
+            five_ok = (
+                is_aligned(five_momentum[i], direction, threshold, require_ema, require_macd)
+                if require_5m else True
+            )
+            if fifteen_ok and five_ok:
                 signals.append({
                     "direction": direction, "entry_timestamp": close_time,
                     "entry_price": candle["close"],
@@ -213,9 +230,24 @@ def run_research(data_dir, output_path):
     four_hour = load_candles(data_dir / "BTC_USDT_SPOT_4H.csv", "4H")
     variants = {}
     all_signals = {}
-    for threshold in RSI_THRESHOLDS:
-        key = f"RSI_{int(threshold)}"
-        signals = evaluate_variant(five, fifteen, four_hour, threshold)
+    experiments = {
+        "RSI_45": {"threshold": 45.0},
+        "RSI_50": {"threshold": 50.0},
+        "RSI_55": {"threshold": 55.0},
+        "NO_5M_MOMENTUM": {"threshold": 50.0, "require_5m": False},
+        "NO_15M_MOMENTUM": {"threshold": 50.0, "require_15m": False},
+        "NO_MACD_FILTER": {"threshold": 50.0, "require_macd": False},
+        "NO_EMA_TREND_FILTER": {"threshold": 50.0, "require_ema": False},
+    }
+    for key, settings in experiments.items():
+        signals = evaluate_variant(
+            five, fifteen, four_hour,
+            settings["threshold"],
+            settings.get("require_15m", True),
+            settings.get("require_5m", True),
+            settings.get("require_ema", True),
+            settings.get("require_macd", True),
+        )
         all_signals[key] = signals
         variants[key] = summarize(signals)
     baseline = all_signals["RSI_50"]
@@ -237,9 +269,11 @@ def run_research(data_dir, output_path):
             "breakout": "Daily frozen breakout levels use the highest/lowest of the 20 completed 4H candles available at 08:00 Baku (04:00 UTC); a later confirmed 4H close must break that frozen level.",
             "momentum": "Both latest confirmed 15M and 5M snapshots require EMA50/EMA200 trend alignment, RSI threshold, and MACD histogram sign.",
             "baseline": "RSI > 50 for LONG and RSI < 50 for SHORT on both timeframes; other live filters unchanged.",
-            "variants": "RSI thresholds 45, 50, and 55; short threshold is symmetric (100 - threshold).",
+            "variants": "RSI thresholds 45, 50, and 55; plus one-at-a-time removal of the 5M momentum, 15M momentum, MACD, or EMA trend filter. Short RSI threshold is symmetric (100 - threshold).",
             "forward_windows": "1H, 4H, 12H, and 24H direction-adjusted close returns with MFE/MAE from confirmed 5M candles.",
             "limitations": "Research sample is limited by archived 5M history. Historical daily sessions are anchored at 04:00 UTC to match the 08:00 Baku schedule. Results are descriptive, may contain correlated signals, and are not proof of profitability.",
+            "returns_are_gross_before_fees_and_slippage": True,
+            "not_a_trade_execution_backtest": True,
             "live_system_changed": False,
             "orders_submitted": False,
         },
@@ -249,6 +283,7 @@ def run_research(data_dir, output_path):
                 "signal_count_delta": variants[key]["signal_count"] - variants["RSI_50"]["signal_count"],
                 "four_hour_positive_return_rate_pct": variants[key]["horizons"]["4H"]["positive_return_rate_pct"],
                 "average_4h_forward_return_pct": variants[key]["horizons"]["4H"]["average_forward_return_pct"],
+                "resolved_4h_count": variants[key]["horizons"]["4H"]["resolved_count"],
             }
             for key in variants
         },
