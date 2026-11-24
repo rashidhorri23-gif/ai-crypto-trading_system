@@ -104,36 +104,49 @@ def load_state():
 
 
 def okx_candles(bar):
-    query = urllib.parse.urlencode({"instId": SYMBOL, "bar": bar, "limit": str(MAX_CANDLES)})
-    request = urllib.request.Request(
-        f"{OKX_BASE_URL}/api/v5/market/history-candles?{query}",
-        headers={"Accept": "application/json", "User-Agent": "BTC-Dual-Scenario-Monitor/1.0"},
-    )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if payload.get("code") != "0":
-        raise RuntimeError(f"OKX API error for {bar}: {payload.get('msg', 'unknown')}")
-    candles = {}
-    for row in payload.get("data", []):
-        if not isinstance(row, list) or len(row) < 9 or str(row[8]) != "1":
-            continue
-        item = {
-            "timestamp": int(row[0]) // 1000,
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": float(row[5]),
-        }
-        values = [item[k] for k in ("open", "high", "low", "close", "volume")]
-        if not all(math.isfinite(v) for v in values):
-            raise ValueError(f"Non-finite candle returned for {bar}.")
-        if min(values[:4]) <= 0 or item["volume"] < 0:
-            raise ValueError(f"Invalid candle values returned for {bar}.")
-        if item["high"] < max(item["open"], item["close"], item["low"]) or item["low"] > min(item["open"], item["close"]):
-            raise ValueError(f"Invalid candle geometry returned for {bar}.")
-        candles[item["timestamp"]] = item
-    return [candles[key] for key in sorted(candles)]
+    collected = {}
+    before = None
+    for page_number in range(3):
+        params = {"instId": SYMBOL, "bar": bar, "limit": "100"}
+        if before is not None:
+            params["after"] = str(before)
+        query = urllib.parse.urlencode(params)
+        request = urllib.request.Request(
+            f"{OKX_BASE_URL}/api/v5/market/history-candles?{query}",
+            headers={"Accept": "application/json", "User-Agent": "BTC-Dual-Scenario-Monitor/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("code") != "0":
+            raise RuntimeError(f"OKX API error for {bar}: {payload.get('msg', 'unknown')}")
+        rows = payload.get("data", [])
+        if not rows:
+            break
+        oldest_ms = min(int(row[0]) for row in rows)
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 9 or str(row[8]) != "1":
+                continue
+            item = {
+                "timestamp": int(row[0]) // 1000,
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": float(row[5]),
+            }
+            values = [item[k] for k in ("open", "high", "low", "close", "volume")]
+            if not all(math.isfinite(v) for v in values):
+                raise ValueError(f"Non-finite candle returned for {bar}.")
+            if min(values[:4]) <= 0 or item["volume"] < 0:
+                raise ValueError(f"Invalid candle values returned for {bar}.")
+            if item["high"] < max(item["open"], item["close"], item["low"]) or item["low"] > min(item["open"], item["close"]):
+                raise ValueError(f"Invalid candle geometry returned for {bar}.")
+            collected[item["timestamp"]] = item
+        if before == oldest_ms:
+            break
+        before = oldest_ms
+        time.sleep(0.1)
+    return [collected[key] for key in sorted(collected)]
 
 
 def ema(values, period):
