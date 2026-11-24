@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-24T11:46:38.689175+00:00",
+  "generated_at": "2026-11-24T11:47:09.314869+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
@@ -26,7 +26,7 @@
       "near_miss_candidate_count": 0,
       "near_miss_observation_count": 0,
       "momentum_ready_breakout_pending_observation_count": 0,
-      "potential_missed_opportunity_candidates": 0,
+      "potential_missed_opportunity_observation_count": 0,
       "failed_breakout_count": 0,
       "breakout_held_4h_count": 0,
       "breakout_assessment_pending_count": 0,
@@ -111,7 +111,7 @@
       "near_miss_candidate_count": 0,
       "near_miss_observation_count": 0,
       "momentum_ready_breakout_pending_observation_count": 0,
-      "potential_missed_opportunity_candidates": 0,
+      "potential_missed_opportunity_observation_count": 0,
       "failed_breakout_count": 0,
       "breakout_held_4h_count": 0,
       "breakout_assessment_pending_count": 0,
