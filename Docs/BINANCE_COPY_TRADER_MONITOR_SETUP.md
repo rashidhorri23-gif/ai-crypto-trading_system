@@ -14,7 +14,7 @@ Never commit API keys or paste them into source files.
 
 ## Free-plan polling budget
 
-The workflow runs hourly. Each run makes two leaderboard requests (30D and 90D) and up to ten open-position requests. The estimated maximum is 8,640 requests per 30-day month, excluding retries. This is below the published 10,000-request free allowance, but leaves limited room for manual tests and retries.
+The workflow runs hourly. Each run makes two leaderboard requests (30D and 90D), each requesting the maximum supported 20 rows per page, and up to ten open-position requests. The top-ten screen is therefore drawn from the first 20 Sharpe-ranked portfolios in each period. The estimated maximum is 8,640 requests per 30-day month, excluding retries. This is below the published 10,000-request free allowance, but leaves limited room for manual tests and retries.
 
 The workflow intentionally does not use the paid WebSocket stream. Position changes are detected by comparing hourly public snapshots, so alerts are delayed and are not execution-time notifications.
 
@@ -33,8 +33,8 @@ The monitor blends 30D leaderboard rank (60%) and 90D leaderboard rank (40%), bo
 
 1. Create a free API key in the [Kopyon console](https://console.kopyon.com/).
 2. Add the three GitHub Actions secrets listed above.
-3. Open the GitHub Actions workflow named **Binance Futures Top 10 Trader Monitor**.
-4. Run it manually once to establish the baseline.
-5. Inspect the workflow log and Telegram output before relying on scheduled monitoring.
+3. Keep the pull request open until the API test succeeds on the feature branch.
+4. Run the GitHub Actions workflow manually with the `feature/binance-top10-monitor` branch selected. The first successful run establishes a baseline and sends no position alerts.
+5. Inspect the workflow log and verify the selected traders and position snapshots. Only then merge the pull request to `main` to enable the hourly schedule.
 
 The workflow is scheduled hourly to stay within the free API request budget. For faster alerts, a paid Stream/Webhook plan and a persistent runtime would be required.
