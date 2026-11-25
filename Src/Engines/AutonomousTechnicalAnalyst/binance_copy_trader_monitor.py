@@ -15,7 +15,7 @@ import requests
 API_BASE = "https://api.kopyon.com/v5/binance-copy-trading"
 STATE_PATH = Path("Data/Signals/binance_copy_trader_state.json")
 TOP_N = 10
-RANKING_ROWS = 50
+RANKING_ROWS = 20
 REQUEST_TIMEOUT = 30
 
 
