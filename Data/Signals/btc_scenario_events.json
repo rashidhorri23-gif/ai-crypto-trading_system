@@ -1,12 +1,12 @@
 {
   "symbol": "BTC-USDT",
-  "updated_at": "2026-11-25T03:42:59.770959+00:00",
+  "updated_at": "2026-11-25T04:48:57.781465+00:00",
   "current_session": {
     "analysis_id": "b58b274a-382e-4fa3-a9a1-a78204d95fb0",
     "generated_at": "2026-11-24T06:41:06.805283+00:00",
     "generated_at_timestamp": 1795502466.805283,
     "expires_at": 1795579200.0,
-    "status": "ACTIVE",
+    "status": "NO_SCENARIO_ACTIVATED",
     "scenarios": {
       "LONG": {
         "status": "WAITING",
@@ -147,7 +147,162 @@
           "trigger": "شکست 60315.4 و بازگشت زیر 60411."
         }
       }
-    }
+    },
+    "finalized_at": "2026-11-25T04:00:00+00:00",
+    "finalization_reason": "DAILY_WINDOW_ENDED",
+    "no_scenario_notification_sent": true
   },
-  "history": []
+  "history": [
+    {
+      "analysis_id": "b58b274a-382e-4fa3-a9a1-a78204d95fb0",
+      "generated_at": "2026-11-24T06:41:06.805283+00:00",
+      "generated_at_timestamp": 1795502466.805283,
+      "expires_at": 1795579200.0,
+      "status": "NO_SCENARIO_ACTIVATED",
+      "scenarios": {
+        "LONG": {
+          "status": "WAITING",
+          "activation": null,
+          "notification_sent": false
+        },
+        "SHORT": {
+          "status": "WAITING",
+          "activation": null,
+          "notification_sent": false
+        }
+      },
+      "last_checked_at": "2026-11-25T03:42:59.770959+00:00",
+      "latest_checks": {
+        "LONG": {
+          "checks": {
+            "4H_BREAKOUT": {
+              "met": false,
+              "known": true,
+              "close": 59827.3,
+              "level": 64600.0,
+              "candle_close_timestamp": 1795564800
+            },
+            "15M_MOMENTUM": {
+              "met": false,
+              "known": true,
+              "close": 59454.2,
+              "ema_trend": "BEARISH",
+              "rsi": 45.11253566174813,
+              "macd_histogram": -6.089159368233339,
+              "candle_close_timestamp": 1795577400
+            },
+            "5M_MOMENTUM": {
+              "met": false,
+              "known": true,
+              "close": 59488.4,
+              "ema_trend": "NEUTRAL",
+              "rsi": 54.72239368673056,
+              "macd_histogram": 48.49266716168124,
+              "candle_close_timestamp": 1795578000
+            }
+          },
+          "ready": false,
+          "observed_price": 59488.4,
+          "observed_timestamp": 1795578000
+        },
+        "SHORT": {
+          "checks": {
+            "4H_BREAKOUT": {
+              "met": false,
+              "known": true,
+              "close": 59827.3,
+              "level": 55134.0,
+              "candle_close_timestamp": 1795564800
+            },
+            "15M_MOMENTUM": {
+              "met": true,
+              "known": true,
+              "close": 59454.2,
+              "ema_trend": "BEARISH",
+              "rsi": 45.11253566174813,
+              "macd_histogram": -6.089159368233339,
+              "candle_close_timestamp": 1795577400
+            },
+            "5M_MOMENTUM": {
+              "met": false,
+              "known": true,
+              "close": 59488.4,
+              "ema_trend": "NEUTRAL",
+              "rsi": 54.72239368673056,
+              "macd_histogram": 48.49266716168124,
+              "candle_close_timestamp": 1795578000
+            }
+          },
+          "ready": false,
+          "observed_price": 59488.4,
+          "observed_timestamp": 1795578000
+        }
+      },
+      "breakout_levels": {
+        "LONG": 64600.0,
+        "SHORT": 55134.0
+      },
+      "forecast": {
+        "4H": {
+          "bullish": {
+            "target_zone_low": 61200,
+            "target_zone_high": 62600,
+            "invalidation_price": 59455,
+            "horizon_candles": 6,
+            "confidence": 35,
+            "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20.",
+            "breakout_level": 64600
+          },
+          "bearish": {
+            "target_zone_low": 58000,
+            "target_zone_high": 59023,
+            "invalidation_price": 61683.9,
+            "horizon_candles": 6,
+            "confidence": 55,
+            "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023.",
+            "breakout_level": 55134
+          }
+        },
+        "15M": {
+          "bullish": {
+            "target_zone_low": 60770,
+            "target_zone_high": 61090,
+            "invalidation_price": 60240,
+            "horizon_candles": 8,
+            "confidence": 40,
+            "trigger": "شکست و تثبیت بالای 60769.2 با حجم نسبی."
+          },
+          "bearish": {
+            "target_zone_low": 59455,
+            "target_zone_high": 59940,
+            "invalidation_price": 60769.2,
+            "horizon_candles": 8,
+            "confidence": 55,
+            "trigger": "شکست کف 60315 و تثبیت زیر آن برای ادامه نزول."
+          }
+        },
+        "5M": {
+          "bullish": {
+            "target_zone_low": 60770,
+            "target_zone_high": 61060,
+            "invalidation_price": 60315.4,
+            "horizon_candles": 12,
+            "confidence": 45,
+            "trigger": "ادامه بالای 60692.9 با حجم و بازگشت به VWAP."
+          },
+          "bearish": {
+            "target_zone_low": 59842,
+            "target_zone_high": 60227,
+            "invalidation_price": 60769.2,
+            "horizon_candles": 12,
+            "confidence": 45,
+            "trigger": "شکست 60315.4 و بازگشت زیر 60411."
+          }
+        }
+      },
+      "finalized_at": "2026-11-25T04:00:00+00:00",
+      "finalization_reason": "DAILY_WINDOW_ENDED",
+      "no_scenario_notification_sent": true
+    }
+  ]
 }
