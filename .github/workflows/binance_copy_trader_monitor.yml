@@ -41,7 +41,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: feature/binance-top10-monitor
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Setup Python
@@ -74,4 +74,4 @@ jobs:
             exit 0
           fi
           git commit -m "Update Binance copy trader monitoring state"
-          git push origin HEAD:feature/binance-top10-monitor
+          git push origin "HEAD:${GITHUB_REF_NAME}"
