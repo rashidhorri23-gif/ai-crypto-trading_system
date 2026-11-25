@@ -230,9 +230,15 @@ def run_monitor(client=None, state_path=STATE_PATH, notify=True):
         previous_entry = previous_traders.get(trader_id) or {}
         previous_index = previous_entry.get("positions") or {}
 
-        if state.get("initialized"):
+        can_compare = (
+            state.get("initialized")
+            and trader_id in previous_traders
+            and not hidden
+            and not bool(previous_entry.get("hidden", False))
+        )
+        if can_compare:
             for event_type, position in compare_positions(
-                previous_index, current_index, hidden=hidden
+                previous_index, current_index, hidden=False
             ):
                 messages.append(_format_position_event(event_type, trader, position))
 
