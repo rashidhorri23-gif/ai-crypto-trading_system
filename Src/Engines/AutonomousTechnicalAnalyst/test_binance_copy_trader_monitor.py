@@ -3,10 +3,33 @@ import unittest
 from pathlib import Path
 
 from Src.Engines.AutonomousTechnicalAnalyst.binance_copy_trader_monitor import (
+    KopyonClient,
     compare_positions,
     run_monitor,
     select_top_traders,
 )
+
+
+class FakeResponse:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"data": {"traders": [{"traderId": "A"}]}}
+
+
+class FakeSession:
+    def __init__(self):
+        self.request = None
+
+    def get(self, url, headers, params, timeout):
+        self.request = {
+            "url": url,
+            "headers": headers,
+            "params": params,
+            "timeout": timeout,
+        }
+        return FakeResponse()
 
 
 class FakeClient:
@@ -35,6 +58,19 @@ class FakeClient:
 
 
 class BinanceCopyTraderMonitorTests(unittest.TestCase):
+    def test_kopyon_ranking_uses_supported_page_size_and_auth_header(self):
+        session = FakeSession()
+        client = KopyonClient("test-key", session=session)
+
+        traders = client.get_ranked_traders("30D")
+
+        self.assertEqual(traders, [{"traderId": "A"}])
+        self.assertEqual(session.request["params"]["rows"], 20)
+        self.assertEqual(session.request["params"]["page"], 1)
+        self.assertEqual(session.request["params"]["period"], "30D")
+        self.assertEqual(session.request["headers"]["X-API-KEY"], "test-key")
+        self.assertTrue(session.request["url"].endswith("/traders"))
+
     def test_selection_blends_periods_and_filters_risk(self):
         selected = select_top_traders(
             [
