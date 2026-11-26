@@ -2809,7 +2809,85 @@
           "near_miss": false
         }
       }
+    },
+    {
+      "record_id": "48babb29-e298-49b1-a27a-56c425d524f7:1795729500",
+      "analysis_id": "48babb29-e298-49b1-a27a-56c425d524f7",
+      "observed_at": "2026-11-26T21:45:00+00:00",
+      "observed_timestamp": 1795729500,
+      "recorded_at": "2026-11-26T21:49:45.361390+00:00",
+      "price": 60897.1,
+      "scenarios": {
+        "LONG": {
+          "status": "WAITING",
+          "classification": "MOMENTUM_READY_BREAKOUT_PENDING",
+          "confirmations": 2,
+          "known_conditions": 3,
+          "checks": {
+            "4H_BREAKOUT": {
+              "met": false,
+              "known": true,
+              "close": 60722.8,
+              "level": 64600.0,
+              "candle_close_timestamp": 1795723200
+            },
+            "15M_MOMENTUM": {
+              "met": true,
+              "known": true,
+              "close": 60897.1,
+              "ema_trend": "BULLISH",
+              "rsi": 61.09692312562785,
+              "macd_histogram": 35.76198525111443,
+              "candle_close_timestamp": 1795729500
+            },
+            "5M_MOMENTUM": {
+              "met": true,
+              "known": true,
+              "close": 60897.1,
+              "ema_trend": "BULLISH",
+              "rsi": 62.3212590136639,
+              "macd_histogram": 7.284705207844027,
+              "candle_close_timestamp": 1795729500
+            }
+          },
+          "near_miss": false
+        },
+        "SHORT": {
+          "status": "WAITING",
+          "classification": "WAITING",
+          "confirmations": 0,
+          "known_conditions": 3,
+          "checks": {
+            "4H_BREAKOUT": {
+              "met": false,
+              "known": true,
+              "close": 60722.8,
+              "level": 57300.0,
+              "candle_close_timestamp": 1795723200
+            },
+            "15M_MOMENTUM": {
+              "met": false,
+              "known": true,
+              "close": 60897.1,
+              "ema_trend": "BULLISH",
+              "rsi": 61.09692312562785,
+              "macd_histogram": 35.76198525111443,
+              "candle_close_timestamp": 1795729500
+            },
+            "5M_MOMENTUM": {
+              "met": false,
+              "known": true,
+              "close": 60897.1,
+              "ema_trend": "BULLISH",
+              "rsi": 62.3212590136639,
+              "macd_histogram": 7.284705207844027,
+              "candle_close_timestamp": 1795729500
+            }
+          },
+          "near_miss": false
+        }
+      }
     }
   ],
-  "updated_at": "2026-11-26T20:50:23.111023+00:00"
+  "updated_at": "2026-11-26T21:49:45.361390+00:00"
 }
