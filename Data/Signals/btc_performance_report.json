@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-26T22:40:32.047893+00:00",
+  "generated_at": "2026-11-26T23:38:43.616966+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
@@ -12,14 +12,14 @@
     "activation_rate": "Activations per 100 monitoring observations is descriptive only and is not a probability of trade success.",
     "not_a_trading_backtest": true
   },
-  "observations_count": 38,
+  "observations_count": 39,
   "near_miss_observations": {
     "LONG": 0,
     "SHORT": 0
   },
   "scenarios": {
     "LONG": {
-      "monitoring_observations": 38,
+      "monitoring_observations": 39,
       "activated_count": 0,
       "activated_observation_count": 0,
       "activations_per_100_observations": 0.0,
@@ -32,22 +32,22 @@
       "breakout_assessment_pending_count": 0,
       "condition_statistics": {
         "4H_BREAKOUT": {
-          "known_count": 36,
+          "known_count": 37,
           "passed_count": 0,
-          "failed_count": 36,
+          "failed_count": 37,
           "pass_rate_pct": 0.0
         },
         "15M_MOMENTUM": {
-          "known_count": 38,
+          "known_count": 39,
           "passed_count": 7,
-          "failed_count": 31,
-          "pass_rate_pct": 18.4211
+          "failed_count": 32,
+          "pass_rate_pct": 17.9487
         },
         "5M_MOMENTUM": {
-          "known_count": 38,
+          "known_count": 39,
           "passed_count": 6,
-          "failed_count": 32,
-          "pass_rate_pct": 15.7895
+          "failed_count": 33,
+          "pass_rate_pct": 15.3846
         }
       },
       "horizons": {
@@ -104,7 +104,7 @@
       }
     },
     "SHORT": {
-      "monitoring_observations": 38,
+      "monitoring_observations": 39,
       "activated_count": 0,
       "activated_observation_count": 0,
       "activations_per_100_observations": 0.0,
@@ -117,22 +117,22 @@
       "breakout_assessment_pending_count": 0,
       "condition_statistics": {
         "4H_BREAKOUT": {
-          "known_count": 36,
+          "known_count": 37,
           "passed_count": 0,
-          "failed_count": 36,
+          "failed_count": 37,
           "pass_rate_pct": 0.0
         },
         "15M_MOMENTUM": {
-          "known_count": 38,
+          "known_count": 39,
           "passed_count": 10,
-          "failed_count": 28,
-          "pass_rate_pct": 26.3158
+          "failed_count": 29,
+          "pass_rate_pct": 25.641
         },
         "5M_MOMENTUM": {
-          "known_count": 38,
-          "passed_count": 7,
+          "known_count": 39,
+          "passed_count": 8,
           "failed_count": 31,
-          "pass_rate_pct": 18.4211
+          "pass_rate_pct": 20.5128
         }
       },
       "horizons": {
