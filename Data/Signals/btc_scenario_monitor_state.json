@@ -1,11 +1,69 @@
 {
   "version": 1,
   "current_session": {
-    "analysis_id": "b58b274a-382e-4fa3-a9a1-a78204d95fb0",
-    "generated_at": "2026-11-24T06:41:06.805283+00:00",
-    "generated_at_timestamp": 1795502466.805283,
-    "expires_at": 1795579200.0,
-    "status": "NO_SCENARIO_ACTIVATED",
+    "analysis_id": "48babb29-e298-49b1-a27a-56c425d524f7",
+    "generated_at": "2026-11-26T04:59:23.817688+00:00",
+    "generated_at_timestamp": 1795669163.817688,
+    "expires_at": 1795752000.0,
+    "status": "ACTIVE",
+    "forecast": {
+      "4H": {
+        "bullish": {
+          "target_zone_low": 61630.6,
+          "target_zone_high": 62600.0,
+          "invalidation_price": 59464.5,
+          "horizon_candles": 6,
+          "confidence": 45,
+          "trigger": "بسته شدن 4H بالای 61630 و بازپس‌گیری EMA50.",
+          "breakout_level": 64600.0
+        },
+        "bearish": {
+          "target_zone_low": 58600.0,
+          "target_zone_high": 59464.5,
+          "invalidation_price": 61630.6,
+          "horizon_candles": 6,
+          "confidence": 55,
+          "trigger": "شکست و تثبیت زیر 59464 با افزایش حجم.",
+          "breakout_level": 57300.0
+        }
+      },
+      "15M": {
+        "bullish": {
+          "target_zone_low": 61630.6,
+          "target_zone_high": 62089.7,
+          "invalidation_price": 60616.2,
+          "horizon_candles": 8,
+          "confidence": 50,
+          "trigger": "بسته شدن 15M بالای 61128 و حفظ بالای VWAP."
+        },
+        "bearish": {
+          "target_zone_low": 59950.0,
+          "target_zone_high": 60352.1,
+          "invalidation_price": 61128.7,
+          "horizon_candles": 8,
+          "confidence": 45,
+          "trigger": "شکست 60616 و بسته شدن زیر 60352."
+        }
+      },
+      "5M": {
+        "bullish": {
+          "target_zone_low": 61128.7,
+          "target_zone_high": 61384.8,
+          "invalidation_price": 60635.2,
+          "horizon_candles": 12,
+          "confidence": 45,
+          "trigger": "شکست 61128 با حجم و ادامه بالای 61000."
+        },
+        "bearish": {
+          "target_zone_low": 60171.7,
+          "target_zone_high": 60368.1,
+          "invalidation_price": 61092.7,
+          "horizon_candles": 12,
+          "confidence": 50,
+          "trigger": "شکست 60914 و سپس 60635."
+        }
+      }
+    },
     "scenarios": {
       "LONG": {
         "status": "WAITING",
@@ -18,138 +76,77 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-25T03:42:59.770959+00:00",
+    "last_checked_at": "2026-11-26T05:43:15.738737+00:00",
+    "breakout_levels": {
+      "LONG": 64600.0,
+      "SHORT": 57300.0
+    },
     "latest_checks": {
       "LONG": {
         "checks": {
           "4H_BREAKOUT": {
             "met": false,
-            "known": true,
-            "close": 59827.3,
+            "known": false,
+            "close": 60782.7,
             "level": 64600.0,
-            "candle_close_timestamp": 1795564800
+            "candle_close_timestamp": 1795665600
           },
           "15M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59454.2,
-            "ema_trend": "BEARISH",
-            "rsi": 45.11253566174813,
-            "macd_histogram": -6.089159368233339,
-            "candle_close_timestamp": 1795577400
+            "close": 60999.5,
+            "ema_trend": "BULLISH",
+            "rsi": 61.413167775995554,
+            "macd_histogram": -26.664156026444914,
+            "candle_close_timestamp": 1795671000
           },
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59488.4,
-            "ema_trend": "NEUTRAL",
-            "rsi": 54.72239368673056,
-            "macd_histogram": 48.49266716168124,
-            "candle_close_timestamp": 1795578000
+            "close": 60968.8,
+            "ema_trend": "BULLISH",
+            "rsi": 52.98693476058538,
+            "macd_histogram": -3.8893194831922884,
+            "candle_close_timestamp": 1795671600
           }
         },
         "ready": false,
-        "observed_price": 59488.4,
-        "observed_timestamp": 1795578000
+        "observed_price": 60968.8,
+        "observed_timestamp": 1795671600
       },
       "SHORT": {
         "checks": {
           "4H_BREAKOUT": {
             "met": false,
-            "known": true,
-            "close": 59827.3,
-            "level": 55134.0,
-            "candle_close_timestamp": 1795564800
+            "known": false,
+            "close": 60782.7,
+            "level": 57300.0,
+            "candle_close_timestamp": 1795665600
           },
           "15M_MOMENTUM": {
-            "met": true,
+            "met": false,
             "known": true,
-            "close": 59454.2,
-            "ema_trend": "BEARISH",
-            "rsi": 45.11253566174813,
-            "macd_histogram": -6.089159368233339,
-            "candle_close_timestamp": 1795577400
+            "close": 60999.5,
+            "ema_trend": "BULLISH",
+            "rsi": 61.413167775995554,
+            "macd_histogram": -26.664156026444914,
+            "candle_close_timestamp": 1795671000
           },
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59488.4,
-            "ema_trend": "NEUTRAL",
-            "rsi": 54.72239368673056,
-            "macd_histogram": 48.49266716168124,
-            "candle_close_timestamp": 1795578000
+            "close": 60968.8,
+            "ema_trend": "BULLISH",
+            "rsi": 52.98693476058538,
+            "macd_histogram": -3.8893194831922884,
+            "candle_close_timestamp": 1795671600
           }
         },
         "ready": false,
-        "observed_price": 59488.4,
-        "observed_timestamp": 1795578000
+        "observed_price": 60968.8,
+        "observed_timestamp": 1795671600
       }
-    },
-    "breakout_levels": {
-      "LONG": 64600.0,
-      "SHORT": 55134.0
-    },
-    "forecast": {
-      "4H": {
-        "bullish": {
-          "target_zone_low": 61200,
-          "target_zone_high": 62600,
-          "invalidation_price": 59455,
-          "horizon_candles": 6,
-          "confidence": 35,
-          "trigger": "بسته شدن 4H بالای 61683.9 و بازپس‌گیری EMA20.",
-          "breakout_level": 64600
-        },
-        "bearish": {
-          "target_zone_low": 58000,
-          "target_zone_high": 59023,
-          "invalidation_price": 61683.9,
-          "horizon_candles": 6,
-          "confidence": 55,
-          "trigger": "شکست و تثبیت زیر 59455 با ادامه به سمت هدف کنج 59023.",
-          "breakout_level": 55134
-        }
-      },
-      "15M": {
-        "bullish": {
-          "target_zone_low": 60770,
-          "target_zone_high": 61090,
-          "invalidation_price": 60240,
-          "horizon_candles": 8,
-          "confidence": 40,
-          "trigger": "شکست و تثبیت بالای 60769.2 با حجم نسبی."
-        },
-        "bearish": {
-          "target_zone_low": 59455,
-          "target_zone_high": 59940,
-          "invalidation_price": 60769.2,
-          "horizon_candles": 8,
-          "confidence": 55,
-          "trigger": "شکست کف 60315 و تثبیت زیر آن برای ادامه نزول."
-        }
-      },
-      "5M": {
-        "bullish": {
-          "target_zone_low": 60770,
-          "target_zone_high": 61060,
-          "invalidation_price": 60315.4,
-          "horizon_candles": 12,
-          "confidence": 45,
-          "trigger": "ادامه بالای 60692.9 با حجم و بازگشت به VWAP."
-        },
-        "bearish": {
-          "target_zone_low": 59842,
-          "target_zone_high": 60227,
-          "invalidation_price": 60769.2,
-          "horizon_candles": 12,
-          "confidence": 45,
-          "trigger": "شکست 60315.4 و بازگشت زیر 60411."
-        }
-      }
-    },
-    "finalized_at": "2026-11-25T04:00:00+00:00",
-    "finalization_reason": "DAILY_WINDOW_ENDED",
-    "no_scenario_notification_sent": true
+    }
   },
   "history": [
     {
@@ -328,9 +325,10 @@
     "135d3af92696484261cffae952ca6db3f69e5aa3192d86f2f7f44658d070959b",
     "0a6e46fd20f8529843f3c3e922c63de2be4fcddf8e96a7d6426bbd83644db4e9",
     "ae1ee82f6656b4db2590cbb9cd428b233cfb25d8b41af3872316c33350b1711f",
-    "dd38ddf711ab5de694cf52f50d14429dcadfb86256ce118c39769a97595b5ee5"
+    "dd38ddf711ab5de694cf52f50d14429dcadfb86256ce118c39769a97595b5ee5",
+    "d487ee842aaac0709032d23c14dd9946c551646801e77b4534b0d27a6a3430ba"
   ],
   "telegram_update_offset": 952764981,
   "status_updates_enabled": true,
-  "status_update_last_candle": 1795578000
+  "status_update_last_candle": 1795671600
 }
