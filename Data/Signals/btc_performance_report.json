@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-27T03:13:17.182587+00:00",
+  "generated_at": "2026-11-27T04:22:23.964935+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
