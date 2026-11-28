@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "symbol": "BTC-USDT",
-  "generated_at": "2026-11-28T09:36:08.299017+00:00",
+  "generated_at": "2026-11-28T10:37:38.437767+00:00",
   "methodology": {
     "excursions": "MFE and MAE use confirmed 5-minute candle highs/lows after the observation or activation price.",
     "forward_return": "Direction-adjusted return at the first confirmed 5-minute close at or after each horizon.",
@@ -12,14 +12,14 @@
     "activation_rate": "Activations per 100 monitoring observations is descriptive only and is not a probability of trade success.",
     "not_a_trading_backtest": true
   },
-  "observations_count": 47,
+  "observations_count": 48,
   "near_miss_observations": {
     "LONG": 0,
     "SHORT": 0
   },
   "scenarios": {
     "LONG": {
-      "monitoring_observations": 47,
+      "monitoring_observations": 48,
       "activated_count": 0,
       "activated_observation_count": 0,
       "activations_per_100_observations": 0.0,
@@ -32,22 +32,22 @@
       "breakout_assessment_pending_count": 0,
       "condition_statistics": {
         "4H_BREAKOUT": {
-          "known_count": 42,
+          "known_count": 43,
           "passed_count": 0,
-          "failed_count": 42,
+          "failed_count": 43,
           "pass_rate_pct": 0.0
         },
         "15M_MOMENTUM": {
-          "known_count": 47,
+          "known_count": 48,
           "passed_count": 9,
-          "failed_count": 38,
-          "pass_rate_pct": 19.1489
+          "failed_count": 39,
+          "pass_rate_pct": 18.75
         },
         "5M_MOMENTUM": {
-          "known_count": 47,
+          "known_count": 48,
           "passed_count": 7,
-          "failed_count": 40,
-          "pass_rate_pct": 14.8936
+          "failed_count": 41,
+          "pass_rate_pct": 14.5833
         }
       },
       "horizons": {
@@ -104,35 +104,35 @@
       }
     },
     "SHORT": {
-      "monitoring_observations": 47,
+      "monitoring_observations": 48,
       "activated_count": 0,
       "activated_observation_count": 0,
       "activations_per_100_observations": 0.0,
       "near_miss_candidate_count": 0,
       "near_miss_observation_count": 0,
-      "momentum_ready_breakout_pending_observation_count": 6,
-      "potential_missed_opportunity_observation_count": 6,
+      "momentum_ready_breakout_pending_observation_count": 7,
+      "potential_missed_opportunity_observation_count": 7,
       "failed_breakout_count": 0,
       "breakout_held_4h_count": 0,
       "breakout_assessment_pending_count": 0,
       "condition_statistics": {
         "4H_BREAKOUT": {
-          "known_count": 42,
+          "known_count": 43,
           "passed_count": 0,
-          "failed_count": 42,
+          "failed_count": 43,
           "pass_rate_pct": 0.0
         },
         "15M_MOMENTUM": {
-          "known_count": 47,
-          "passed_count": 15,
+          "known_count": 48,
+          "passed_count": 16,
           "failed_count": 32,
-          "pass_rate_pct": 31.9149
+          "pass_rate_pct": 33.3333
         },
         "5M_MOMENTUM": {
-          "known_count": 47,
-          "passed_count": 10,
+          "known_count": 48,
+          "passed_count": 11,
           "failed_count": 37,
-          "pass_rate_pct": 21.2766
+          "pass_rate_pct": 22.9167
         }
       },
       "horizons": {
