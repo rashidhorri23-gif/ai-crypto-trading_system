@@ -1,6 +1,6 @@
 {
   "symbol": "BTC-USDT",
-  "updated_at": "2026-11-28T07:46:37.410070+00:00",
+  "updated_at": "2026-11-28T08:37:37.299288+00:00",
   "current_session": {
     "analysis_id": "a13bcd4f-2f22-4b86-9f71-64f67988906c",
     "generated_at": "2026-11-28T04:55:13.171505+00:00",
@@ -77,7 +77,7 @@
         "notification_sent": false
       }
     },
-    "last_checked_at": "2026-11-28T07:46:37.410070+00:00",
+    "last_checked_at": "2026-11-28T08:37:37.299288+00:00",
     "breakout_levels": {
       "LONG": 62234.3,
       "SHORT": 57300.0
@@ -87,65 +87,65 @@
         "checks": {
           "4H_BREAKOUT": {
             "met": false,
-            "known": false,
-            "close": 60030.8,
+            "known": true,
+            "close": 59839.9,
             "level": 62234.3,
-            "candle_close_timestamp": 1795838400
+            "candle_close_timestamp": 1795852800
           },
           "15M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59761.0,
+            "close": 59671.7,
             "ema_trend": "BEARISH",
-            "rsi": 42.198125567830374,
-            "macd_histogram": -14.768664874257546,
-            "candle_close_timestamp": 1795851900
+            "rsi": 39.048355938020016,
+            "macd_histogram": -10.381417084865788,
+            "candle_close_timestamp": 1795854600
           },
           "5M_MOMENTUM": {
             "met": false,
             "known": true,
-            "close": 59761.0,
+            "close": 59594.0,
             "ema_trend": "BEARISH",
-            "rsi": 49.31998445319915,
-            "macd_histogram": 8.788636378738403,
-            "candle_close_timestamp": 1795851900
+            "rsi": 38.86424565488572,
+            "macd_histogram": -10.617566099082232,
+            "candle_close_timestamp": 1795854900
           }
         },
         "ready": false,
-        "observed_price": 59761.0,
-        "observed_timestamp": 1795851900
+        "observed_price": 59594.0,
+        "observed_timestamp": 1795854900
       },
       "SHORT": {
         "checks": {
           "4H_BREAKOUT": {
             "met": false,
-            "known": false,
-            "close": 60030.8,
+            "known": true,
+            "close": 59839.9,
             "level": 57300.0,
-            "candle_close_timestamp": 1795838400
+            "candle_close_timestamp": 1795852800
           },
           "15M_MOMENTUM": {
             "met": true,
             "known": true,
-            "close": 59761.0,
+            "close": 59671.7,
             "ema_trend": "BEARISH",
-            "rsi": 42.198125567830374,
-            "macd_histogram": -14.768664874257546,
-            "candle_close_timestamp": 1795851900
+            "rsi": 39.048355938020016,
+            "macd_histogram": -10.381417084865788,
+            "candle_close_timestamp": 1795854600
           },
           "5M_MOMENTUM": {
-            "met": false,
+            "met": true,
             "known": true,
-            "close": 59761.0,
+            "close": 59594.0,
             "ema_trend": "BEARISH",
-            "rsi": 49.31998445319915,
-            "macd_histogram": 8.788636378738403,
-            "candle_close_timestamp": 1795851900
+            "rsi": 38.86424565488572,
+            "macd_histogram": -10.617566099082232,
+            "candle_close_timestamp": 1795854900
           }
         },
         "ready": false,
-        "observed_price": 59761.0,
-        "observed_timestamp": 1795851900
+        "observed_price": 59594.0,
+        "observed_timestamp": 1795854900
       }
     }
   },
